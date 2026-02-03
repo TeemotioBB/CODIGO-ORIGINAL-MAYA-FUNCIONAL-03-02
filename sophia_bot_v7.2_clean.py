@@ -1717,51 +1717,59 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ═══════════════════════════════════════════════════════
         # DETECÇÃO: VOLTOU DO CANAL
         # ═══════════════════════════════════════════════════════
-        if went_to_preview(uid) and not came_back_from_preview(uid):
-            last_preview = get_last_preview_time(uid)
-            if last_preview:
-                hours_since = (datetime.now() - last_preview).total_seconds() / 3600
-                
-                # Se voltou dentro da janela de retorno
-                if hours_since < PREVIEW_RETURN_WINDOW_HOURS:
-                    set_came_back_from_preview(uid)
-                    track_funnel(uid, "came_back")
-                    
-                    visits = get_preview_visits(uid)
-                    
-                    # 🔥 SEMPRE OFERECE VIP QUANDO VOLTA (não prévias de novo)
-                    # Mensagem personalizada
-                    if is_high_resistance_user(uid):
-                        welcome_msg = (
-                            f"Oi de novo amor! 💕\n\n"
-                            f"Já é sua {visits}ª vez aqui... "
-                            f"Gostou das prévias? No VIP tem MUITO mais! 🔥\n\n"
-                            f"O que posso fazer pra você finalmente se decidir? 🥺"
-                        )
-                    else:
-                        welcome_msg = (
-                            "E aí amor, gostou das prévias? 😏\n\n"
-                            "Mas isso não é NADA perto do que tenho no VIP... 🔥\n\n"
-                            "Lá você tem:\n"
-                            "✅ Conteúdo TODO DIA\n"
-                            "✅ Fotos e vídeos MUITO mais ousados\n"
-                            "✅ SEM LIMITE de conversas\n\n"
-                            "Tá esperando o quê? 💕"
-                        )
-                    
-                    # Botão principal: VIP (prioridade)
-                    keyboard = [
-                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                        [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
-                    ]
-                    
-                    await update.message.reply_text(
-                        welcome_msg,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    
-                    logger.info(f"↩️ {uid} voltou do canal (visita #{visits})")
-                    return
+        # ═══════════════════════════════════════════════════════
+# DETECÇÃO: VOLTOU DO CANAL (UMA VEZ SÓ)
+# ═══════════════════════════════════════════════════════
+if went_to_preview(uid) and not came_back_from_preview(uid):
+    last_preview = get_last_preview_time(uid)
+    if last_preview:
+        hours_since = (datetime.now() - last_preview).total_seconds() / 3600
+        
+        # Se voltou dentro da janela de retorno
+        if hours_since < PREVIEW_RETURN_WINDOW_HOURS:
+            set_came_back_from_preview(uid)
+            track_funnel(uid, "came_back")
+            
+            visits = get_preview_visits(uid)
+            
+            # 🔥 SEMPRE OFERECE VIP QUANDO VOLTA (não prévias de novo)
+            # Mensagem personalizada
+            if is_high_resistance_user(uid):
+                welcome_msg = (
+                    f"Oi de novo amor! 💕\n\n"
+                    f"Já é sua {visits}ª vez aqui... "
+                    f"Gostou das prévias? No VIP tem MUITO mais! 🔥\n\n"
+                    f"O que posso fazer pra você finalmente se decidir? 🥺"
+                )
+            else:
+                welcome_msg = (
+                    "E aí amor, gostou das prévias? 😏\n\n"
+                    "Mas isso não é NADA perto do que tenho no VIP... 🔥\n\n"
+                    "Lá você tem:\n"
+                    "✅ Conteúdo TODO DIA\n"
+                    "✅ Fotos e vídeos MUITO mais ousados\n"
+                    "✅ SEM LIMITE de conversas\n\n"
+                    "Tá esperando o quê? 💕"
+                )
+            
+            # Botão principal: VIP (prioridade)
+            keyboard = [
+                [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
+                [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
+            ]
+            
+            await update.message.reply_text(
+                welcome_msg,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            logger.info(f"↩️ {uid} voltou do canal (visita #{visits})")
+            
+            # ✨ NOVO: Marca que já mostrou mensagem de boas-vindas
+            r.setex(f"welcome_shown:{uid}", timedelta(hours=24), "1")
+            
+            # ✨ CRÍTICO: NÃO RETORNA! Deixa continuar processando a mensagem
+            # return  ← REMOVIDO!
         
         # ═══════════════════════════════════════════════════════
         # PROCESSAMENTO DE FOTO
