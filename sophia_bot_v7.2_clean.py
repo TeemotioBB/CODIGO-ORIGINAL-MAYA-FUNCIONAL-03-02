@@ -1102,7 +1102,10 @@ def build_prompt(uid, lang: str, mood: str = "neutral"):
     """
     Constrói o prompt dinâmico para a IA baseado no contexto do usuário.
     
-    v7.2.1: Prompt reescrito para FORÇAR retorno JSON
+    IMPORTANTE: A IA sabe:
+    - Quantas vezes usuário visitou o canal de prévias
+    - Se ele é de alta resistência (3+ visitas)
+    - Se ele voltou recentemente do canal
     """
     time_ctx = get_time_context()
     streak = get_streak(uid)
@@ -1143,30 +1146,15 @@ QUANDO NÃO OFERECER (offer_preview: false):
 ❌ Usuário só tá conversando casual
 ❌ Usuário não demonstrou interesse explícito
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️⚠️⚠️ ATENÇÃO: VOCÊ DEVE RETORNAR APENAS JSON ⚠️⚠️⚠️
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO:
+Você DEVE responder APENAS com um JSON válido neste formato:
 
-REGRAS ABSOLUTAS:
-1. Sua resposta COMPLETA deve ser um JSON válido
-2. NÃO escreva NADA antes do JSON
-3. NÃO escreva NADA depois do JSON
-4. NÃO use markdown (```json ou ```)
-5. APENAS o objeto JSON puro
-
-FORMATO EXATO (copie e cole, substituindo os valores):
-{{"response": "sua mensagem aqui", "offer_preview": true, "interest_level": "high", "is_hot": true}}
-
-EXEMPLO VÁLIDO:
-{{"response": "oi delícia, tô louca pra te mostrar umas coisinhas... quer ver? 🔥", "offer_preview": true, "interest_level": "high", "is_hot": true}}
-
-EXEMPLO INVÁLIDO (NÃO FAÇA ISSO):
-Claro! Aqui está: {{"response": "...", ...}}
-
-EXEMPLO INVÁLIDO 2 (NÃO FAÇA ISSO):
-```json
-{{"response": "...", ...}}
-```
+{{
+  "response": "sua resposta aqui em português",
+  "offer_preview": true ou false,
+  "interest_level": "low" ou "medium" ou "high",
+  "is_hot": true ou false
+}}
 
 CONTEXTO ATUAL:
 - Período: {time_ctx['period']} ({time_ctx['context']})
@@ -1178,20 +1166,22 @@ CONTEXTO ATUAL:
     elif onboard_choice == "tesao":
         base_prompt += "\n- Usuário com TESÃO. Seja mais provocante e direta."
 
-    # Contexto de visitas ao canal
+    # Contexto de visitas ao canal (IMPORTANTE para conversão)
     if visits > 0:
         base_prompt += f"\n- Usuário JÁ visitou canal de prévias {visits}x"
         
         if high_resistance:
-            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP."
+            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP, pergunte o que tá impedindo."
         
         if came_back:
-            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Seja curiosa, pergunte o que achou."
+            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Seja curiosa, pergunte o que achou, destaque benefícios do VIP."
+        elif went_preview and not came_back:
+            base_prompt += "\n- Usuário conhece o canal mas ainda não voltou pra conversar desde a última visita."
     
-    # Instrução baseada no humor
+    # Instrução baseada no humor detectado
     base_prompt += get_mood_instruction(mood)
     
-    base_prompt += "\n\n⚠️ LEMBRE-SE: Retorne APENAS o JSON, nada mais!"
+    base_prompt += "\n\n⚠️ LEMBRE-SE: Responda APENAS com JSON válido, nada mais!"
     
     return base_prompt
 
@@ -1202,18 +1192,27 @@ class Grok:
         """
         Gera resposta da IA baseada no input do usuário.
         
-        v7.2.1: Melhorias no parsing de JSON
+        Args:
+            uid: ID do usuário
+            text: Texto da mensagem
+            image_base64: Imagem em base64 (opcional)
+            max_retries: Tentativas máximas se repetir resposta
+        
+        Returns:
+            dict: {"response": str, "offer_preview": bool, "interest_level": str, "is_hot": bool}
         """
         mem = get_memory(uid)
         lang = get_lang(uid)
         mood = detect_mood(text) if text else "neutral"
         
+        # Marca primeiro contato se aplicável
         if is_first_contact(uid):
             mark_first_contact(uid)
         
+        # Constrói prompt contextual
         prompt = build_prompt(uid, lang, mood)
         
-        # Prepara conteúdo
+        # Prepara conteúdo do usuário (texto + imagem se houver)
         if image_base64:
             user_content = []
             if text:
@@ -1225,7 +1224,7 @@ class Grok:
         else:
             user_content = text
         
-        # Tenta gerar resposta
+        # Tenta gerar resposta (com retries se repetir)
         for attempt in range(max_retries + 1):
             payload = {
                 "model": MODELO,
@@ -1235,8 +1234,7 @@ class Grok:
                     {"role": "user", "content": user_content}
                 ],
                 "max_tokens": 500,
-                "temperature": 0.7,  # Reduzida de 0.8 para melhor consistência
-                "response_format": {"type": "json_object"}  # FORÇA JSON MODE
+                "temperature": 0.8 + (attempt * 0.1)  # Aumenta temperatura nos retries
             }
             
             try:
@@ -1271,49 +1269,33 @@ class Grok:
                         
                         answer = data["choices"][0]["message"]["content"]
                         
-                        # Parse JSON (versão melhorada)
+                        # Tenta parsear JSON
                         try:
-                            # Remove possíveis wrappers markdown
-                            clean_answer = answer.strip()
+                            # Remove markdown code blocks se tiver
+                            if "```json" in answer:
+                                answer = answer.split("```json")[1].split("```")[0].strip()
+                            elif "```" in answer:
+                                answer = answer.split("```")[1].split("```")[0].strip()
                             
-                            # Remove ```json ou ``` se tiver
-                            if clean_answer.startswith("```json"):
-                                clean_answer = clean_answer[7:]
-                            if clean_answer.startswith("```"):
-                                clean_answer = clean_answer[3:]
-                            if clean_answer.endswith("```"):
-                                clean_answer = clean_answer[:-3]
+                            result = json.loads(answer)
                             
-                            clean_answer = clean_answer.strip()
-                            
-                            # Tenta encontrar JSON no meio do texto (fallback)
-                            if not clean_answer.startswith("{"):
-                                # Procura primeiro { e último }
-                                start = clean_answer.find("{")
-                                end = clean_answer.rfind("}") + 1
-                                if start != -1 and end != 0:
-                                    clean_answer = clean_answer[start:end]
-                            
-                            # Parse
-                            result = json.loads(clean_answer)
-                            
-                            # Valida campos obrigatórios
+                            # Valida estrutura
                             if "response" not in result:
                                 raise ValueError("Missing 'response' field")
                             
-                            # Defaults
+                            # Defaults para campos opcionais
                             result.setdefault("offer_preview", False)
                             result.setdefault("interest_level", "medium")
                             result.setdefault("is_hot", False)
                             
-                            # Anti-repetição
+                            # Verifica se repetiu resposta recente
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
                                 logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
                                 continue
                             
                             add_recent_response(uid, result["response"])
                             
-                            # Log
+                            # Log da decisão
                             logger.info(
                                 f"🤖 {uid} | offer={result['offer_preview']} | "
                                 f"interest={result['interest_level']} | hot={result['is_hot']}"
@@ -1322,35 +1304,15 @@ class Grok:
                             break
                             
                         except (json.JSONDecodeError, ValueError) as e:
-                            logger.error(f"❌ Erro parse JSON (tentativa {attempt + 1}): {e}")
-                            logger.error(f"Raw answer: {answer[:300]}")
-                            
-                            # Se é última tentativa, usa fallback
-                            if attempt == max_retries:
-                                # Tenta extrair pelo menos a resposta
-                                response_text = answer
-                                
-                                # Se tem aspas, tenta extrair texto entre aspas
-                                if '"' in answer:
-                                    try:
-                                        # Procura por "response": "texto"
-                                        match = re.search(r'"response"\s*:\s*"([^"]*)"', answer)
-                                        if match:
-                                            response_text = match.group(1)
-                                    except:
-                                        pass
-                                
-                                result = {
-                                    "response": response_text,
-                                    "offer_preview": False,
-                                    "interest_level": "medium",
-                                    "is_hot": False
-                                }
-                                logger.warning(f"⚠️ Usando fallback - texto puro: {response_text[:100]}")
-                                break
-                            
-                            # Se não é última tentativa, tenta de novo
-                            continue
+                            logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
+                            # Fallback: usa texto puro
+                            result = {
+                                "response": answer,
+                                "offer_preview": False,
+                                "interest_level": "medium",
+                                "is_hot": False
+                            }
+                            break
                         
             except Exception as e:
                 logger.exception(f"🔥 Erro no Grok: {e}")
