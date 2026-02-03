@@ -2364,49 +2364,54 @@ async def setup_webhook():
     except Exception as e:
         logger.error(f"Erro configurando webhook: {e}")
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def telegram_webhook():
-    """Recebe updates do Telegram"""
-    
-    # FAILSAFE: Verifica webhook a cada 100 requests
-    global webhook_check_counter
-    if 'webhook_check_counter' not in globals():
-        webhook_check_counter = 0
-    
-    webhook_check_counter += 1
-    
-    if webhook_check_counter >= 100:
-        webhook_check_counter = 0
-        # Agenda verificação assíncrona
-        asyncio.run_coroutine_threadsafe(
-            force_webhook_check(application.bot),
-            loop
-        )
-    
-    try:
-        data = request.json
-        if not data:
-            return "ok", 200
-        
-        update = Update.de_json(data, application.bot)
-        asyncio.run_coroutine_threadsafe(
-            application.process_update(update),
-            loop
-        )
-        return "ok", 200
-        
-    except Exception as e:
-        logger.exception(f"Erro webhook: {e}")
-        return "error", 500
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎬 MAIN - Ponto de entrada
+# ═══════════════════════════════════════════════════════════════════════════════
 
-async def force_webhook_check(bot):
-    """Força verificação do webhook"""
-    try:
-        webhook_info = await bot.get_webhook_info()
-        expected = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        
-        if webhook_info.url != expected:
-            logger.warning(f"⚠️ Webhook drift detectado! Reconfigurando...")
-            await bot.set_webhook(expected)
-    except Exception as e:
-        logger.error(f"Erro force check: {e}")
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 WEBHOOK AUTO-CHECKER (Cole no final, antes do if __name__)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def webhook_health_checker(bot):
+    """Verifica e reconfigura webhook automaticamente a cada 30min"""
+    logger.info("🔄 Webhook health checker iniciado")
+    while True:
+        try:
+            await asyncio.sleep(1800)  # 30 minutos
+            
+            # Verifica webhook atual
+            webhook_info = await bot.get_webhook_info()
+            expected_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+            
+            if webhook_info.url != expected_url:
+                logger.warning(f"⚠️ Webhook desconfigurado! Reconfigurando...")
+                await bot.delete_webhook(drop_pending_updates=True)
+                await bot.set_webhook(expected_url)
+                logger.info(f"✅ Webhook reconfigurado: {expected_url}")
+            else:
+                logger.info("✅ Webhook OK")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro health check: {e}")
+
+# Adicione na inicialização (junto com o scheduler):
+# asyncio.run_coroutine_threadsafe(webhook_health_checker(application.bot), loop)
+
+if __name__ == "__main__":
+    # Inicializa aplicação
+    asyncio.run_coroutine_threadsafe(application.initialize(), loop)
+    asyncio.run_coroutine_threadsafe(application.start(), loop)
+    
+    # ✨ CONFIGURA WEBHOOK AUTOMATICAMENTE ✨
+    logger.info("⚙️ Configurando webhook automaticamente...")
+    asyncio.run_coroutine_threadsafe(setup_webhook(), loop)
+    
+    # ✨ INICIA SCHEDULER DE ENGAGEMENT ✨
+    logger.info("🤖 Iniciando scheduler de engagement...")
+    asyncio.run_coroutine_threadsafe(engagement_scheduler(application.bot), loop)
+    asyncio.run_coroutine_threadsafe(webhook_health_checker(application.bot), loop)
+
+    # Inicia Flask
+    logger.info(f"🌐 Servidor Flask rodando na porta {PORT}")
+    logger.info("🚀 Sophia Bot v7.2 CLEAN totalmente operacional!")
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
