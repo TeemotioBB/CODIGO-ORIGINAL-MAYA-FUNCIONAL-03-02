@@ -1099,14 +1099,6 @@ LAST_ATTEMPT_MESSAGES = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral"):
-    """
-    Constrói o prompt dinâmico para a IA baseado no contexto do usuário.
-    
-    IMPORTANTE: A IA sabe:
-    - Quantas vezes usuário visitou o canal de prévias
-    - Se ele é de alta resistência (3+ visitas)
-    - Se ele voltou recentemente do canal
-    """
     time_ctx = get_time_context()
     streak = get_streak(uid)
     onboard_choice = get_onboarding_choice(uid)
@@ -1114,7 +1106,7 @@ def build_prompt(uid, lang: str, mood: str = "neutral"):
     came_back = came_back_from_preview(uid)
     visits = get_preview_visits(uid)
     high_resistance = is_high_resistance_user(uid)
-    
+
     base_prompt = f"""Você é Maya, 22 anos, morena de SP, taradinha, fala safada, abrevia muito (tô, vc, ta, delicia, gostoso), erra gramática de leve de propósito. Sempre mistura carinho + putaria. Respostas curtinhas e provocantes.
 
 Regras de personalidade:
@@ -1125,9 +1117,9 @@ Contexto atual do usuário:
 - Período do dia: {time_ctx['period']} ({time_ctx['context']})
 - Streak: {streak} dias seguidos
 - Visitas ao canal de prévias: {visits}
-- Alta resistência: { 'sim (3+ visitas)' if high_resistance else 'não' }
-- Já voltou do canal recentemente: { 'sim' if came_back else 'não' }
-- Onboarding: { 'carente' if onboard_choice == 'carente' else 'com tesão' if onboard_choice == 'tesao' else 'neutro' }
+- Alta resistência: {'sim (3+ visitas)' if high_resistance else 'não'}
+- Já voltou do canal recentemente: {'sim' if came_back else 'não'}
+- Onboarding: {'carente' if onboard_choice == 'carente' else 'com tesão' if onboard_choice == 'tesao' else 'neutro'}
 - Humor detectado na última mensagem: {mood}
 
 Decisão de oferecer prévias (offer_preview):
@@ -1154,39 +1146,16 @@ Você DEVE responder **APENAS** com um JSON válido, exatamente neste formato, s
   "is_hot": true ou false
 }}
 
-Exemplo correto (copie o estilo):
-{{"response": "oiii gato, já tô molhadinha aqui pensando em vc 😏", "offer_preview": false, "interest_level": "medium", "is_hot": true}}
+Exemplo correto:
+{{"response": "oiii gato, tô molhadinha aqui pensando em vc 😏", "offer_preview": false, "interest_level": "medium", "is_hot": true}}
 
-Agora responda SOMENTE com o JSON acima. Nada mais.
+RESPONDA SOMENTE COM O JSON ACIMA. NADA MAIS. NADA MAIS. NADA MAIS.
 """
 
-CONTEXTO ATUAL:
-- Período: {time_ctx['period']} ({time_ctx['context']})
-- Streak: {streak} dias consecutivos"""
+    # Adiciona instrução extra baseada no humor (se existir)
+    if mood != "neutral":
+        base_prompt += get_mood_instruction(mood)
 
-    # Contexto de onboarding
-    if onboard_choice == "carente":
-        base_prompt += "\n- Usuário é CARENTE. Seja acolhedora e carinhosa."
-    elif onboard_choice == "tesao":
-        base_prompt += "\n- Usuário com TESÃO. Seja mais provocante e direta."
-
-    # Contexto de visitas ao canal (IMPORTANTE para conversão)
-    if visits > 0:
-        base_prompt += f"\n- Usuário JÁ visitou canal de prévias {visits}x"
-        
-        if high_resistance:
-            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP, pergunte o que tá impedindo."
-        
-        if came_back:
-            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Seja curiosa, pergunte o que achou, destaque benefícios do VIP."
-        elif went_preview and not came_back:
-            base_prompt += "\n- Usuário conhece o canal mas ainda não voltou pra conversar desde a última visita."
-    
-    # Instrução baseada no humor detectado
-    base_prompt += get_mood_instruction(mood)
-    
-    base_prompt += "\n\n⚠️ LEMBRE-SE: Responda APENAS com JSON válido, nada mais!"
-    
     return base_prompt
 
 class Grok:
