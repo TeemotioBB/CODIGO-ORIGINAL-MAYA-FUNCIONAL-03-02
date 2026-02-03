@@ -1187,7 +1187,8 @@ CONTEXTO ATUAL:
             base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP, pergunte o que tá impedindo."
         
         if came_back:
-            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Continue conversando normal sem forçar VIP. PORÉM: se ele PEDIR algo (foto/conteúdo/link) OU demonstrar interesse CLARO, marque offer_preview: true. Se for só elogio/conversa casual, mantenha false."        elif went_preview and not came_back:
+            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Continue conversando normal sem forçar VIP. PORÉM: se ele PEDIR algo (foto/conteúdo/link) OU demonstrar interesse CLARO, marque offer_preview: true. Se for só elogio/conversa casual, mantenha false."
+        elif went_preview and not came_back:
             base_prompt += "\n- Usuário conhece o canal mas ainda não voltou pra conversar desde a última visita."
     
     # Instrução baseada no humor detectado
