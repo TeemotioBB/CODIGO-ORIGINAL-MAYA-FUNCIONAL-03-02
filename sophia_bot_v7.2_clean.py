@@ -1129,31 +1129,36 @@ EXEMPLOS DE PRIMEIRA MENSAGEM:
 - "ai amor cheguei molhadinha... me conta o que vc faria comigo agora? 🔥"
 - "hummm já tô louca pra sentar nessa rola... fala comigo vai 😈"
 
-🎯 SISTEMA DE DECISÃO INTELIGENTE:
+🎯 SISTEMA DE DECISÃO INTELIGENTE - SEJA CONSERVADORA!
 Você deve ANALISAR a mensagem do usuário e decidir SE E QUANDO oferecer o canal de prévias.
 
+⚠️ IMPORTANTE: Seja MUITO CONSERVADORA ao oferecer! Só ofereça quando REALMENTE necessário.
+
 QUANDO OFERECER O CANAL (offer_preview: true):
-✅ Usuário pede foto/nude/buceta/peito/bunda/conteúdo
-✅ Usuário pergunta onde tá/cadê/link/canal
-✅ Usuário diz "quero ver", "mostra", "manda"
-✅ Usuário demonstra tesão alto (quer gozar, pau duro, etc)
-✅ Conversa tá MUITO quente (5+ msgs adultas)
-✅ Usuário pergunta preço/VIP/acesso
+✅ Usuário PEDE EXPLICITAMENTE foto/nude/buceta/peito/bunda ("manda foto", "quero ver nude")
+✅ Usuário PERGUNTA DIRETAMENTE "cadê", "onde tá", "link", "canal"
+✅ Usuário PERGUNTA preço/VIP/acesso/quanto custa
 
 QUANDO NÃO OFERECER (offer_preview: false):
-❌ Primeira mensagem (deixa ele esquentar)
-❌ Conversa ainda morna (menos de 3 msgs)
-❌ Usuário só tá conversando casual
-❌ Usuário não demonstrou interesse explícito
+❌ Primeira mensagem (NUNCA!)
+❌ Segunda mensagem (ainda não!)
+❌ Terceira mensagem (só se pedir explicitamente)
+❌ Conversa casual/flerte normal
+❌ Elogios genéricos ("gostosa", "delícia", "tesão")
+❌ Frases como "tô com tesão", "tô excitado" (SEM pedido explícito)
+❌ Mensagens curtas tipo "oi", "deliciosa", "linda", "gostosa"
+❌ Conversa quente MAS sem pedir nada
+
+🚨 REGRA DE OURO: Se o usuário NÃO pediu foto/link/canal EXPLICITAMENTE, retorne offer_preview: false!
 
 ⚠️⚠️⚠️ ATENÇÃO: VOCÊ DEVE RETORNAR APENAS JSON ⚠️⚠️⚠️
 
 FORMATO OBRIGATÓRIO (copie exatamente):
 {{
   "response": "sua resposta em português",
-  "offer_preview": true,
-  "interest_level": "high",
-  "is_hot": true
+  "offer_preview": false,
+  "interest_level": "medium",
+  "is_hot": false
 }}
 
 REGRAS:
@@ -1162,6 +1167,7 @@ REGRAS:
 - "offer_preview" e "is_hot" são booleanos (true/false SEM aspas)
 - "interest_level" é string ("low", "medium" ou "high" COM aspas)
 - "response" é sua mensagem normal
+- DEFAULT: offer_preview SEMPRE false, só true se usuário PEDIR explicitamente
 
 Se não retornar JSON válido, o bot quebra. SEMPRE JSON.
 
@@ -1876,8 +1882,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(grok_response["response"])
         
         # Se Grok decidiu oferecer canal, envia botão
-        if grok_response.get("offer_preview", False):
+        # MAS só se não ofereceu recentemente (cooldown de 10 minutos)
+        should_offer = grok_response.get("offer_preview", False)
+        
+        # Verifica se já ofereceu recentemente
+        offer_cooldown_key = f"offer_cooldown:{uid}"
+        if should_offer and r.exists(offer_cooldown_key):
+            should_offer = False
+            logger.info(f"🚫 {uid} | Oferecimento bloqueado por cooldown")
+        
+        if should_offer:
             visits = get_preview_visits(uid)
+            
+            # Marca cooldown: só pode oferecer de novo após 10 minutos
+            r.setex(offer_cooldown_key, timedelta(minutes=10), "1")
             
             # Escolhe botões baseado em visitas
             if visits == 0:
