@@ -56,7 +56,7 @@ GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
 
 # 📢 Links dos Canais (IMPORTANTE: Use os links públicos corretos)
 LINK_CANAL_PREVIAS = "https://t.me/previasdamayaofc"  # Seu canal de prévias
-LINK_CANAL_VIP = "https://t.me/+SEU_LINK_VIP_AQUI"     # Seu canal VIP (com +)
+LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP (com +)
 
 # 👤 Admin
 MEU_TELEGRAM_ID = "1293602874"  # Seu ID do Telegram
