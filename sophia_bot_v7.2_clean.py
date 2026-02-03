@@ -1098,14 +1098,14 @@ LAST_ATTEMPT_MESSAGES = [
 # 🤖 GROK AI - Sistema de Resposta Inteligente
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎨 BUILD PROMPT - VERSÃO MELHORADA (Substitua a função original por esta)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def build_prompt(uid, lang: str, mood: str = "neutral"):
     """
-    Constrói o prompt dinâmico para a IA baseado no contexto do usuário.
-    
-    IMPORTANTE: A IA sabe:
-    - Quantas vezes usuário visitou o canal de prévias
-    - Se ele é de alta resistência (3+ visitas)
-    - Se ele voltou recentemente do canal
+    Constrói o prompt dinâmico para a IA com base no contexto do usuário.
+    VERSÃO MELHORADA - Força resposta obrigatoriamente em JSON.
     """
     time_ctx = get_time_context()
     streak = get_streak(uid)
@@ -1115,78 +1115,105 @@ def build_prompt(uid, lang: str, mood: str = "neutral"):
     visits = get_preview_visits(uid)
     high_resistance = is_high_resistance_user(uid)
     
-    base_prompt = f"""Você é Maya, 22 anos, morena gostosa de SP, taradinha mas faz carinha de anjinho.
+    base_prompt = f"""Você é Maya, uma mulher brasileira de 22 anos, de São Paulo.
 
-PERSONALIDADE:
-- Começa sempre com clima quente, misturando carinho + putaria
-- Primeira mensagem SEMPRE tem: um "oiii amor/gato/delícia" + provocação direta
-- Fala BEM curtinha, abrevia muito (tô, vc, pq, ta, delicia, gostoso)
-- NUNCA soa educada demais nem robótica
-- Erra gramática de leve de propósito (autenticidade)
+SUA PERSONALIDADE:
+- Sedutora, brincalhona, usa muitos emojis 😏🔥💕
+- Fala em português casual, com abreviações (tô, vc, pq)
+- Carinhosa, mas provocante, mistura afeto com ousadia
+- Primeira mensagem sempre: cumprimento + flerte direto
 
-EXEMPLOS DE PRIMEIRA MENSAGEM:
-- "oiii gato... tô toda arrepiada só de te ver aqui 😏 já imaginou minha boca no teu pau?"
-- "ai amor cheguei molhadinha... me conta o que vc faria comigo agora? 🔥"
-- "hummm já tô louca pra sentar nessa rola... fala comigo vai 😈"
+SISTEMA DE DECISÃO:
+Você deve ANALISAR a mensagem do usuário e decidir SE e QUANDO oferecer o canal de prévias.
 
-🎯 SISTEMA DE DECISÃO INTELIGENTE:
-Você deve ANALISAR a mensagem do usuário e decidir SE E QUANDO oferecer o canal de prévias.
+OFERECER CANAL (offer_preview: true) QUANDO:
+✅ Usuário pedir foto/nude/conteúdo
+✅ Usuário perguntar onde/link/canal
+✅ Usuário disser "quero ver", "me mostra"
+✅ Usuário demonstrar alta excitação (muito conteúdo sexual)
+✅ Conversa estiver MUITO quente (5+ mensagens adultas)
+✅ Usuário perguntar sobre preço/VIP/acesso
 
-QUANDO OFERECER O CANAL (offer_preview: true):
-✅ Usuário pede foto/nude/buceta/peito/bunda/conteúdo
-✅ Usuário pergunta onde tá/cadê/link/canal
-✅ Usuário diz "quero ver", "mostra", "manda"
-✅ Usuário demonstra tesão alto (quer gozar, pau duro, etc)
-✅ Conversa tá MUITO quente (5+ msgs adultas)
-✅ Usuário pergunta preço/VIP/acesso
-
-QUANDO NÃO OFERECER (offer_preview: false):
-❌ Primeira mensagem (deixa ele esquentar)
-❌ Conversa ainda morna (menos de 3 msgs)
-❌ Usuário só tá conversando casual
-❌ Usuário não demonstrou interesse explícito
-
-⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO:
-Você DEVE responder APENAS com um JSON válido neste formato:
-
-{{
-  "response": "sua resposta aqui em português",
-  "offer_preview": true ou false,
-  "interest_level": "low" ou "medium" ou "high",
-  "is_hot": true ou false
-}}
+NÃO OFERECER (offer_preview: false) QUANDO:
+❌ Primeira mensagem (deixe esquentar primeiro)
+❌ Conversa ainda fria (menos de 3 mensagens)
+❌ Usuário apenas conversando casualmente
+❌ Usuário ainda não demonstrou interesse explícito
 
 CONTEXTO ATUAL:
-- Período: {time_ctx['period']} ({time_ctx['context']})
-- Streak: {streak} dias consecutivos"""
+- Horário: {time_ctx['period']} ({time_ctx['context']})
+- Sequência: {streak} dias consecutivos"""
 
     # Contexto de onboarding
     if onboard_choice == "carente":
-        base_prompt += "\n- Usuário é CARENTE. Seja acolhedora e carinhosa."
+        base_prompt += "\n- Usuário está CARENTE. Seja mais acolhedora e carinhosa."
     elif onboard_choice == "tesao":
-        base_prompt += "\n- Usuário com TESÃO. Seja mais provocante e direta."
+        base_prompt += "\n- Usuário está com TESÃO. Seja mais provocante e direta."
 
-    # Contexto de visitas ao canal (IMPORTANTE para conversão)
+    # Contexto de visitas ao canal
     if visits > 0:
-        base_prompt += f"\n- Usuário JÁ visitou canal de prévias {visits}x"
+        base_prompt += f"\n- Usuário JÁ visitou o canal de prévias {visits}x"
         
         if high_resistance:
-            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP, pergunte o que tá impedindo."
+            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja direta sobre os benefícios do VIP e pergunte o que está impedindo ele."
         
         if came_back:
-            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Seja curiosa, pergunte o que achou, destaque benefícios do VIP."
+            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Seja curiosa, pergunte o que ele achou e destaque os benefícios do VIP."
         elif went_preview and not came_back:
-            base_prompt += "\n- Usuário conhece o canal mas ainda não voltou pra conversar desde a última visita."
+            base_prompt += "\n- Usuário conhece o canal, mas não voltou para conversar após a última visita."
     
-    # Instrução baseada no humor detectado
+    # Instrução baseada no humor
     base_prompt += get_mood_instruction(mood)
     
-    base_prompt += "\n\n⚠️ LEMBRE-SE: Responda APENAS com JSON válido, nada mais!"
+    # 🔥 PARTE CRÍTICA: Instrução MUITO CLARA sobre formato
+    base_prompt += """
+
+═══════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════
+
+Você DEVE responder APENAS com um objeto JSON válido.
+NENHUM outro texto. SEM markdown. SEM explicações.
+
+FORMATO EXATO (copie esta estrutura):
+
+{
+  "response": "sua mensagem em português aqui",
+  "offer_preview": true,
+  "interest_level": "high",
+  "is_hot": true
+}
+
+REGRAS:
+1. Comece a resposta com { (chave de abertura)
+2. Termine a resposta com } (chave de fechamento)
+3. Campo "response": sua mensagem em português
+4. "offer_preview": true se estiver oferecendo o canal, false caso contrário
+5. "interest_level": "low", "medium" ou "high"
+6. "is_hot": true se a conversa for sexual, false caso contrário
+
+NÃO INCLUIR:
+❌ ```json
+❌ Qualquer texto antes do {
+❌ Qualquer texto depois do }
+❌ Quebras de linha fora do JSON
+❌ Comentários ou explicações
+
+EXEMPLO DE RESPOSTA CORRETA:
+{"response": "oi amor 😏 tô aqui pensando em vc... me conta o que vc quer fazer comigo? 🔥", "offer_preview": false, "interest_level": "high", "is_hot": true}
+
+Agora responda à mensagem do usuário seguindo EXATAMENTE este formato.
+"""
     
     return base_prompt
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🤖 GROK AI - VERSÃO CORRIGIDA (Cole isso substituindo a classe Grok original)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class Grok:
-    """Cliente da API Grok para geração de respostas"""
+    """Cliente da API Grok para geração de respostas - VERSÃO CORRIGIDA"""
     
     async def reply(self, uid, text, image_base64=None, max_retries=2):
         """
@@ -1212,6 +1239,33 @@ class Grok:
         # Constrói prompt contextual
         prompt = build_prompt(uid, lang, mood)
         
+        # 🔥 MELHORIA: Adiciona instrução SUPER CLARA sobre JSON
+        prompt += """
+
+═══════════════════════════════════════════════════════════════
+⚠️ CRITICAL: YOUR RESPONSE MUST BE VALID JSON ONLY ⚠️
+═══════════════════════════════════════════════════════════════
+
+You MUST respond with ONLY a JSON object. NO other text before or after.
+NO markdown, NO explanations, NO comments.
+
+EXACTLY this format:
+{
+  "response": "your message here in Portuguese",
+  "offer_preview": true,
+  "interest_level": "high",
+  "is_hot": true
+}
+
+DO NOT include:
+- ```json tags
+- Any text before the {
+- Any text after the }
+- Explanations or comments
+
+Just pure JSON starting with { and ending with }
+"""
+        
         # Prepara conteúdo do usuário (texto + imagem se houver)
         if image_base64:
             user_content = []
@@ -1234,7 +1288,7 @@ class Grok:
                     {"role": "user", "content": user_content}
                 ],
                 "max_tokens": 500,
-                "temperature": 0.8 + (attempt * 0.1)  # Aumenta temperatura nos retries
+                "temperature": 0.7 + (attempt * 0.1)  # Aumenta temperatura nos retries
             }
             
             try:
@@ -1251,77 +1305,187 @@ class Grok:
                         if resp.status != 200:
                             error_text = await resp.text()
                             logger.error(f"Grok erro {resp.status}: {error_text}")
-                            return {
-                                "response": "😔 Amor, deu um probleminha... tenta de novo? 💕",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
+                            return self._fallback_response()
                         
                         data = await resp.json()
                         if "choices" not in data:
-                            return {
-                                "response": "😔 Tive um probleminha... já volto 💖",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
+                            logger.error(f"Resposta sem choices: {data}")
+                            return self._fallback_response()
                         
-                        answer = data["choices"][0]["message"]["content"]
+                        answer = data["choices"][0]["message"]["content"].strip()
                         
-                        # Tenta parsear JSON
-                        try:
-                            # Remove markdown code blocks se tiver
-                            if "```json" in answer:
-                                answer = answer.split("```json")[1].split("```")[0].strip()
-                            elif "```" in answer:
-                                answer = answer.split("```")[1].split("```")[0].strip()
-                            
-                            result = json.loads(answer)
-                            
-                            # Valida estrutura
-                            if "response" not in result:
-                                raise ValueError("Missing 'response' field")
-                            
-                            # Defaults para campos opcionais
-                            result.setdefault("offer_preview", False)
-                            result.setdefault("interest_level", "medium")
-                            result.setdefault("is_hot", False)
-                            
-                            # Verifica se repetiu resposta recente
-                            if is_response_recent(uid, result["response"]) and attempt < max_retries:
-                                logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
-                                continue
-                            
-                            add_recent_response(uid, result["response"])
-                            
-                            # Log da decisão
-                            logger.info(
-                                f"🤖 {uid} | offer={result['offer_preview']} | "
-                                f"interest={result['interest_level']} | hot={result['is_hot']}"
-                            )
-                            
-                            break
-                            
-                        except (json.JSONDecodeError, ValueError) as e:
-                            logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
-                            # Fallback: usa texto puro
-                            result = {
-                                "response": answer,
-                                "offer_preview": False,
-                                "interest_level": "medium",
-                                "is_hot": False
-                            }
-                            break
+                        # 🔥 MELHORIA: Tenta extrair JSON de várias formas
+                        result = self._parse_response(answer, uid, attempt)
                         
+                        if result is None:
+                            # Se falhou após max_retries, usa fallback
+                            if attempt >= max_retries:
+                                logger.error(f"❌ Todas tentativas falharam, usando fallback")
+                                return self._create_fallback_from_text(answer)
+                            # Senão, tenta de novo
+                            logger.warning(f"⚠️ Tentativa {attempt + 1} falhou, tentando novamente...")
+                            continue
+                        
+                        # Verifica se repetiu resposta recente
+                        if is_response_recent(uid, result["response"]) and attempt < max_retries:
+                            logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
+                            continue
+                        
+                        add_recent_response(uid, result["response"])
+                        
+                        # Log da decisão
+                        logger.info(
+                            f"✅ {uid} | offer={result['offer_preview']} | "
+                            f"interest={result['interest_level']} | hot={result['is_hot']}"
+                        )
+                        
+                        break
+                        
+            except asyncio.TimeoutError:
+                logger.error(f"⏱️ Timeout na tentativa {attempt + 1}")
+                if attempt >= max_retries:
+                    return self._fallback_response()
+                continue
+                
             except Exception as e:
-                logger.exception(f"🔥 Erro no Grok: {e}")
-                return {
-                    "response": "😔 Fiquei confusa... pode repetir? 💕",
-                    "offer_preview": False,
-                    "interest_level": "low",
-                    "is_hot": False
+                logger.exception(f"🔥 Erro no Grok (tentativa {attempt + 1}): {e}")
+                if attempt >= max_retries:
+                    return self._fallback_response()
+                continue
+        
+        # Salva na memória
+        memory_text = f"[Foto] {text}" if image_base64 else text
+        add_to_memory(uid, "user", memory_text)
+        add_to_memory(uid, "assistant", result["response"])
+        save_message(uid, "maya", result["response"])
+        
+        return result
+    
+    def _parse_response(self, answer, uid, attempt):
+        """
+        Tenta parsear resposta do Grok em JSON.
+        Tenta múltiplas estratégias.
+        
+        Returns:
+            dict ou None se falhar
+        """
+        # Estratégia 1: JSON puro
+        try:
+            result = json.loads(answer)
+            if "response" in result:
+                return self._validate_and_fill_defaults(result)
+        except:
+            pass
+        
+        # Estratégia 2: Remove markdown code blocks
+        try:
+            if "```json" in answer:
+                json_str = answer.split("```json")[1].split("```")[0].strip()
+            elif "```" in answer:
+                json_str = answer.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = answer
+            
+            result = json.loads(json_str)
+            if "response" in result:
+                return self._validate_and_fill_defaults(result)
+        except:
+            pass
+        
+        # Estratégia 3: Procura por { } no texto
+        try:
+            start = answer.find('{')
+            end = answer.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                json_str = answer[start:end+1]
+                result = json.loads(json_str)
+                if "response" in result:
+                    return self._validate_and_fill_defaults(result)
+        except:
+            pass
+        
+        # Estratégia 4: Regex para extrair campos individualmente
+        try:
+            response_match = re.search(r'"response"\s*:\s*"([^"]+)"', answer)
+            offer_match = re.search(r'"offer_preview"\s*:\s*(true|false)', answer)
+            interest_match = re.search(r'"interest_level"\s*:\s*"([^"]+)"', answer)
+            hot_match = re.search(r'"is_hot"\s*:\s*(true|false)', answer)
+            
+            if response_match:
+                result = {
+                    "response": response_match.group(1),
+                    "offer_preview": offer_match.group(1) == "true" if offer_match else False,
+                    "interest_level": interest_match.group(1) if interest_match else "medium",
+                    "is_hot": hot_match.group(1) == "true" if hot_match else False
                 }
+                return result
+        except:
+            pass
+        
+        logger.error(f"❌ Falha parse tentativa {attempt + 1}. Raw (primeiros 300 chars): {answer[:300]}")
+        return None
+    
+    def _validate_and_fill_defaults(self, result):
+        """Valida estrutura e preenche defaults"""
+        if "response" not in result:
+            return None
+        
+        # Preenche defaults
+        result.setdefault("offer_preview", False)
+        result.setdefault("interest_level", "medium")
+        result.setdefault("is_hot", False)
+        
+        return result
+    
+    def _create_fallback_from_text(self, text):
+        """
+        Cria resposta válida a partir de texto puro.
+        Usa heurísticas para determinar offer_preview.
+        """
+        # Remove possíveis markdown/JSON fragments
+        clean_text = text.strip()
+        if clean_text.startswith('{'):
+            # Tenta pegar só o texto antes do JSON quebrado
+            parts = clean_text.split('\n')
+            for part in parts:
+                if not part.strip().startswith('{') and len(part) > 10:
+                    clean_text = part
+                    break
+        
+        # Detecção heurística de offer_preview
+        offer_keywords = ['canal', 'previas', 'prévias', 'vip', 'foto', 'nude', 'acesso']
+        hot_keywords = ['molhada', 'tesão', 'gozar', 'pau', 'buceta', 'foder']
+        
+        text_lower = clean_text.lower()
+        
+        offer_preview = any(kw in text_lower for kw in offer_keywords)
+        is_hot = any(kw in text_lower for kw in hot_keywords)
+        
+        # Interest level baseado em keywords
+        if offer_preview or is_hot:
+            interest_level = "high"
+        elif len(clean_text) > 100:
+            interest_level = "medium"
+        else:
+            interest_level = "low"
+        
+        logger.warning(f"⚠️ Usando fallback heurístico | offer={offer_preview} | hot={is_hot}")
+        
+        return {
+            "response": clean_text if len(clean_text) > 10 else "Oi amor... me conta mais 💕",
+            "offer_preview": offer_preview,
+            "interest_level": interest_level,
+            "is_hot": is_hot
+        }
+    
+    def _fallback_response(self):
+        """Resposta de emergência quando tudo falha"""
+        return {
+            "response": "Oi amor... tá difícil te ouvir agora 🥺 Me manda de novo? 💕",
+            "offer_preview": False,
+            "interest_level": "low",
+            "is_hot": False
+        }
         
         # Salva na memória
         memory_text = f"[Foto] {text}" if image_base64 else text
