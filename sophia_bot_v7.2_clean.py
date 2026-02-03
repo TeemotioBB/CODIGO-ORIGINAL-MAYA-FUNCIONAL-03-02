@@ -56,13 +56,13 @@ GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
 
 # 📢 Links dos Canais (IMPORTANTE: Use os links públicos corretos)
 LINK_CANAL_PREVIAS = "https://t.me/previasdamayaofc"  # Seu canal de prévias
-LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP (com +)
+LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Bot de pagamento VIP
 
 # 👤 Admin
 MEU_TELEGRAM_ID = "1293602874"  # Seu ID do Telegram
 
 # 🌐 URL do Railway (após deploy, cole aqui)
-WEBHOOK_URL = "https://web-production-606aff.up.railway.app"
+WEBHOOK_URL = "https://maya-bot-production.up.railway.app"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÕES AVANÇADAS
@@ -135,7 +135,7 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 CONFIGURAÇÃO GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
-MODELO = "grok-4-fast-reasoning"
+MODELO = "grok-3"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12  # Últimas 12 mensagens na memória
 
@@ -2207,7 +2207,10 @@ if __name__ == "__main__":
     # Inicializa aplicação
     asyncio.run_coroutine_threadsafe(application.initialize(), loop)
     asyncio.run_coroutine_threadsafe(application.start(), loop)
-    asyncio.run_coroutine_threadsafe(engagement_scheduler(application.bot), loop)
+    
+    # ✨ Configura webhook automaticamente
+    logger.info("⚙️ Configurando webhook automaticamente...")
+    asyncio.run_coroutine_threadsafe(setup_webhook(), loop)
     
     # Inicia Flask
     logger.info(f"🌐 Servidor Flask rodando na porta {PORT}")
