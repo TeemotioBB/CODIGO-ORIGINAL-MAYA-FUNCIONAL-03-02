@@ -56,7 +56,7 @@ GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
 
 # 📢 Links dos Canais (IMPORTANTE: Use os links públicos corretos)
 LINK_CANAL_PREVIAS = "https://t.me/previasdamayaofc"  # Seu canal de prévias
-LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP (com +)
+LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP
 
 # 👤 Admin
 MEU_TELEGRAM_ID = "1293602874"  # Seu ID do Telegram
@@ -135,7 +135,7 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 CONFIGURAÇÃO GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
-MODELO = "grok-4"
+MODELO = "grok-3"  # Grok 3 é o melhor disponível na API
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12  # Últimas 12 mensagens na memória
 
@@ -983,28 +983,28 @@ MENSAGEM_INICIO_SAFADA = (
 PREVIEW_INVITATION_MESSAGE = (
     "Amor... quer ver um pouquinho do que eu tenho pra você? 😏💕\n\n"
     "Entra no meu canal de **PRÉVIAS** e vê umas fotinhas minhas... 🔥\n\n"
-    "Lá você decide se quer ter acesso a **TUDO** no canal VIP 💖"
+    "Lá você decide se quer ter acesso ao **CANAL VIP** com TUDO liberado 💖"
 )
 
 LIMIT_REACHED_CANAL_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje 😢\n\n"
     "Mas calma! Entra no meu canal de prévias, "
-    "vê como é lá dentro e decide se quer continuar comigo no VIP... 💕\n\n"
-    "No canal VIP você tem TUDO sem limite! 🔥\n\n"
+    "vê como é lá dentro e decide se quer ter acesso ao VIP... 💕\n\n"
+    "No VIP você tem MILHARES de fotos e vídeos sem limite! 🔥\n\n"
     "Tá esperando o quê? 😏"
 )
 
 CAME_BACK_FROM_PREVIEW_MESSAGE = (
     "Ei amor! Vi que você conheceu meu canal de prévias... 💕\n\n"
     "Gostou do que viu? 😏\n\n"
-    "Se quiser TUDO sem limite e muito mais ousado, "
-    "é só entrar no canal VIP! 🔥"
+    "Se quiser ter acesso a TUDO sem censura e muito mais ousado, "
+    "é só garantir seu acesso VIP! 🔥"
 )
 
 CAME_BACK_FOLLOWUP_1H = (
     "Então amor... você viu as prévias mas ainda não se decidiu? 🥺\n\n"
-    "Deixa eu te contar um segredo: no canal VIP eu sou BEM mais ousada... 🔥\n\n"
-    "Conteúdo TODO DIA, fotos exclusivas, vídeos completos... "
+    "Deixa eu te contar um segredo: no VIP eu sou BEM mais ousada... 🔥\n\n"
+    "Milhares de fotos, vídeos completos, conteúdo TODO DIA... "
     "Quer que eu te mostre mais? 💕"
 )
 
@@ -1012,8 +1012,8 @@ CAME_BACK_FOLLOWUP_6H = (
     "Tô aqui pensando em você... 💭\n\n"
     "Você viu as prévias, mas tá em dúvida ainda? \n\n"
     "Amor, posso te garantir: **vale MUITO a pena** 💖\n\n"
-    "Milhares de fotos, vídeos completos, conteúdo TODO DIA, "
-    "e MUITO mais ousado do que nas prévias... 🔥"
+    "No canal VIP: MILHARES de fotos e vídeos exclusivos, "
+    "conteúdo TODO DIA, e MUITO mais ousado do que nas prévias... 🔥"
 )
 
 # Follow-ups de abandono (foi nas prévias mas não voltou)
@@ -1027,14 +1027,14 @@ PREVIEW_ABANDONED_LEVEL_1 = (
 PREVIEW_ABANDONED_LEVEL_2 = (
     "Amor, tô com saudade... 😢\n\n"
     "Você viu minhas prévias e sumiu... isso me deixou meio triste 🥺\n\n"
-    "Se tiver alguma dúvida sobre o canal VIP, pode me perguntar! "
+    "Se tiver alguma dúvida sobre o acesso VIP, pode me perguntar! "
     "Tô aqui pra você 💖"
 )
 
 PREVIEW_ABANDONED_LEVEL_3 = (
     "Última chance amor... 💔\n\n"
     "Você viu as prévias, eu sei que gostou... mas tá deixando passar a oportunidade.\n\n"
-    "No canal VIP tem MUITO mais conteúdo, todo dia tem coisa nova, "
+    "No canal VIP tem MILHARES de fotos e vídeos, conteúdo todo dia, "
     "e é tudo sem censura! 🔥\n\n"
     "Me dá só mais uma chance? 🥺💕"
 )
@@ -1480,11 +1480,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
     try:
-        await query.answer()
         uid = query.from_user.id
         
         # Blacklist check
         if is_blacklisted(uid):
+            await query.answer()
             return
         
         # Tracking básico
@@ -1532,27 +1532,41 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip_link")
             save_message(uid, "action", "💎 CLICOU NO BOTÃO VIP")
             
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=(
-                    f"💎 **CANAL VIP DA MAYA**\n\n"
-                    f"Aqui você tem TUDO sem limite! 🔥\n\n"
-                    f"✅ Milhares de fotos exclusivas\n"
-                    f"✅ Vídeos completos e ousados\n"
-                    f"✅ Conteúdo TODO DIA\n"
-                    f"✅ Conversas comigo no canal\n"
-                    f"✅ MUITO mais ousado que nas prévias\n\n"
-                    f"👉 {CANAL_VIP_LINK}\n\n"
-                    f"Te espero lá, amor! 😘💕"
-                ),
-                parse_mode="Markdown"
-            )
+            logger.info(f"💎 {uid} clicou no VIP - enviando mensagem...")
+            
+            try:
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=(
+                        f"💎 **ACESSO VIP DA MAYA**\n\n"
+                        f"Clica no link abaixo pra garantir seu acesso VIP! 🔥\n\n"
+                        f"Com o VIP você tem:\n"
+                        f"✅ Acesso ao canal de fotos e vídeos exclusivos\n"
+                        f"✅ Conteúdo COMPLETO e sem censura\n"
+                        f"✅ Atualizações TODO DIA\n"
+                        f"✅ MUITO mais ousado que as prévias\n\n"
+                        f"👉 {CANAL_VIP_LINK}\n\n"
+                        f"Clica lá pra ver os planos e garantir seu acesso! 😘💕"
+                    ),
+                    parse_mode="Markdown"
+                )
+                logger.info(f"✅ Mensagem VIP enviada para {uid}")
+            except Exception as msg_error:
+                logger.error(f"❌ Erro ao enviar mensagem VIP: {msg_error}")
             
             await query.answer("💎 Link do VIP enviado! Clica aí 👆", show_alert=False)
-            logger.info(f"💎 {uid} clicou no VIP")
+            logger.info(f"💎 {uid} callback VIP concluído")
+        
+        else:
+            # Fallback para callbacks desconhecidos
+            await query.answer()
         
     except Exception as e:
         logger.error(f"Erro callback: {e}")
+        try:
+            await query.answer("Ops, algo deu errado. Tenta de novo?")
+        except:
+            pass
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler principal de mensagens"""
@@ -1621,7 +1635,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     # Botão principal: VIP (prioridade)
                     keyboard = [
-                        [InlineKeyboardButton("💎 VER CANAL VIP", callback_data="goto_vip")],
+                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
                         [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
                     ]
                     
