@@ -56,13 +56,13 @@ GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
 
 # 📢 Links dos Canais (IMPORTANTE: Use os links públicos corretos)
 LINK_CANAL_PREVIAS = "https://t.me/previasdamayaofc"  # Seu canal de prévias
-LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP
+LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP (com +)
 
 # 👤 Admin
 MEU_TELEGRAM_ID = "1293602874"  # Seu ID do Telegram
 
 # 🌐 URL do Railway (após deploy, cole aqui)
-WEBHOOK_URL = "https://maya-bot-production.up.railway.app"
+WEBHOOK_URL = "https://web-production-606aff.up.railway.app"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÕES AVANÇADAS
@@ -135,7 +135,7 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 CONFIGURAÇÃO GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
-MODELO = "grok-3"  # Grok 3 é o melhor disponível na API
+MODELO = "grok-4-fast-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12  # Últimas 12 mensagens na memória
 
@@ -214,7 +214,6 @@ def preview_visits_key(uid): return f"preview_visits:{uid}"
 def last_preview_time_key(uid): return f"last_preview_time:{uid}"
 def came_back_from_preview_key(uid): return f"came_back_preview:{uid}"
 def clicked_vip_key(uid): return f"clicked_vip:{uid}"
-def conversation_messages_key(uid): return f"conversation_msgs:{uid}"  # Conta msgs desde início
 
 # FOLLOW-UPS
 def preview_followup_sent_key(uid): return f"preview_followup:{uid}"
@@ -508,21 +507,6 @@ def get_abandoned_followup_level(uid):
         return int(r.get(preview_abandoned_level_key(uid)) or 0)
     except:
         return 0
-
-def get_conversation_messages_count(uid):
-    """Retorna quantas mensagens foram trocadas desde o início da conversa"""
-    try:
-        return int(r.get(conversation_messages_key(uid)) or 0)
-    except:
-        return 0
-
-def increment_conversation_messages(uid):
-    """Incrementa contador de mensagens da conversa"""
-    try:
-        r.incr(conversation_messages_key(uid))
-        r.expire(conversation_messages_key(uid), timedelta(days=30))
-    except:
-        pass
 
 def increment_abandoned_followup_level(uid):
     """Incrementa contador de follow-ups de abandono"""
@@ -983,28 +967,28 @@ MENSAGEM_INICIO_SAFADA = (
 PREVIEW_INVITATION_MESSAGE = (
     "Amor... quer ver um pouquinho do que eu tenho pra você? 😏💕\n\n"
     "Entra no meu canal de **PRÉVIAS** e vê umas fotinhas minhas... 🔥\n\n"
-    "Lá você decide se quer ter acesso ao **CANAL VIP** com TUDO liberado 💖"
+    "Lá você decide se quer ter acesso a **TUDO** no canal VIP 💖"
 )
 
 LIMIT_REACHED_CANAL_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje 😢\n\n"
     "Mas calma! Entra no meu canal de prévias, "
-    "vê como é lá dentro e decide se quer ter acesso ao VIP... 💕\n\n"
-    "No VIP você tem MILHARES de fotos e vídeos sem limite! 🔥\n\n"
+    "vê como é lá dentro e decide se quer continuar comigo no VIP... 💕\n\n"
+    "No canal VIP você tem TUDO sem limite! 🔥\n\n"
     "Tá esperando o quê? 😏"
 )
 
 CAME_BACK_FROM_PREVIEW_MESSAGE = (
     "Ei amor! Vi que você conheceu meu canal de prévias... 💕\n\n"
     "Gostou do que viu? 😏\n\n"
-    "Se quiser ter acesso a TUDO sem censura e muito mais ousado, "
-    "é só garantir seu acesso VIP! 🔥"
+    "Se quiser TUDO sem limite e muito mais ousado, "
+    "é só entrar no canal VIP! 🔥"
 )
 
 CAME_BACK_FOLLOWUP_1H = (
     "Então amor... você viu as prévias mas ainda não se decidiu? 🥺\n\n"
-    "Deixa eu te contar um segredo: no VIP eu sou BEM mais ousada... 🔥\n\n"
-    "Milhares de fotos, vídeos completos, conteúdo TODO DIA... "
+    "Deixa eu te contar um segredo: no canal VIP eu sou BEM mais ousada... 🔥\n\n"
+    "Conteúdo TODO DIA, fotos exclusivas, vídeos completos... "
     "Quer que eu te mostre mais? 💕"
 )
 
@@ -1012,8 +996,8 @@ CAME_BACK_FOLLOWUP_6H = (
     "Tô aqui pensando em você... 💭\n\n"
     "Você viu as prévias, mas tá em dúvida ainda? \n\n"
     "Amor, posso te garantir: **vale MUITO a pena** 💖\n\n"
-    "No canal VIP: MILHARES de fotos e vídeos exclusivos, "
-    "conteúdo TODO DIA, e MUITO mais ousado do que nas prévias... 🔥"
+    "Milhares de fotos, vídeos completos, conteúdo TODO DIA, "
+    "e MUITO mais ousado do que nas prévias... 🔥"
 )
 
 # Follow-ups de abandono (foi nas prévias mas não voltou)
@@ -1027,14 +1011,14 @@ PREVIEW_ABANDONED_LEVEL_1 = (
 PREVIEW_ABANDONED_LEVEL_2 = (
     "Amor, tô com saudade... 😢\n\n"
     "Você viu minhas prévias e sumiu... isso me deixou meio triste 🥺\n\n"
-    "Se tiver alguma dúvida sobre o acesso VIP, pode me perguntar! "
+    "Se tiver alguma dúvida sobre o canal VIP, pode me perguntar! "
     "Tô aqui pra você 💖"
 )
 
 PREVIEW_ABANDONED_LEVEL_3 = (
     "Última chance amor... 💔\n\n"
     "Você viu as prévias, eu sei que gostou... mas tá deixando passar a oportunidade.\n\n"
-    "No canal VIP tem MILHARES de fotos e vídeos, conteúdo todo dia, "
+    "No canal VIP tem MUITO mais conteúdo, todo dia tem coisa nova, "
     "e é tudo sem censura! 🔥\n\n"
     "Me dá só mais uma chance? 🥺💕"
 )
@@ -1480,11 +1464,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
     try:
+        await query.answer()
         uid = query.from_user.id
         
         # Blacklist check
         if is_blacklisted(uid):
-            await query.answer()
             return
         
         # Tracking básico
@@ -1532,31 +1516,27 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip_link")
             save_message(uid, "action", "💎 CLICOU NO BOTÃO VIP")
             
-            # Envia link + foto teaser
-            await context.bot.send_photo(
+            await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                photo=random.choice(FOTOS_TEASER),
-                caption=(
-                    f"💎 Aqui está o link do VIP, amor!\n\n"
-                    f"Clica lá pra garantir seu acesso e ter TUDO sem limite... 😏🔥\n\n"
+                text=(
+                    f"💎 **CANAL VIP DA MAYA**\n\n"
+                    f"Aqui você tem TUDO sem limite! 🔥\n\n"
+                    f"✅ Milhares de fotos exclusivas\n"
+                    f"✅ Vídeos completos e ousados\n"
+                    f"✅ Conteúdo TODO DIA\n"
+                    f"✅ Conversas comigo no canal\n"
+                    f"✅ MUITO mais ousado que nas prévias\n\n"
                     f"👉 {CANAL_VIP_LINK}\n\n"
-                    f"Te espero lá! 💕"
-                )
+                    f"Te espero lá, amor! 😘💕"
+                ),
+                parse_mode="Markdown"
             )
             
-            await query.answer("💎 Link enviado! Olha aí em cima 👆", show_alert=False)
+            await query.answer("💎 Link do VIP enviado! Clica aí 👆", show_alert=False)
             logger.info(f"💎 {uid} clicou no VIP")
-        
-        else:
-            # Fallback para callbacks desconhecidos
-            await query.answer()
         
     except Exception as e:
         logger.error(f"Erro callback: {e}")
-        try:
-            await query.answer("Ops, algo deu errado. Tenta de novo?")
-        except:
-            pass
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler principal de mensagens"""
@@ -1603,31 +1583,24 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     visits = get_preview_visits(uid)
                     
-                    # 🔥 SEMPRE OFERECE VIP QUANDO VOLTA (não prévias de novo)
                     # Mensagem personalizada
                     if is_high_resistance_user(uid):
                         welcome_msg = (
                             f"Oi de novo amor! 💕\n\n"
                             f"Já é sua {visits}ª vez aqui... "
-                            f"Gostou das prévias? No VIP tem MUITO mais! 🔥\n\n"
                             f"O que posso fazer pra você finalmente se decidir? 🥺"
                         )
                     else:
-                        welcome_msg = (
-                            "E aí amor, gostou das prévias? 😏\n\n"
-                            "Mas isso não é NADA perto do que tenho no VIP... 🔥\n\n"
-                            "Lá você tem:\n"
-                            "✅ Conteúdo TODO DIA\n"
-                            "✅ Fotos e vídeos MUITO mais ousados\n"
-                            "✅ SEM LIMITE de conversas\n\n"
-                            "Tá esperando o quê? 💕"
-                        )
+                        welcome_msg = CAME_BACK_FROM_PREVIEW_MESSAGE
                     
-                    # Botão principal: VIP (prioridade)
-                    keyboard = [
-                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                        [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
-                    ]
+                    # Botões baseados em visitas
+                    if visits == 1:
+                        keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")]]
+                    else:
+                        keyboard = [
+                            [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
+                            [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
+                        ]
                     
                     await update.message.reply_text(
                         welcome_msg,
@@ -1666,54 +1639,40 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # DETECÇÃO: PEDIU FOTO/NUDE
         # ═══════════════════════════════════════════════════════
         if PEDIDO_FOTO_REGEX.search(text):
-            msgs_count = get_conversation_messages_count(uid)
+            save_message(uid, "action", "🚫 Pediu foto → Direcionado pro canal")
             
-            # 🔥 SÓ OFERECE PRÉVIAS APÓS 5+ MENSAGENS (aquecimento)
-            if msgs_count >= 5:
-                save_message(uid, "action", "🚫 Pediu foto → Direcionado pro canal")
-                
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=FOTO_TEASE_PREVIAS,
-                    caption=PHOTO_TEASE_MESSAGE_CANAL,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")],
-                    ])
-                )
-                return
-            else:
-                # Ainda está aquecendo, deixa a IA responder criando desejo
-                pass
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=FOTO_TEASE_PREVIAS,
+                caption=PHOTO_TEASE_MESSAGE_CANAL,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")],
+                ])
+            )
+            return
         
         # ═══════════════════════════════════════════════════════
         # DETECÇÃO: INTERESSE EM CANAL/VIP
         # ═══════════════════════════════════════════════════════
         if contains_canal_trigger(text):
-            msgs_count = get_conversation_messages_count(uid)
+            save_message(uid, "action", "💎 Interesse em canal/VIP")
             
-            # 🔥 SÓ OFERECE APÓS 5+ MENSAGENS (aquecimento)
-            if msgs_count >= 5:
-                save_message(uid, "action", "💎 Interesse em canal/VIP")
-                
-                # Botões baseados em visitas
-                visits = get_preview_visits(uid)
-                if visits == 0:
-                    keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
-                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                    ]
-                
-                await update.message.reply_text(
-                    PREVIEW_INVITATION_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return
+            # Botões baseados em visitas
+            visits = get_preview_visits(uid)
+            if visits == 0:
+                keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
             else:
-                # Ainda aquecendo, deixa IA criar mais desejo primeiro
-                pass
+                keyboard = [
+                    [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
+                    [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
+                ]
+            
+            await update.message.reply_text(
+                PREVIEW_INVITATION_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
         
         # ═══════════════════════════════════════════════════════
         # VERIFICAÇÃO DE LIMITE
@@ -1751,9 +1710,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             use_bonus_msg(uid)
         else:
             increment(uid)
-        
-        # Incrementa contador total de mensagens da conversa
-        increment_conversation_messages(uid)
         
         # Envia aviso de limite se aplicável
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
@@ -2251,10 +2207,7 @@ if __name__ == "__main__":
     # Inicializa aplicação
     asyncio.run_coroutine_threadsafe(application.initialize(), loop)
     asyncio.run_coroutine_threadsafe(application.start(), loop)
-    
-    # ✨ CONFIGURA WEBHOOK AUTOMATICAMENTE ✨
-    logger.info("⚙️ Configurando webhook automaticamente...")
-    asyncio.run_coroutine_threadsafe(setup_webhook(), loop)
+    asyncio.run_coroutine_threadsafe(engagement_scheduler(application.bot), loop)
     
     # Inicia Flask
     logger.info(f"🌐 Servidor Flask rodando na porta {PORT}")
