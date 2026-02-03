@@ -1376,7 +1376,6 @@ class Grok:
 
 # Instância global do cliente Grok
 grok = Grok()
-```
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📨 SISTEMA DE FOLLOW-UPS AUTOMÁTICOS
