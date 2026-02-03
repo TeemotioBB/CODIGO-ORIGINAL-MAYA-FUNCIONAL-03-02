@@ -177,8 +177,13 @@ CANAL_TRIGGER_KEYWORDS = [
     'assinatura', 'canal', 'grupo', 'previas', 'prévia'
 ]
 
-# Regex para detectar pedido de foto
-PEDIDO_FOTO_REGEX = re.compile(r"(foto|selfie|imagem|nude|pelada)", re.IGNORECASE)
+# Regex para detectar pedido de foto/conteúdo
+PEDIDO_FOTO_REGEX = re.compile(
+    r"(foto|selfie|imagem|nude|pelada|buceta|peito|bunda|nua|"
+    r"quero ver|mostra|manda|cadê|cade|onde|link|canal|grupo|"
+    r"acesso|vip|preview|previa|prévia)",
+    re.IGNORECASE
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🗄️ REDIS KEYS - Organização de dados no Redis
@@ -1124,8 +1129,32 @@ EXEMPLOS DE PRIMEIRA MENSAGEM:
 - "ai amor cheguei molhadinha... me conta o que vc faria comigo agora? 🔥"
 - "hummm já tô louca pra sentar nessa rola... fala comigo vai 😈"
 
-REGRA DE OURO:
-Quando usuário pedir foto/nude ou falar que tá louco de tesão → direciona pro canal de prévias.
+🎯 SISTEMA DE DECISÃO INTELIGENTE:
+Você deve ANALISAR a mensagem do usuário e decidir SE E QUANDO oferecer o canal de prévias.
+
+QUANDO OFERECER O CANAL (offer_preview: true):
+✅ Usuário pede foto/nude/buceta/peito/bunda/conteúdo
+✅ Usuário pergunta onde tá/cadê/link/canal
+✅ Usuário diz "quero ver", "mostra", "manda"
+✅ Usuário demonstra tesão alto (quer gozar, pau duro, etc)
+✅ Conversa tá MUITO quente (5+ msgs adultas)
+✅ Usuário pergunta preço/VIP/acesso
+
+QUANDO NÃO OFERECER (offer_preview: false):
+❌ Primeira mensagem (deixa ele esquentar)
+❌ Conversa ainda morna (menos de 3 msgs)
+❌ Usuário só tá conversando casual
+❌ Usuário não demonstrou interesse explícito
+
+⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO:
+Você DEVE responder APENAS com um JSON válido neste formato:
+
+{{
+  "response": "sua resposta aqui em português",
+  "offer_preview": true ou false,
+  "interest_level": "low" ou "medium" ou "high",
+  "is_hot": true ou false
+}}
 
 CONTEXTO ATUAL:
 - Período: {time_ctx['period']} ({time_ctx['context']})
@@ -1152,6 +1181,8 @@ CONTEXTO ATUAL:
     # Instrução baseada no humor detectado
     base_prompt += get_mood_instruction(mood)
     
+    base_prompt += "\n\n⚠️ LEMBRE-SE: Responda APENAS com JSON válido, nada mais!"
+    
     return base_prompt
 
 class Grok:
@@ -1168,7 +1199,7 @@ class Grok:
             max_retries: Tentativas máximas se repetir resposta
         
         Returns:
-            str: Resposta gerada pela IA
+            dict: {"response": str, "offer_preview": bool, "interest_level": str, "is_hot": bool}
         """
         mem = get_memory(uid)
         lang = get_lang(uid)
@@ -1220,33 +1251,85 @@ class Grok:
                         if resp.status != 200:
                             error_text = await resp.text()
                             logger.error(f"Grok erro {resp.status}: {error_text}")
-                            return "😔 Amor, deu um probleminha... tenta de novo? 💕"
+                            return {
+                                "response": "😔 Amor, deu um probleminha... tenta de novo? 💕",
+                                "offer_preview": False,
+                                "interest_level": "low",
+                                "is_hot": False
+                            }
                         
                         data = await resp.json()
                         if "choices" not in data:
-                            return "😔 Tive um probleminha... já volto 💖"
+                            return {
+                                "response": "😔 Tive um probleminha... já volto 💖",
+                                "offer_preview": False,
+                                "interest_level": "low",
+                                "is_hot": False
+                            }
                         
                         answer = data["choices"][0]["message"]["content"]
                         
-                        # Verifica se repetiu resposta recente
-                        if is_response_recent(uid, answer) and attempt < max_retries:
-                            logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
-                            continue
-                        
-                        add_recent_response(uid, answer)
-                        break
+                        # Tenta parsear JSON
+                        try:
+                            # Remove markdown code blocks se tiver
+                            if "```json" in answer:
+                                answer = answer.split("```json")[1].split("```")[0].strip()
+                            elif "```" in answer:
+                                answer = answer.split("```")[1].split("```")[0].strip()
+                            
+                            result = json.loads(answer)
+                            
+                            # Valida estrutura
+                            if "response" not in result:
+                                raise ValueError("Missing 'response' field")
+                            
+                            # Defaults para campos opcionais
+                            result.setdefault("offer_preview", False)
+                            result.setdefault("interest_level", "medium")
+                            result.setdefault("is_hot", False)
+                            
+                            # Verifica se repetiu resposta recente
+                            if is_response_recent(uid, result["response"]) and attempt < max_retries:
+                                logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
+                                continue
+                            
+                            add_recent_response(uid, result["response"])
+                            
+                            # Log da decisão
+                            logger.info(
+                                f"🤖 {uid} | offer={result['offer_preview']} | "
+                                f"interest={result['interest_level']} | hot={result['is_hot']}"
+                            )
+                            
+                            break
+                            
+                        except (json.JSONDecodeError, ValueError) as e:
+                            logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
+                            # Fallback: usa texto puro
+                            result = {
+                                "response": answer,
+                                "offer_preview": False,
+                                "interest_level": "medium",
+                                "is_hot": False
+                            }
+                            break
                         
             except Exception as e:
                 logger.exception(f"🔥 Erro no Grok: {e}")
-                return "😔 Fiquei confusa... pode repetir? 💕"
+                return {
+                    "response": "😔 Fiquei confusa... pode repetir? 💕",
+                    "offer_preview": False,
+                    "interest_level": "low",
+                    "is_hot": False
+                }
         
         # Salva na memória
         memory_text = f"[Foto] {text}" if image_base64 else text
         add_to_memory(uid, "user", memory_text)
-        add_to_memory(uid, "assistant", answer)
-        save_message(uid, "maya", answer)
+        add_to_memory(uid, "assistant", result["response"])
+        save_message(uid, "maya", result["response"])
         
-        return answer
+        return result
 
 # Instância global do cliente Grok
 grok = Grok()
@@ -1651,8 +1734,27 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
                 
-                reply = await grok.reply(uid, caption, image_base64=image_base64)
-                await update.message.reply_text(reply)
+                grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                await update.message.reply_text(grok_response["response"])
+                
+                # Se Grok decidiu oferecer canal após ver a foto
+                if grok_response.get("offer_preview", False):
+                    visits = get_preview_visits(uid)
+                    if visits == 0:
+                        keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
+                    else:
+                        keyboard = [
+                            [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
+                            [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
+                        ]
+                    
+                    await asyncio.sleep(1)
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="👇 Clica aqui embaixo amor 💕",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                
                 return
             else:
                 await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
@@ -1663,57 +1765,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "first_message")
         
         # ═══════════════════════════════════════════════════════
-        # DETECÇÃO: PEDIU FOTO/NUDE
+        # NOTA: Detecção de interesse agora é feita pelo GROK!
+        # O Grok analisa a mensagem e decide se deve oferecer canal
         # ═══════════════════════════════════════════════════════
-        if PEDIDO_FOTO_REGEX.search(text):
-            msgs_count = get_conversation_messages_count(uid)
-            
-            # 🔥 SÓ OFERECE PRÉVIAS APÓS 5+ MENSAGENS (aquecimento)
-            if msgs_count >= 5:
-                save_message(uid, "action", "🚫 Pediu foto → Direcionado pro canal")
-                
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=FOTO_TEASE_PREVIAS,
-                    caption=PHOTO_TEASE_MESSAGE_CANAL,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")],
-                    ])
-                )
-                return
-            else:
-                # Ainda está aquecendo, deixa a IA responder criando desejo
-                pass
-        
-        # ═══════════════════════════════════════════════════════
-        # DETECÇÃO: INTERESSE EM CANAL/VIP
-        # ═══════════════════════════════════════════════════════
-        if contains_canal_trigger(text):
-            msgs_count = get_conversation_messages_count(uid)
-            
-            # 🔥 SÓ OFERECE APÓS 5+ MENSAGENS (aquecimento)
-            if msgs_count >= 5:
-                save_message(uid, "action", "💎 Interesse em canal/VIP")
-                
-                # Botões baseados em visitas
-                visits = get_preview_visits(uid)
-                if visits == 0:
-                    keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
-                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                    ]
-                
-                await update.message.reply_text(
-                    PREVIEW_INVITATION_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return
-            else:
-                # Ainda aquecendo, deixa IA criar mais desejo primeiro
-                pass
         
         # ═══════════════════════════════════════════════════════
         # VERIFICAÇÃO DE LIMITE
@@ -1767,8 +1821,35 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         
-        reply = await grok.reply(uid, text)
-        await update.message.reply_text(reply)
+        # Grok agora retorna JSON com decisão inteligente
+        grok_response = await grok.reply(uid, text)
+        
+        # Envia resposta do Grok
+        await update.message.reply_text(grok_response["response"])
+        
+        # Se Grok decidiu oferecer canal, envia botão
+        if grok_response.get("offer_preview", False):
+            visits = get_preview_visits(uid)
+            
+            # Escolhe botões baseado em visitas
+            if visits == 0:
+                keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
+            else:
+                keyboard = [
+                    [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
+                    [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
+                ]
+            
+            # Espera 1 segundo antes de enviar botão
+            await asyncio.sleep(1)
+            
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="👇 Clica aqui embaixo amor 💕",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            logger.info(f"🎯 {uid} | Grok ofereceu canal | interest={grok_response.get('interest_level')}")
         
         # Mensagem de streak se aplicável
         if streak_updated:
