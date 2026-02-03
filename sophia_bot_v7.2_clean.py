@@ -1146,15 +1146,24 @@ QUANDO NÃO OFERECER (offer_preview: false):
 ❌ Usuário só tá conversando casual
 ❌ Usuário não demonstrou interesse explícito
 
-⚠️ FORMATO DE RESPOSTA OBRIGATÓRIO:
-Você DEVE responder APENAS com um JSON válido neste formato:
+⚠️⚠️⚠️ ATENÇÃO: VOCÊ DEVE RETORNAR APENAS JSON ⚠️⚠️⚠️
 
+FORMATO OBRIGATÓRIO (copie exatamente):
 {{
-  "response": "sua resposta aqui em português",
-  "offer_preview": true ou false,
-  "interest_level": "low" ou "medium" ou "high",
-  "is_hot": true ou false
+  "response": "sua resposta em português",
+  "offer_preview": true,
+  "interest_level": "high",
+  "is_hot": true
 }}
+
+REGRAS:
+- NÃO adicione texto antes ou depois do JSON
+- NÃO use markdown (```json)
+- "offer_preview" e "is_hot" são booleanos (true/false SEM aspas)
+- "interest_level" é string ("low", "medium" ou "high" COM aspas)
+- "response" é sua mensagem normal
+
+Se não retornar JSON válido, o bot quebra. SEMPRE JSON.
 
 CONTEXTO ATUAL:
 - Período: {time_ctx['period']} ({time_ctx['context']})
@@ -1231,7 +1240,8 @@ class Grok:
                 "messages": [
                     {"role": "system", "content": prompt},
                     *mem,
-                    {"role": "user", "content": user_content}
+                    {"role": "user", "content": user_content},
+                    {"role": "system", "content": "LEMBRE-SE: Retorne APENAS JSON válido. Nada mais."}
                 ],
                 "max_tokens": 500,
                 "temperature": 0.8 + (attempt * 0.1)  # Aumenta temperatura nos retries
@@ -1269,15 +1279,32 @@ class Grok:
                         
                         answer = data["choices"][0]["message"]["content"]
                         
-                        # Tenta parsear JSON
+                        # Tenta parsear JSON (parsing melhorado)
                         try:
-                            # Remove markdown code blocks se tiver
-                            if "```json" in answer:
-                                answer = answer.split("```json")[1].split("```")[0].strip()
-                            elif "```" in answer:
-                                answer = answer.split("```")[1].split("```")[0].strip()
+                            # Limpa markdown
+                            cleaned = answer.strip()
+                            if "```json" in cleaned:
+                                cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+                            elif "```" in cleaned:
+                                cleaned = cleaned.split("```")[1].split("```")[0].strip()
                             
-                            result = json.loads(answer)
+                            # Remove espaços em branco antes/depois
+                            cleaned = cleaned.strip()
+                            
+                            # Se não começa com {, tenta achar o primeiro {
+                            if not cleaned.startswith("{"):
+                                start = cleaned.find("{")
+                                if start != -1:
+                                    cleaned = cleaned[start:]
+                            
+                            # Se não termina com }, tenta achar o último }
+                            if not cleaned.endswith("}"):
+                                end = cleaned.rfind("}")
+                                if end != -1:
+                                    cleaned = cleaned[:end+1]
+                            
+                            # Tenta parsear
+                            result = json.loads(cleaned)
                             
                             # Valida estrutura
                             if "response" not in result:
@@ -1305,13 +1332,29 @@ class Grok:
                             
                         except (json.JSONDecodeError, ValueError) as e:
                             logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
-                            # Fallback: usa texto puro
+                            
+                            # FALLBACK INTELIGENTE: analisa o texto puro
+                            offer_preview_detected = False
+                            is_hot_detected = False
+                            
+                            # Se menciona canal/prévia/vip no texto, considera que quer oferecer
+                            text_lower = answer.lower()
+                            if any(word in text_lower for word in ['canal', 'prévia', 'previas', 'vip', 'acesso', 'entra lá']):
+                                offer_preview_detected = True
+                            
+                            # Se tem palavras quentes, marca como hot
+                            if any(word in text_lower for word in HOT_KEYWORDS[:10]):
+                                is_hot_detected = True
+                            
+                            # Cria fallback baseado em heurística
                             result = {
-                                "response": answer,
-                                "offer_preview": False,
+                                "response": answer,  # Usa o texto como veio
+                                "offer_preview": offer_preview_detected,
                                 "interest_level": "medium",
-                                "is_hot": False
+                                "is_hot": is_hot_detected
                             }
+                            
+                            logger.warning(f"⚠️ Usando fallback inteligente: offer={offer_preview_detected}, hot={is_hot_detected}")
                             break
                         
             except Exception as e:
