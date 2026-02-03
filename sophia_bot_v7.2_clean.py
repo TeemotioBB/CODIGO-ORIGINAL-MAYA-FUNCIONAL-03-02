@@ -1532,30 +1532,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip_link")
             save_message(uid, "action", "💎 CLICOU NO BOTÃO VIP")
             
-            logger.info(f"💎 {uid} clicou no VIP - enviando mensagem...")
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=(
-                        f"💎 **ACESSO VIP DA MAYA**\n\n"
-                        f"Clica no link abaixo pra garantir seu acesso VIP! 🔥\n\n"
-                        f"Com o VIP você tem:\n"
-                        f"✅ Acesso ao canal de fotos e vídeos exclusivos\n"
-                        f"✅ Conteúdo COMPLETO e sem censura\n"
-                        f"✅ Atualizações TODO DIA\n"
-                        f"✅ MUITO mais ousado que as prévias\n\n"
-                        f"👉 {CANAL_VIP_LINK}\n\n"
-                        f"Clica lá pra ver os planos e garantir seu acesso! 😘💕"
-                    ),
-                    parse_mode="Markdown"
+            # Envia link + foto teaser
+            await context.bot.send_photo(
+                chat_id=query.message.chat_id,
+                photo=random.choice(FOTOS_TEASER),
+                caption=(
+                    f"💎 Aqui está o link do VIP, amor!\n\n"
+                    f"Clica lá pra garantir seu acesso e ter TUDO sem limite... 😏🔥\n\n"
+                    f"👉 {CANAL_VIP_LINK}\n\n"
+                    f"Te espero lá! 💕"
                 )
-                logger.info(f"✅ Mensagem VIP enviada para {uid}")
-            except Exception as msg_error:
-                logger.error(f"❌ Erro ao enviar mensagem VIP: {msg_error}")
+            )
             
-            await query.answer("💎 Link do VIP enviado! Clica aí 👆", show_alert=False)
-            logger.info(f"💎 {uid} callback VIP concluído")
+            await query.answer("💎 Link enviado! Olha aí em cima 👆", show_alert=False)
+            logger.info(f"💎 {uid} clicou no VIP")
         
         else:
             # Fallback para callbacks desconhecidos
