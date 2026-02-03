@@ -1197,182 +1197,192 @@ CONTEXTO ATUAL:
 class Grok:
     """Cliente da API Grok para geração de respostas"""
     
-    async def reply(self, uid, text, image_base64=None, max_retries=2):
-        """
-        Gera resposta da IA baseada no input do usuário.
+    """
+🚨 VERSÃO DE EMERGÊNCIA - MÉTODO Grok.reply
+
+Se o bot não estiver respondendo, SUBSTITUA o método reply() completo
+da classe Grok por este código aqui.
+
+LOCALIZAÇÃO: Procure por "class Grok:" e depois por "async def reply"
+SUBSTITUIR: Todo o método reply desde "async def reply" até o "return result" final
+"""
+
+async def reply(self, uid, text, image_base64=None, max_retries=2):
+    """
+    Gera resposta da IA baseada no input do usuário.
+    
+    Args:
+        uid: ID do usuário
+        text: Texto da mensagem
+        image_base64: Imagem em base64 (opcional)
+        max_retries: Tentativas máximas se repetir resposta
+    
+    Returns:
+        dict: {"response": str, "offer_preview": bool, "interest_level": str, "is_hot": bool}
+    """
+    mem = get_memory(uid)
+    lang = get_lang(uid)
+    mood = detect_mood(text) if text else "neutral"
+    
+    # Marca primeiro contato se aplicável
+    if is_first_contact(uid):
+        mark_first_contact(uid)
+    
+    # Constrói prompt contextual
+    prompt = build_prompt(uid, lang, mood)
+    
+    # Prepara conteúdo do usuário (texto + imagem se houver)
+    if image_base64:
+        user_content = []
+        if text:
+            user_content.append({"type": "text", "text": text})
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+        })
+    else:
+        user_content = text
+    
+    # Tenta gerar resposta (com retries se repetir)
+    for attempt in range(max_retries + 1):
+        payload = {
+            "model": MODELO,
+            "messages": [
+                {"role": "system", "content": prompt},
+                *mem,
+                {"role": "user", "content": user_content},
+                {"role": "system", "content": "LEMBRE-SE: Retorne APENAS JSON válido. Nada mais."}
+            ],
+            "max_tokens": 500,
+            "temperature": 0.8 + (attempt * 0.1)
+        }
         
-        Args:
-            uid: ID do usuário
-            text: Texto da mensagem
-            image_base64: Imagem em base64 (opcional)
-            max_retries: Tentativas máximas se repetir resposta
-        
-        Returns:
-            dict: {"response": str, "offer_preview": bool, "interest_level": str, "is_hot": bool}
-        """
-        mem = get_memory(uid)
-        lang = get_lang(uid)
-        mood = detect_mood(text) if text else "neutral"
-        
-        # Marca primeiro contato se aplicável
-        if is_first_contact(uid):
-            mark_first_contact(uid)
-        
-        # Constrói prompt contextual
-        prompt = build_prompt(uid, lang, mood)
-        
-        # Prepara conteúdo do usuário (texto + imagem se houver)
-        if image_base64:
-            user_content = []
-            if text:
-                user_content.append({"type": "text", "text": text})
-            user_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
-            })
-        else:
-            user_content = text
-        
-        # Tenta gerar resposta (com retries se repetir)
-        for attempt in range(max_retries + 1):
-            payload = {
-                "model": MODELO,
-                "messages": [
-                    {"role": "system", "content": prompt},
-                    *mem,
-                    {"role": "user", "content": user_content},
-                    {"role": "system", "content": "LEMBRE-SE: Retorne APENAS JSON válido. Nada mais."}
-                ],
-                "max_tokens": 500,
-                "temperature": 0.8 + (attempt * 0.1)  # Aumenta temperatura nos retries
+        try:
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    GROK_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {GROK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Grok erro {resp.status}: {error_text}")
+                        return {
+                            "response": "😔 Amor, deu um probleminha... tenta de novo? 💕",
+                            "offer_preview": False,
+                            "interest_level": "low",
+                            "is_hot": False
+                        }
+                    
+                    data = await resp.json()
+                    if "choices" not in data:
+                        return {
+                            "response": "😔 Tive um probleminha... já volto 💖",
+                            "offer_preview": False,
+                            "interest_level": "low",
+                            "is_hot": False
+                        }
+                    
+                    answer = data["choices"][0]["message"]["content"]
+                    
+                    # Tenta parsear JSON (parsing melhorado)
+                    try:
+                        # Limpa markdown
+                        cleaned = answer.strip()
+                        if "```json" in cleaned:
+                            cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+                        elif "```" in cleaned:
+                            cleaned = cleaned.split("```")[1].split("```")[0].strip()
+                        
+                        # Remove espaços em branco antes/depois
+                        cleaned = cleaned.strip()
+                        
+                        # Se não começa com {, tenta achar o primeiro {
+                        if not cleaned.startswith("{"):
+                            start = cleaned.find("{")
+                            if start != -1:
+                                cleaned = cleaned[start:]
+                        
+                        # Se não termina com }, tenta achar o último }
+                        if not cleaned.endswith("}"):
+                            end = cleaned.rfind("}")
+                            if end != -1:
+                                cleaned = cleaned[:end+1]
+                        
+                        # Tenta parsear
+                        result = json.loads(cleaned)
+                        
+                        # Valida estrutura
+                        if "response" not in result:
+                            raise ValueError("Missing 'response' field")
+                        
+                        # Defaults para campos opcionais
+                        result.setdefault("offer_preview", False)
+                        result.setdefault("interest_level", "medium")
+                        result.setdefault("is_hot", False)
+                        
+                        # Verifica se repetiu resposta recente
+                        if is_response_recent(uid, result["response"]) and attempt < max_retries:
+                            logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
+                            continue
+                        
+                        add_recent_response(uid, result["response"])
+                        
+                        # Log da decisão
+                        logger.info(
+                            f"🤖 {uid} | offer={result['offer_preview']} | "
+                            f"interest={result['interest_level']} | hot={result['is_hot']}"
+                        )
+                        
+                        break
+                        
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
+                        
+                        # FALLBACK INTELIGENTE: analisa o texto puro
+                        offer_preview_detected = False
+                        is_hot_detected = False
+                        
+                        # Se menciona canal/prévia/vip no texto, considera que quer oferecer
+                        text_lower = answer.lower()
+                        if any(word in text_lower for word in ['canal', 'prévia', 'previas', 'vip', 'acesso', 'entra lá']):
+                            offer_preview_detected = True
+                        
+                        # Se tem palavras quentes, marca como hot
+                        if any(word in text_lower for word in HOT_KEYWORDS[:10]):
+                            is_hot_detected = True
+                        
+                        # Cria fallback baseado em heurística
+                        result = {
+                            "response": answer,
+                            "offer_preview": offer_preview_detected,
+                            "interest_level": "medium",
+                            "is_hot": is_hot_detected
+                        }
+                        
+                        logger.warning(f"⚠️ Usando fallback inteligente: offer={offer_preview_detected}, hot={is_hot_detected}")
+                        break
+                    
+        except Exception as e:
+            logger.exception(f"🔥 Erro no Grok: {e}")
+            return {
+                "response": "😔 Fiquei confusa... pode repetir? 💕",
+                "offer_preview": False,
+                "interest_level": "low",
+                "is_hot": False
             }
-            
-            try:
-                timeout = aiohttp.ClientTimeout(total=20)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(
-                        GROK_API_URL,
-                        headers={
-                            "Authorization": f"Bearer {GROK_API_KEY}",
-                            "Content-Type": "application/json"
-                        },
-                        json=payload
-                    ) as resp:
-                        if resp.status != 200:
-                            error_text = await resp.text()
-                            logger.error(f"Grok erro {resp.status}: {error_text}")
-                            return {
-                                "response": "😔 Amor, deu um probleminha... tenta de novo? 💕",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
-                        
-                        data = await resp.json()
-                        if "choices" not in data:
-                            return {
-                                "response": "😔 Tive um probleminha... já volto 💖",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
-                        
-                        answer = data["choices"][0]["message"]["content"]
-                        
-                        # Tenta parsear JSON (parsing melhorado)
-                        try:
-                            # Limpa markdown
-                            cleaned = answer.strip()
-                            if "```json" in cleaned:
-                                cleaned = cleaned.split("```json")[1].split("```")[0].strip()
-                            elif "```" in cleaned:
-                                cleaned = cleaned.split("```")[1].split("```")[0].strip()
-                            
-                            # Remove espaços em branco antes/depois
-                            cleaned = cleaned.strip()
-                            
-                            # Se não começa com {, tenta achar o primeiro {
-                            if not cleaned.startswith("{"):
-                                start = cleaned.find("{")
-                                if start != -1:
-                                    cleaned = cleaned[start:]
-                            
-                            # Se não termina com }, tenta achar o último }
-                            if not cleaned.endswith("}"):
-                                end = cleaned.rfind("}")
-                                if end != -1:
-                                    cleaned = cleaned[:end+1]
-                            
-                            # Tenta parsear
-                            result = json.loads(cleaned)
-                            
-                            # Valida estrutura
-                            if "response" not in result:
-                                raise ValueError("Missing 'response' field")
-                            
-                            # Defaults para campos opcionais
-                            result.setdefault("offer_preview", False)
-                            result.setdefault("interest_level", "medium")
-                            result.setdefault("is_hot", False)
-                            
-                            # Verifica se repetiu resposta recente
-                            if is_response_recent(uid, result["response"]) and attempt < max_retries:
-                                logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
-                                continue
-                            
-                            add_recent_response(uid, result["response"])
-                            
-                            # Log da decisão
-                            logger.info(
-                                f"🤖 {uid} | offer={result['offer_preview']} | "
-                                f"interest={result['interest_level']} | hot={result['is_hot']}"
-                            )
-                            
-                            break
-                            
-                        except (json.JSONDecodeError, ValueError) as e:
-                            logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
-                            
-                            # FALLBACK INTELIGENTE: analisa o texto puro
-                            offer_preview_detected = False
-                            is_hot_detected = False
-                            
-                            # Se menciona canal/prévia/vip no texto, considera que quer oferecer
-                            text_lower = answer.lower()
-                            if any(word in text_lower for word in ['canal', 'prévia', 'previas', 'vip', 'acesso', 'entra lá']):
-                                offer_preview_detected = True
-                            
-                            # Se tem palavras quentes, marca como hot
-                            if any(word in text_lower for word in HOT_KEYWORDS[:10]):
-                                is_hot_detected = True
-                            
-                            # Cria fallback baseado em heurística
-                            result = {
-                                "response": answer,  # Usa o texto como veio
-                                "offer_preview": offer_preview_detected,
-                                "interest_level": "medium",
-                                "is_hot": is_hot_detected
-                            }
-                            
-                            logger.warning(f"⚠️ Usando fallback inteligente: offer={offer_preview_detected}, hot={is_hot_detected}")
-                            break
-                        
-            except Exception as e:
-                logger.exception(f"🔥 Erro no Grok: {e}")
-                return {
-                    "response": "😔 Fiquei confusa... pode repetir? 💕",
-                    "offer_preview": False,
-                    "interest_level": "low",
-                    "is_hot": False
-                }
-        
-        # Salva na memória
-        memory_text = f"[Foto] {text}" if image_base64 else text
-        add_to_memory(uid, "user", memory_text)
-        add_to_memory(uid, "assistant", result["response"])
-        save_message(uid, "maya", result["response"])
-        
-        return result
+    
+    # Salva na memória
+    memory_text = f"[Foto] {text}" if image_base64 else text
+    add_to_memory(uid, "user", memory_text)
+    add_to_memory(uid, "assistant", result["response"])
+    save_message(uid, "maya", result["response"])
+    
+    return result
 
 # Instância global do cliente Grok
 grok = Grok()
