@@ -2368,6 +2368,35 @@ async def setup_webhook():
 # 🎬 MAIN - Ponto de entrada
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 WEBHOOK AUTO-CHECKER (Cole no final, antes do if __name__)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def webhook_health_checker(bot):
+    """Verifica e reconfigura webhook automaticamente a cada 30min"""
+    logger.info("🔄 Webhook health checker iniciado")
+    while True:
+        try:
+            await asyncio.sleep(1800)  # 30 minutos
+            
+            # Verifica webhook atual
+            webhook_info = await bot.get_webhook_info()
+            expected_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+            
+            if webhook_info.url != expected_url:
+                logger.warning(f"⚠️ Webhook desconfigurado! Reconfigurando...")
+                await bot.delete_webhook(drop_pending_updates=True)
+                await bot.set_webhook(expected_url)
+                logger.info(f"✅ Webhook reconfigurado: {expected_url}")
+            else:
+                logger.info("✅ Webhook OK")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro health check: {e}")
+
+# Adicione na inicialização (junto com o scheduler):
+# asyncio.run_coroutine_threadsafe(webhook_health_checker(application.bot), loop)
+
 if __name__ == "__main__":
     # Inicializa aplicação
     asyncio.run_coroutine_threadsafe(application.initialize(), loop)
@@ -2380,7 +2409,8 @@ if __name__ == "__main__":
     # ✨ INICIA SCHEDULER DE ENGAGEMENT ✨
     logger.info("🤖 Iniciando scheduler de engagement...")
     asyncio.run_coroutine_threadsafe(engagement_scheduler(application.bot), loop)
-    
+    asyncio.run_coroutine_threadsafe(webhook_health_checker(application.bot), loop)
+
     # Inicia Flask
     logger.info(f"🌐 Servidor Flask rodando na porta {PORT}")
     logger.info("🚀 Sophia Bot v7.2 CLEAN totalmente operacional!")
