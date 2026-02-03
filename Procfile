@@ -1,1 +1,1 @@
-web: python sophia_bot_v7.2_clean.py
+web: python sophia_bot_v7_2_clean.py
