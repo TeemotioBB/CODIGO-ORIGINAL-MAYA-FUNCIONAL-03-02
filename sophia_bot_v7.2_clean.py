@@ -1768,9 +1768,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     # ✨ NOVO: Marca que já mostrou mensagem de boas-vindas
                     r.setex(f"welcome_shown:{uid}", timedelta(hours=24), "1")
-                    
-                    # ✨ CRÍTICO: NÃO RETORNA! Deixa continuar processando a mensagem
-                    # (removido o return)
+                    return
         
         # ═══════════════════════════════════════════════════════
         # PROCESSAMENTO DE FOTO
