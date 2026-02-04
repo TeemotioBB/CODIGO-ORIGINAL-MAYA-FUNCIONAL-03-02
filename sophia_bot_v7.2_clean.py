@@ -1910,7 +1910,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 
                 # 🔥 SÓ MARCA COOLDOWN SE ENVIOU COM SUCESSO!
-                r.setex(offer_cooldown_key, timedelta(minutes=10), "1")
+                r.setex(offer_cooldown_key, timedelta(minutes=2), "1")
                 
                 logger.info(f"🎯 {uid} | Botão enviado com sucesso | interest={grok_response.get('interest_level')}")
             
