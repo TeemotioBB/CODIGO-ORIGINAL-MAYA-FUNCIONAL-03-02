@@ -1611,12 +1611,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler de botões inline"""
     query = update.callback_query
     
+    # 🔥 CONFIRMA O CALLBACK IMEDIATAMENTE
+    await query.answer()
+    
     try:
         uid = query.from_user.id
         
+        # 🔥 LOG DE DEBUG
+        logger.warning(f"🔘 CALLBACK | User: {uid} | Data: '{query.data}'")
+        
         # Blacklist check
         if is_blacklisted(uid):
-            await query.answer()
+            logger.warning(f"🚫 User {uid} bloqueado")
             return
         
         # Tracking básico
@@ -1628,13 +1634,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # BOTÃO: IR PARA PRÉVIAS
         # ═══════════════════════════════════════════════════════
         if query.data == "goto_preview":
+            logger.warning(f"📢 Processando goto_preview para {uid}")
+            
             set_went_to_preview(uid)
             track_funnel(uid, "went_to_preview")
             save_message(uid, "action", "📢 CLICOU NO BOTÃO DE PRÉVIAS")
             
             visits = get_preview_visits(uid)
             
-            # Mensagem personalizada baseada em visitas
+            # Mensagem personalizada
             if visits == 1:
                 extra_msg = "\n\nÉ a sua primeira vez lá... aproveita! 💕"
             elif visits >= HIGH_RESISTANCE_VISITS:
@@ -1642,7 +1650,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 extra_msg = ""
             
-            # Envia link + foto teaser
+            # Envia foto + link
             await context.bot.send_photo(
                 chat_id=query.message.chat_id,
                 photo=random.choice(FOTOS_TEASER),
@@ -1653,18 +1661,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
             
-            await query.answer("📢 Link enviado! Olha aí em cima 👆", show_alert=False)
             logger.info(f"📢 {uid} foi para prévias (visita #{visits})")
         
         # ═══════════════════════════════════════════════════════
         # BOTÃO: IR PARA VIP
         # ═══════════════════════════════════════════════════════
         elif query.data == "goto_vip":
+            logger.warning(f"💎 Processando goto_vip para {uid}")
+            
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip_link")
             save_message(uid, "action", "💎 CLICOU NO BOTÃO VIP")
             
-            # Envia link + foto teaser
+            # Envia foto + link
             await context.bot.send_photo(
                 chat_id=query.message.chat_id,
                 photo=random.choice(FOTOS_TEASER),
@@ -1676,19 +1685,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
             
-            await query.answer("💎 Link enviado! Olha aí em cima 👆", show_alert=False)
             logger.info(f"💎 {uid} clicou no VIP")
         
         else:
-            # Fallback para callbacks desconhecidos
-            await query.answer()
+            # Callback desconhecido
+            logger.warning(f"⚠️ Callback NÃO RECONHECIDO: '{query.data}'")
         
     except Exception as e:
-        logger.error(f"Erro callback: {e}")
-        try:
-            await query.answer("Ops, algo deu errado. Tenta de novo?")
-        except:
-            pass
+        logger.error(f"❌ ERRO NO CALLBACK: {e}")
+        logger.exception(e)
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler principal de mensagens"""
