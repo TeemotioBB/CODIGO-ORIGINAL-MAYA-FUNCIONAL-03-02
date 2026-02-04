@@ -1572,11 +1572,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler do comando /start"""
     uid = update.effective_user.id
     
-    # Anti-spam: lock temporário
+    # 🔥 FIX: Lock atômico e mais duradouro
     start_lock_key = f"start_lock:{uid}"
-    if r.exists(start_lock_key):
+    
+    # Operação atômica - evita race condition
+    if not r.set(start_lock_key, "1", nx=True, ex=60):  # 60 segundos
+        logger.info(f"🚫 /start duplicado bloqueado: {uid}")
         return
-    r.setex(start_lock_key, 5, "1")
     
     # Blacklist check
     if is_blacklisted(uid):
@@ -1768,6 +1770,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     # ✨ NOVO: Marca que já mostrou mensagem de boas-vindas
                     r.setex(f"welcome_shown:{uid}", timedelta(hours=24), "1")
+                    
+                    # 🔥 ADICIONE ESTA LINHA:
                     return
         
         # ═══════════════════════════════════════════════════════
