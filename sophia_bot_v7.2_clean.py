@@ -145,15 +145,15 @@ MAX_MEMORIA = 12  # Últimas 12 mensagens na memória
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
-FOTO_ONBOARDING_START = "https://i.postimg.cc/qq4NtgYQ/E775DE63-5B33-4DBB-A65F-FDD851021569.jpg"
-FOTO_TEASE_PREVIAS = "https://i.postimg.cc/qq4NtgYQ/E775DE63-5B33-4DBB-A65F-FDD851021569.jpg"
-FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/gjmxwr5f/IMG-8507.jpg"
+FOTO_ONBOARDING_START = "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg"
+FOTO_TEASE_PREVIAS = "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg"
+FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 
 # Fotos teaser para quando direcionar pro canal
 FOTOS_TEASER = [
-    "https://i.postimg.cc/T1fKyhFG/IMG-8691.jpg",
-    "https://i.postimg.cc/4yPmpsk0/IMG-8692.jpg",
-    "https://i.postimg.cc/90bryC5S/IMG-8696.jpg",
+    "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
+    "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
+    "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
