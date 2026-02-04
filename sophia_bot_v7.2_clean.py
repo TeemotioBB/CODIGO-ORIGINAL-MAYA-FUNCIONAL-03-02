@@ -1913,9 +1913,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if should_offer:
             visits = get_preview_visits(uid)
             
-            # Marca cooldown: só pode oferecer de novo após 10 minutos
-            r.setex(offer_cooldown_key, timedelta(minutes=10), "1")
-            
             # Escolhe botões baseado em visitas
             if visits == 0:
                 keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
@@ -1928,13 +1925,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Espera 1 segundo antes de enviar botão
             await asyncio.sleep(1)
             
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="👇 Clica aqui embaixo amor 💕",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="👇 Clica aqui embaixo amor 💕",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                # 🔥 SÓ MARCA COOLDOWN SE ENVIOU COM SUCESSO!
+                r.setex(offer_cooldown_key, timedelta(minutes=10), "1")
+                
+                logger.info(f"🎯 {uid} | Botão enviado com sucesso | interest={grok_response.get('interest_level')}")
             
-            logger.info(f"🎯 {uid} | Grok ofereceu canal | interest={grok_response.get('interest_level')}")
+            except Exception as e:
+                logger.error(f"❌ Erro ao enviar botão para {uid}: {e}")
+                # Não marca cooldown se deu erro!
         
         # Mensagem de streak se aplicável
         if streak_updated:
