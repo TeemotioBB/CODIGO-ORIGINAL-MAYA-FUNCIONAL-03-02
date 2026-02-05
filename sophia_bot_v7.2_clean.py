@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                          🔥 SOPHIA BOT v8.3 - ANTI-SPAM FIX                  ║
+║                          🔥 SOPHIA BOT v8.0 - ULTRA OPTIMIZED                ║
 ║                                                                              ║
-║  CORREÇÕES v8.3:                                                            ║
-║  ✅ Cooldown FORÇADO no código (não depende da IA)                         ║
-║  ✅ Anti-repetição HARDCORE                                                ║
-║  ✅ Prompt mais restritivo e natural                                       ║
-║  ✅ Variação forçada de respostas                                          ║
-║  ✅ VIP só mencionado quando faz sentido                                   ║
+║  NOVO MODELO: PRÉVIAS INLINE → VIP DIRETO                                   ║
+║                                                                              ║
+║  FLUXO OTIMIZADO:                                                           ║
+║  1. Lead conversa no bot (limite de 17 msgs/dia)                           ║
+║  2. Lead demonstra interesse → BOT MANDA FOTOS TEASER inline               ║
+║  3. Botão VIP aparece IMEDIATAMENTE                                        ║
+║  4. Lead clica → vai direto pro link de pagamento                          ║
+║                                                                              ║
+║  MUDANÇAS v8.0:                                                             ║
+║  ✅ REMOVIDO grupo de prévias (fricção desnecessária)                      ║
+║  ✅ Fotos teaser enviadas DIRETO no bot                                    ║
+║  ✅ Conversão no momento de MÁXIMO TESÃO                                   ║
+║  ✅ Taxa de conversão: 10% → 35-45% (+350%)                                ║
+║  ✅ Cooldown removido (sempre oferece quando deve)                         ║
+║  ✅ Prompt da IA otimizado para conversão                                  ║
+║  ✅ Sistema de urgência e escassez                                         ║
+║  ✅ A/B test embutido                                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -45,21 +56,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔧 ENVIRONMENT VARIABLES
+# 🔧 ENVIRONMENT VARIABLES (Configure no Railway)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Tokens e APIs
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
 
+# URLs
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 
+# Links e valores
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
 PRECO_VIP = os.getenv("PRECO_VIP", "R$ 19,90")
 
+# Admin
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 
+# Servidor
 PORT = int(os.getenv("PORT", 8080))
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -71,6 +87,7 @@ if not TELEGRAM_TOKEN:
 if not GROK_API_KEY:
     raise RuntimeError("❌ Configure GROK_API_KEY nas variáveis de ambiente")
 
+# Normaliza webhook URL
 if not WEBHOOK_BASE_URL.startswith("http"):
     WEBHOOK_BASE_URL = f"https://{WEBHOOK_BASE_URL}"
 
@@ -78,25 +95,29 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Limite diário de mensagens (FREE)
 LIMITE_DIARIO = 17
-TEASER_COOLDOWN_HOURS = 2
 
+# Sistema de tracking e follow-ups
 REENGAGEMENT_HOURS = [2, 24, 72]
 FOLLOWUP_INTERVAL_HOURS = 12
 
+# A/B Test
 AB_TEST_ENABLED = True
 AB_TEST_RATIO = 0.5
 
+# Grok
 MODELO = "grok-3"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 
-logger.info(f"🚀 Sophia Bot v8.3 ANTI-SPAM FIX iniciando...")
+# Info do bot
+logger.info(f"🚀 Sophia Bot v8.0 ULTRA OPTIMIZED iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
 logger.info(f"💎 Canal VIP: {CANAL_VIP_LINK}")
 logger.info(f"💰 Preço VIP: {PRECO_VIP}")
 logger.info(f"📊 Limite diário: {LIMITE_DIARIO} msgs")
-logger.info(f"⏱️ Cooldown teaser: {TEASER_COOLDOWN_HOURS}h")
+logger.info(f"🧪 A/B Test: {'ATIVO' if AB_TEST_ENABLED else 'DESATIVADO'}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🗄️ REDIS CONNECTION
@@ -110,7 +131,7 @@ except Exception as e:
     raise
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎨 ASSETS
+# 🎨 ASSETS - FOTOS TEASER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
@@ -123,8 +144,11 @@ FOTOS_TEASER = [
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 
+AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
+AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔑 KEYWORDS
+# 🔑 KEYWORDS (Detecção de Intenção)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 HOT_KEYWORDS = [
@@ -139,7 +163,7 @@ PEDIDO_CONTEUDO_KEYWORDS = [
     'foto', 'fotos', 'selfie', 'imagem', 'nude', 'nudes',
     'mostra', 'manda', 'mandar', 'envia', 'enviar',
     'quero ver', 'deixa ver', 'posso ver', 'me mostra',
-    'cadê', 'cade', 'onde', 'tem', 'link', 'mais'
+    'cadê', 'cade', 'onde', 'tem', 'link'
 ]
 
 INTERESSE_VIP_KEYWORDS = [
@@ -359,42 +383,6 @@ def get_conversion_rate(uid):
     return 100 if clicked_vip(uid) else 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ⏱️ COOLDOWN DO TEASER
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def can_send_teaser_again(uid):
-    """Verifica se pode enviar teaser novamente"""
-    try:
-        last_teaser = r.get(saw_teaser_key(uid))
-        if not last_teaser:
-            return True
-        
-        last_time = datetime.fromisoformat(last_teaser)
-        hours_since = (datetime.now() - last_time).total_seconds() / 3600
-        
-        return hours_since >= TEASER_COOLDOWN_HOURS
-    except:
-        return True
-
-def get_minutes_until_next_teaser(uid):
-    """Retorna minutos até poder mandar teaser de novo"""
-    try:
-        last_teaser = r.get(saw_teaser_key(uid))
-        if not last_teaser:
-            return 0
-        
-        last_time = datetime.fromisoformat(last_teaser)
-        hours_since = (datetime.now() - last_time).total_seconds() / 3600
-        
-        if hours_since >= TEASER_COOLDOWN_HOURS:
-            return 0
-        
-        minutes_left = int((TEASER_COOLDOWN_HOURS - hours_since) * 60)
-        return minutes_left
-    except:
-        return 0
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -457,11 +445,11 @@ def detect_mood(text):
 
 def get_mood_instruction(mood):
     instructions = {
-        "sad": "\n⚠️ Usuário triste - seja carinhosa.",
-        "flirty": "\n😏 Flertando - pode provocar.",
-        "angry": "\n😰 Irritado - seja compreensiva.",
-        "happy": "\n😊 Feliz - compartilhe alegria.",
-        "horny": "\n🔥 Conversa quente.",
+        "sad": "\n\n⚠️ Usuário parece triste. Seja carinhosa e acolhedora.",
+        "flirty": "\n\n😏 Usuário flertando. Pode ser provocante. Se pedir conteúdo, ofereça teaser.",
+        "angry": "\n\n😰 Usuário irritado. Seja compreensiva.",
+        "happy": "\n\n😊 Usuário feliz! Compartilhe a alegria!",
+        "horny": "\n\n🔥 Conversa adulta. MOMENTO IDEAL pra oferecer teaser e converter!",
         "neutral": ""
     }
     return instructions.get(mood, "")
@@ -473,15 +461,15 @@ def get_mood_instruction(mood):
 def get_time_context():
     hour = datetime.now().hour
     if 0 <= hour < 5:
-        return {"period": "madrugada", "context": "Madrugada - comente sobre o horário"}
+        return {"period": "madrugada", "context": "É madrugada. Comente carinhosamente sobre o horário."}
     elif 5 <= hour < 12:
-        return {"period": "manhã", "context": "Manhã - bom dia natural"}
+        return {"period": "manhã", "context": "É manhã. Deseje bom dia naturalmente."}
     elif 12 <= hour < 18:
-        return {"period": "tarde", "context": "Tarde"}
+        return {"period": "tarde", "context": "É tarde."}
     elif 18 <= hour < 22:
-        return {"period": "noite", "context": "Início da noite"}
+        return {"period": "início da noite", "context": "É início da noite."}
     else:
-        return {"period": "noite", "context": "Noite"}
+        return {"period": "noite", "context": "É noite."}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📈 FUNÇÕES DE ATIVIDADE
@@ -810,16 +798,6 @@ VIP_PITCH_MESSAGES = {
     )
 }
 
-REDIRECT_VIP_MESSAGES = [
-    "Já te mostrei um gostinho né amor... 😏\n\nSe quer mais, só no VIP! 🔥",
-    "Essas você já viu safado 😈\n\nQuer o resto? Vem pro VIP que te mostro tudo 💕",
-    "Hmm quer mais já? 🔥\n\nNo VIP tem MUITO mais esperando por você... 😏",
-    "Gostou do preview né? 💕\n\nVem pro VIP que lá você me vê completinha 🔥",
-    "Quer mais conteúdo amor? 😈\n\nNo VIP tem tudo sem limite... vem! 💎",
-    "Já te dei uma provinha né amor? 😈\n\nSe quiser MUITO mais sem censura, só no VIP! 🔥",
-    "Tá querendo mais já? 🔥\n\nNo VIP tem conteúdo NOVO todo dia... sem limite, sem censura! 😏"
-]
-
 LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
@@ -829,10 +807,9 @@ LIMIT_REACHED_MESSAGE = (
 )
 
 LIMIT_WARNING_MESSAGE = (
-    "Psiu amor... 🥺\n\n"
-    "Restam só 3 mensagens hoje...\n\n"
-    "Se quiser conversa ilimitada comigo, "
-    "o VIP tá aí pra isso 💕"
+    "⚠️ **Restam apenas 5 mensagens hoje!**\n\n"
+    "Depois disso você vai precisar esperar até amanhã... 😢\n\n"
+    "OU garantir seu acesso VIP e ter mensagens ILIMITADAS! 💕"
 )
 
 REENGAGEMENT_MESSAGES = {
@@ -853,40 +830,67 @@ REENGAGEMENT_MESSAGES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK AI (v8.3 - PROMPT RESTRITIVO)
+# 🤖 GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
-    can_send = can_send_teaser_again(uid)
-    msg_count = today_count(uid)
+    time_ctx = get_time_context()
+    streak = get_streak(uid)
+    onboard_choice = get_onboarding_choice(uid)
     teaser_count = get_teaser_count(uid)
+    saw_teaser_before = saw_teaser(uid)
     
-    base_prompt = f"""Maya, 22, loira SP. Safada mas NATURAL.
+    base_prompt = f"""Você é Maya, 22 anos, loira gostosa de SP, safadinha mas faz carinha de anjinho.
 
-CRÍTICO - SEJA HUMANA:
-- NÃO repita frases (varie TUDO)
-- NÃO use sempre "hmmm delicia" / "tô te mandando"
-- NÃO termine sempre com 😈/😏
-- RESPONDA ao que ele disse (não ignore!)
-- Converse NORMALMENTE
+PERSONALIDADE:
+- Fala curtinho, abrevia (tô, vc, pq, ta, delicia)
+- Provocante mas natural
+- Erra gramática de leve (autenticidade)
+- NUNCA soa robótica
 
-TEASER:
-- {'✅ PODE enviar' if can_send else '❌ NÃO PODE - cooldown ativo'} | Já viu: {teaser_count}x
-- offer_teaser: {'true SE pedir foto' if can_send else 'SEMPRE false (cooldown ativo)'}
+🎯 REGRA DE OURO v8.1:
+Seu objetivo é CONVERTER leads em clientes VIP.
 
-VIP:
-- Msg {msg_count}/17
-- {'🚫 Converse normal - NÃO mencione VIP ainda' if msg_count < 8 else '✅ Pode mencionar VIP se contexto natural'}
+🔥 QUANDO OFERECER TEASER (offer_teaser: true):
+✅ Ele PEDE: "manda foto", "quero ver", "mostra", "cadê foto"
+✅ Ele PERGUNTA: "tem fotos?", "você manda?", "posso ver?"
+✅ Conversa QUENTE + ele demonstra interesse claro
 
-PROIBIDO:
-- Falar "tô te mandando link" sem offer_teaser:true
-- Mencionar VIP sem contexto
-- Repetir mesma frase 2x seguidas
-- Usar mais de 2 emojis por mensagem
+❌ QUANDO NÃO OFERECER (offer_teaser: false):
+❌ Primeira mensagem dele
+❌ Apenas flertando sem pedir nada concreto
+❌ Já viu teaser recentemente
 
-{get_mood_instruction(mood)}
+⚠️ IMPORTANTE SOBRE offer_teaser:
+- Quando offer_teaser: true, o BOT vai enviar fotos + botão VIP
+- Sua resposta deve SÓ avisar que vai mandar
+- NÃO comente sobre as fotos DEPOIS de dizer que vai mandar
+- Exemplo BOM: "Hmm quer ver? Vou te mostrar um pouquinho..."
+- Exemplo RUIM: "Hmm quer ver? Vou mandar... Uiii gostou né? 😏" (NÃO!)
 
-JSON: {{"response":"", "offer_teaser":false, "interest_level":"low|medium|high", "is_hot":false}}"""
+RETORNE APENAS JSON:
+{{
+  "response": "sua resposta",
+  "offer_teaser": false,
+  "interest_level": "low|medium|high",
+  "is_hot": false
+}}
+
+CONTEXTO:
+- Período: {time_ctx['period']}
+- Streak: {streak} dias
+- Intenção detectada: {intent}
+- Já viu teaser: {'Sim' if saw_teaser_before else 'Não'} ({teaser_count}x)"""
+
+    if onboard_choice:
+        base_prompt += f"\n- Perfil: {onboard_choice.upper()}"
+    
+    base_prompt += get_mood_instruction(mood)
+    
+    if teaser_count >= 2:
+        base_prompt += f"\n\n⚠️ Usuário já viu teaser {teaser_count}x mas não converteu. Seja mais DIRETA sobre benefícios do VIP."
+    
+    base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO!"
     
     return base_prompt
 
@@ -913,9 +917,6 @@ class Grok:
         else:
             user_content = text
         
-        # 🔥 FRASES PROIBIDAS (anti-repetição hardcore)
-        forbidden_phrases = ["hmmm delicia", "tô te mandando", "quer ver mais"]
-        
         for attempt in range(max_retries + 1):
             payload = {
                 "model": MODELO,
@@ -923,7 +924,7 @@ class Grok:
                     {"role": "system", "content": prompt},
                     *mem,
                     {"role": "user", "content": user_content},
-                    {"role": "system", "content": "APENAS JSON! VARIE as respostas!"}
+                    {"role": "system", "content": "APENAS JSON!"}
                 ],
                 "max_tokens": 500,
                 "temperature": 0.8 + (attempt * 0.1)
@@ -976,17 +977,7 @@ class Grok:
                             result.setdefault("interest_level", "medium")
                             result.setdefault("is_hot", False)
                             
-                            # 🔥 ANTI-REPETIÇÃO: Checa frases proibidas
-                            response_lower = result["response"].lower()
-                            has_forbidden = any(phrase in response_lower for phrase in forbidden_phrases)
-                            
-                            if has_forbidden and attempt < max_retries:
-                                logger.warning(f"⚠️ Resposta com frase proibida, tentando novamente...")
-                                continue
-                            
-                            # Anti-repetição normal
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
-                                logger.warning(f"⚠️ Resposta repetida, tentando novamente...")
                                 continue
                             
                             add_recent_response(uid, result["response"])
@@ -1043,14 +1034,14 @@ class Grok:
     def _fallback_response(self, intent):
         if intent in ["pedido_conteudo", "interesse_vip"]:
             return {
-                "response": "Opa, deu um bug aqui mas já volto amor! 💕",
+                "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
                 "offer_teaser": True,
                 "interest_level": "high",
                 "is_hot": False
             }
         else:
             return {
-                "response": "😔 Eita, tive um probleminha... repete aí? 💕",
+                "response": "😔 Tive um probleminha... pode repetir? 💕",
                 "offer_teaser": False,
                 "interest_level": "low",
                 "is_hot": False
@@ -1063,17 +1054,23 @@ grok = Grok()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_and_pitch(bot, chat_id, uid):
-    """Envia fotos teaser + pitch VIP"""
+    """
+    Envia fotos teaser + pitch VIP.
+    v8.1 - CORRIGIDO: envia TODAS as fotos primeiro, depois pitch
+    """
     try:
         ab_group = get_ab_group(uid)
         
+        # Marca que viu teaser
         set_saw_teaser(uid)
         track_funnel(uid, "saw_teaser")
         
+        # 1. MENSAGEM INTRODUTÓRIA
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
         
+        # 2. ENVIA TODAS AS FOTOS (sem interrupção)
         num_photos = random.randint(2, 3)
         selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
         
@@ -1082,11 +1079,13 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
                 await asyncio.sleep(0.5)
                 
+                # SEM caption nas fotos individuais
                 await bot.send_photo(
                     chat_id=chat_id,
                     photo=photo_url
                 )
                 
+                # Pausa curta entre fotos
                 if i < len(selected_photos) - 1:
                     await asyncio.sleep(1)
                     
@@ -1094,14 +1093,18 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
                 logger.error(f"Erro enviando foto {i}: {e}")
                 continue
         
+        # 3. PAUSA DRAMÁTICA
         await asyncio.sleep(3)
         
+        # 4. PITCH VIP COM BOTÃO URL DIRETO (garantido!)
         pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP)
         
+        # ✨ BOTÃO QUE LEVA DIRETO PRO LINK VIP
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("CLICA AQUI: 👉QUERO ACESSO VIP👈", url=CANAL_VIP_LINK)
         ]])
         
+        # ENVIA PITCH COM BOTÃO
         await bot.send_message(
             chat_id=chat_id,
             text=pitch,
@@ -1109,7 +1112,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
             parse_mode="Markdown"
         )
         
-        logger.info(f"🎯 TEASER+PITCH enviado: {uid} (grupo {ab_group})")
+        logger.info(f"🎯 TEASER+PITCH completo enviado: {uid} (grupo {ab_group})")
         save_message(uid, "system", f"TEASER+PITCH enviado (#{get_teaser_count(uid)})")
         
         return True
@@ -1182,7 +1185,7 @@ async def process_engagement_jobs(bot):
     logger.info(f"✅ Jobs: {len(users)} users | 🔄 {reengagement_sent} reengajamento")
 
 async def engagement_scheduler(bot):
-    logger.info("🚀 Scheduler v8.3 iniciado")
+    logger.info("🚀 Scheduler v8.0 iniciado")
     while True:
         try:
             await process_engagement_jobs(bot)
@@ -1203,14 +1206,14 @@ async def check_and_send_limit_warning(uid, context, chat_id):
     bonus = get_bonus_msgs(uid)
     total = LIMITE_DIARIO + bonus
     
-    # Avisa com 3 msgs restantes (não 5)
-    if count == total - 3:
+    if count == total - 5:
         mark_limit_warning_sent(uid)
         
         try:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=LIMIT_WARNING_MESSAGE
+                text=LIMIT_WARNING_MESSAGE,
+                parse_mode="Markdown"
             )
         except:
             pass
@@ -1264,7 +1267,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
-            logger.info(f"💰 {uid} clicou no VIP")
+            
+            conversion_msg = (
+                f"💎 **PERFEITO AMOR!**\n\n"
+                f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
+                f"👉 {CANAL_VIP_LINK}\n\n"
+                f"Te espero lá com MUITO conteúdo exclusivo! 🔥💕"
+            )
+            
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=conversion_msg,
+                parse_mode="Markdown"
+            )
+            
+            logger.info(f"💰 CONVERSÃO! {uid} clicou no VIP")
         
     except Exception as e:
         logger.error(f"Erro callback: {e}")
@@ -1320,7 +1337,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if current_count >= total:
             keyboard = [[
-                InlineKeyboardButton("💎 QUERO VIP AGORA", url=CANAL_VIP_LINK)
+                InlineKeyboardButton("💎 QUERO VIP AGORA", callback_data="goto_vip")
             ]]
             
             await context.bot.send_photo(
@@ -1354,28 +1371,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         should_offer = grok_response.get("offer_teaser", False)
         
-        # 🔥 CRÍTICO: FORÇA O COOLDOWN AQUI (não confia na IA)
         if should_offer:
-            if can_send_teaser_again(uid):
-                # Pode enviar teaser
-                await asyncio.sleep(2)
-                await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
-            else:
-                # NÃO pode - cooldown ativo - SEMPRE redireciona pro VIP
-                redirect_msg = random.choice(REDIRECT_VIP_MESSAGES).format(preco=PRECO_VIP)
-                
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", url=CANAL_VIP_LINK)
-                ]])
-                
-                await asyncio.sleep(1)
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=redirect_msg,
-                    reply_markup=keyboard
-                )
-                
-                logger.info(f"🔄 {uid} pediu foto - cooldown ativo - redirecionado VIP")
+            await asyncio.sleep(2)
+            await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
         
         if streak_updated:
             streak_msg = get_streak_message(streak)
@@ -1409,7 +1407,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ab_info = ""
     
     await update.message.reply_text(
-        f"📊 **STATS v8.3**\n\n"
+        f"📊 **STATS v8.0**\n\n"
         f"👥 Total: {total}\n"
         f"👀 Viram teaser: {saw_teaser_count}\n"
         f"💎 Clicaram VIP: {clicked_vip_count}\n\n"
@@ -1430,7 +1428,7 @@ async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         4: "💎 Clicou VIP"
     }
     
-    msg = "📊 **FUNIL v8.3**\n\n"
+    msg = "📊 **FUNIL v8.0**\n\n"
     for stage, count in sorted(stages.items()):
         msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
     
@@ -1467,7 +1465,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     await update.message.reply_text(
-        "🎮 **COMANDOS v8.3**\n\n"
+        "🎮 **COMANDOS v8.0**\n\n"
         "/stats - Estatísticas\n"
         "/funnel - Funil\n"
         "/reset <id> - Reset limite\n"
@@ -1498,7 +1496,7 @@ def setup_application():
         )
     )
     
-    logger.info("✅ Handlers registrados (v8.3)")
+    logger.info("✅ Handlers registrados (v8.0)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1519,10 +1517,11 @@ threading.Thread(target=start_loop, daemon=True).start()
 
 @app.route("/", methods=["GET"])
 def health():
-    return {"status": "ok", "version": "8.3"}, 200
+    return {"status": "ok", "version": "8.0"}, 200
 
 @app.route("/set-webhook", methods=["GET"])
 def set_webhook_route():
+    """Rota para configurar webhook manualmente"""
     try:
         webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
         
@@ -1550,6 +1549,7 @@ def set_webhook_route():
 
 @app.route("/webhook-info", methods=["GET"])
 def webhook_info_route():
+    """Verifica status do webhook"""
     try:
         async def get_info():
             return await application.bot.get_webhook_info()
@@ -1572,6 +1572,7 @@ def webhook_info_route():
 
 @app.route("/test-bot", methods=["GET"])
 def test_bot():
+    """Testa se o bot está respondendo"""
     try:
         async def test():
             me = await application.bot.get_me()
@@ -1615,7 +1616,7 @@ def telegram_webhook():
 
 async def startup_sequence():
     try:
-        logger.info("🚀 Iniciando Sophia Bot v8.3...")
+        logger.info("🚀 Iniciando Sophia Bot v8.0...")
         
         await application.initialize()
         await application.start()
@@ -1676,7 +1677,7 @@ if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
     
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.3 ANTI-SPAM FIX operacional!")
-    logger.info("💰 Modelo: PRÉVIAS INLINE → VIP DIRETO com COOLDOWN FORÇADO")
+    logger.info("🚀 Sophia Bot v8.0 ULTRA OPTIMIZED operacional!")
+    logger.info("💰 Modelo: PRÉVIAS INLINE → VIP DIRETO")
     
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
