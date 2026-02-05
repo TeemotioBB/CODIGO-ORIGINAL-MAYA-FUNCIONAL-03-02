@@ -1101,7 +1101,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         
         # ✨ BOTÃO QUE LEVA DIRETO PRO LINK VIP
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("CLICA AQUI: 👉QUERO ACESSO VIP👈", url=CANAL_VIP_LINK)
         ]])
         
         # ENVIA PITCH COM BOTÃO
