@@ -46,42 +46,7 @@ from telegram.ext import (
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ⚙️ CONFIGURAÇÃO - EDITE AQUI ANTES DO DEPLOY
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# 🔑 Tokens e APIs
-BOT_TOKEN = "COLE_SEU_TOKEN_BOT_AQUI"
-GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
-
-# 💎 Link do Canal VIP (ÚNICO link que importa agora)
-LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"
-
-# 👤 Admin
-MEU_TELEGRAM_ID = "1293602874"
-
-# 🌐 URL do Railway (após deploy, cole aqui)
-WEBHOOK_URL = "https://maya-bot-production.up.railway.app"
-
-# 💰 Preço do VIP (para mencionar nas mensagens)
-PRECO_VIP = "R$ 19,90"  # Ajuste conforme seu preço real
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ⚙️ CONFIGURAÇÕES AVANÇADAS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Limite diário de mensagens (FREE)
-LIMITE_DIARIO = 17
-
-# Sistema de tracking e follow-ups
-REENGAGEMENT_HOURS = [2, 24, 72]  # Quando enviar mensagens de reengajamento
-FOLLOWUP_INTERVAL_HOURS = 12      # Intervalo entre follow-ups
-
-# A/B Test (se True, testa diferentes abordagens)
-AB_TEST_ENABLED = True
-AB_TEST_RATIO = 0.5  # 50% grupo A, 50% grupo B
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔧 SETUP INICIAL
+# ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
 logging.basicConfig(
@@ -90,36 +55,67 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Environment Variables
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or BOT_TOKEN
-GROK_API_KEY = os.getenv("GROK_API_KEY") or GROK_KEY
-REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
-PORT = int(os.getenv("PORT", 8080))
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔧 ENVIRONMENT VARIABLES (Configure no Railway)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-webhook_url = os.getenv("WEBHOOK_BASE_URL") or WEBHOOK_URL
-if not webhook_url.startswith("http"):
-    webhook_url = f"https://{webhook_url}"
-WEBHOOK_BASE_URL = webhook_url
+# Tokens e APIs
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROK_API_KEY = os.getenv("GROK_API_KEY")
+REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
+
+# URLs
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 
-# Validação
-if not TELEGRAM_TOKEN or "COLE_SEU" in TELEGRAM_TOKEN:
-    raise RuntimeError("❌ Configure BOT_TOKEN no topo do arquivo")
-if not GROK_API_KEY or "COLE_SUA" in GROK_API_KEY:
-    raise RuntimeError("❌ Configure GROK_KEY no topo do arquivo")
+# Links e valores
+CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 19,90")
 
-# Admin IDs
-ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", MEU_TELEGRAM_ID).split(",")))
+# Admin
+ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 
-# Link VIP
-CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK") or LINK_CANAL_VIP
-PRECO_VIP_REAL = os.getenv("PRECO_VIP") or PRECO_VIP
+# Servidor
+PORT = int(os.getenv("PORT", 8080))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚙️ VALIDAÇÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("❌ Configure TELEGRAM_TOKEN nas variáveis de ambiente")
+if not GROK_API_KEY:
+    raise RuntimeError("❌ Configure GROK_API_KEY nas variáveis de ambiente")
+
+# Normaliza webhook URL
+if not WEBHOOK_BASE_URL.startswith("http"):
+    WEBHOOK_BASE_URL = f"https://{WEBHOOK_BASE_URL}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚙️ CONFIGURAÇÕES DO BOT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Limite diário de mensagens (FREE)
+LIMITE_DIARIO = 17
+
+# Sistema de tracking e follow-ups
+REENGAGEMENT_HOURS = [2, 24, 72]
+FOLLOWUP_INTERVAL_HOURS = 12
+
+# A/B Test
+AB_TEST_ENABLED = True
+AB_TEST_RATIO = 0.5
+
+# Grok
+MODELO = "grok-3"
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+MAX_MEMORIA = 12
 
 # Info do bot
 logger.info(f"🚀 Sophia Bot v8.0 ULTRA OPTIMIZED iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
 logger.info(f"💎 Canal VIP: {CANAL_VIP_LINK}")
-logger.info(f"💰 Preço VIP: {PRECO_VIP_REAL}")
+logger.info(f"💰 Preço VIP: {PRECO_VIP}")
 logger.info(f"📊 Limite diário: {LIMITE_DIARIO} msgs")
 logger.info(f"🧪 A/B Test: {'ATIVO' if AB_TEST_ENABLED else 'DESATIVADO'}")
 
@@ -135,19 +131,8 @@ except Exception as e:
     raise
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 CONFIGURAÇÃO GROK AI
+# 🎨 ASSETS - FOTOS TEASER
 # ═══════════════════════════════════════════════════════════════════════════════
-MODELO = "grok-3"
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-MAX_MEMORIA = 12
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🎨 ASSETS - FOTOS TEASER (CRITICAL!)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# 🔥 IMPORTANTE: Use fotos PROVOCANTES mas com censura estratégica
-# Bikini, lingerie, ângulos ousados - mas SEM nudez completa
-# O objetivo é EXCITAR mas deixar querendo mais
 
 FOTOS_TEASER = [
     "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
@@ -157,10 +142,8 @@ FOTOS_TEASER = [
     "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg",
 ]
 
-# Foto para limite atingido
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 
-# Áudios (opcional)
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
@@ -168,7 +151,6 @@ AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRm
 # 🔑 KEYWORDS (Detecção de Intenção)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Keywords que indicam conversa adulta/quente
 HOT_KEYWORDS = [
     'pau', 'buceta', 'chupar', 'gozar', 'tesão', 'foder', 'transar',
     'punheta', 'siririca', 'safada', 'gostosa', 'pelada', 'nua',
@@ -177,7 +159,6 @@ HOT_KEYWORDS = [
     'excitado', 'excitada', 'molhada', 'duro', 'tesudo', 'tesuda'
 ]
 
-# Keywords que indicam PEDIDO EXPLÍCITO de conteúdo
 PEDIDO_CONTEUDO_KEYWORDS = [
     'foto', 'fotos', 'selfie', 'imagem', 'nude', 'nudes',
     'mostra', 'manda', 'mandar', 'envia', 'enviar',
@@ -185,7 +166,6 @@ PEDIDO_CONTEUDO_KEYWORDS = [
     'cadê', 'cade', 'onde', 'tem', 'link'
 ]
 
-# Keywords que indicam interesse comercial
 INTERESSE_VIP_KEYWORDS = [
     'vip', 'premium', 'pagar', 'pagamento', 'comprar', 'quanto',
     'preço', 'preco', 'valor', 'custa', 'custo', 'plano',
@@ -196,40 +176,27 @@ INTERESSE_VIP_KEYWORDS = [
 # 🗄️ REDIS KEYS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Memória e perfil
 def memory_key(uid): return f"memory:{uid}"
 def user_profile_key(uid): return f"profile:{uid}"
 def first_contact_key(uid): return f"first_contact:{uid}"
 def lang_key(uid): return f"lang:{uid}"
-
-# Controle diário
 def count_key(uid): return f"count:{uid}:{date.today()}"
 def bonus_msgs_key(uid): return f"bonus:{uid}"
 def limit_notified_key(uid): return f"limit_notified:{uid}:{date.today()}"
 def limit_warning_sent_key(uid): return f"limit_warning:{uid}:{date.today()}"
-
-# Atividade
 def last_activity_key(uid): return f"last_activity:{uid}"
 def last_reengagement_key(uid): return f"last_reengagement:{uid}"
 def daily_messages_sent_key(uid): return f"daily_msg_sent:{uid}:{date.today()}"
 def ignored_count_key(uid): return f"ignored:{uid}"
 def engagement_paused_key(uid): return f"paused:{uid}"
 def awaiting_response_key(uid): return f"awaiting:{uid}"
-
-# Streak
 def streak_key(uid): return f"streak:{uid}"
 def streak_last_day_key(uid): return f"streak_last:{uid}"
-
-# Tracking de conversão (NOVO v8.0)
 def saw_teaser_key(uid): return f"saw_teaser:{uid}"
 def teaser_count_key(uid): return f"teaser_count:{uid}"
 def clicked_vip_key(uid): return f"clicked_vip:{uid}"
 def conversation_messages_key(uid): return f"conversation_msgs:{uid}"
-
-# A/B Test
 def ab_group_key(uid): return f"ab_group:{uid}"
-
-# Outros
 def chatlog_key(uid): return f"chatlog:{uid}"
 def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
@@ -372,11 +339,10 @@ def get_streak_message(streak):
     return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📢 TRACKING DE CONVERSÃO (NOVO v8.0)
+# 📢 TRACKING DE CONVERSÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def set_saw_teaser(uid):
-    """Marca que usuário viu fotos teaser"""
     try:
         r.set(saw_teaser_key(uid), datetime.now().isoformat())
         r.incr(teaser_count_key(uid))
@@ -386,21 +352,18 @@ def set_saw_teaser(uid):
         pass
 
 def saw_teaser(uid):
-    """Verifica se já viu teaser"""
     try:
         return r.exists(saw_teaser_key(uid))
     except:
         return False
 
 def get_teaser_count(uid):
-    """Quantas vezes viu teaser"""
     try:
         return int(r.get(teaser_count_key(uid)) or 0)
     except:
         return 0
 
 def set_clicked_vip(uid):
-    """Marca que clicou no botão VIP"""
     try:
         r.set(clicked_vip_key(uid), datetime.now().isoformat())
         logger.info(f"💎 {uid} clicou no VIP")
@@ -408,14 +371,12 @@ def set_clicked_vip(uid):
         pass
 
 def clicked_vip(uid):
-    """Verifica se clicou no VIP"""
     try:
         return r.exists(clicked_vip_key(uid))
     except:
         return False
 
 def get_conversion_rate(uid):
-    """Calcula taxa de conversão individual"""
     teaser = get_teaser_count(uid)
     if teaser == 0:
         return 0
@@ -426,7 +387,6 @@ def get_conversion_rate(uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_ab_group(uid):
-    """Retorna grupo A/B do usuário (A ou B)"""
     if not AB_TEST_ENABLED:
         return "A"
     
@@ -435,7 +395,6 @@ def get_ab_group(uid):
         if group:
             return group
         
-        # Assign aleatório
         group = "A" if random.random() < AB_TEST_RATIO else "B"
         r.set(ab_group_key(uid), group)
         return group
@@ -622,9 +581,6 @@ def mark_limit_warning_sent(uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def track_funnel(uid, stage):
-    """
-    Stages: start, first_message, saw_teaser, clicked_vip
-    """
     stages = {
         "start": 1,
         "first_message": 2,
@@ -721,30 +677,23 @@ def get_last_reengagement(uid):
         return 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔍 DETECÇÃO DE INTENÇÃO (CRUCIAL v8.0!)
+# 🔍 DETECÇÃO DE INTENÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_intent(text):
-    """
-    Detecta intenção do usuário.
-    Retorna: 'pedido_conteudo', 'interesse_vip', 'hot', 'neutral'
-    """
     if not text:
         return "neutral"
     
     text_lower = text.lower()
     
-    # PEDIDO EXPLÍCITO de foto/conteúdo
     for keyword in PEDIDO_CONTEUDO_KEYWORDS:
         if keyword in text_lower:
             return "pedido_conteudo"
     
-    # INTERESSE em VIP
     for keyword in INTERESSE_VIP_KEYWORDS:
         if keyword in text_lower:
             return "interesse_vip"
     
-    # CONVERSA QUENTE (mas sem pedido explícito)
     for keyword in HOT_KEYWORDS:
         if keyword in text_lower:
             return "hot"
@@ -792,7 +741,7 @@ def get_onboarding_choice(uid):
         return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📷 VISÃO (Download de imagens)
+# 📷 VISÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def download_photo_base64(bot, file_id):
@@ -805,7 +754,7 @@ async def download_photo_base64(bot, file_id):
         return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💬 MENSAGENS DO BOT (v8.0 OPTIMIZED)
+# 💬 MENSAGENS DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MENSAGEM_INICIO = (
@@ -815,7 +764,6 @@ MENSAGEM_INICIO = (
     "Tô louca pra saber o que você quer comigo 😈"
 )
 
-# Mensagens de teaser (ANTES de enviar fotos)
 TEASER_INTRO_MESSAGES = {
     "A": [
         "Hmmm... você quer me ver? 😏\n\nDeixa eu te mostrar um pouquinho... mas só um gostinho 🔥",
@@ -829,7 +777,6 @@ TEASER_INTRO_MESSAGES = {
     ]
 }
 
-# Call to action APÓS enviar fotos teaser
 VIP_PITCH_MESSAGES = {
     "A": (
         "E aí amor, gostou? 😏\n\n"
@@ -865,7 +812,6 @@ LIMIT_WARNING_MESSAGE = (
     "OU garantir seu acesso VIP e ter mensagens ILIMITADAS! 💕"
 )
 
-# Mensagens de reengajamento
 REENGAGEMENT_MESSAGES = {
     "pt": {
         1: [
@@ -884,13 +830,10 @@ REENGAGEMENT_MESSAGES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK AI - Sistema de Resposta Inteligente (v8.0 OPTIMIZED)
+# 🤖 GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
-    """
-    Constrói prompt otimizado para conversão.
-    """
     time_ctx = get_time_context()
     streak = get_streak(uid)
     onboard_choice = get_onboarding_choice(uid)
@@ -938,14 +881,11 @@ CONTEXTO:
 - Intenção detectada: {intent}
 - Já viu teaser: {'Sim' if saw_teaser_before else 'Não'} ({teaser_count}x)"""
 
-    # Contexto de onboarding
     if onboard_choice:
         base_prompt += f"\n- Perfil: {onboard_choice.upper()}"
     
-    # Contexto de humor
     base_prompt += get_mood_instruction(mood)
     
-    # Instrução baseada em quantas vezes já viu teaser
     if teaser_count >= 2:
         base_prompt += f"\n\n⚠️ Usuário já viu teaser {teaser_count}x mas não converteu. Seja mais DIRETA sobre benefícios do VIP."
     
@@ -954,8 +894,6 @@ CONTEXTO:
     return base_prompt
 
 class Grok:
-    """Cliente Grok otimizado v8.0"""
-    
     async def reply(self, uid, text, image_base64=None, max_retries=2):
         mem = get_memory(uid)
         lang = get_lang(uid)
@@ -967,7 +905,6 @@ class Grok:
         
         prompt = build_prompt(uid, lang, mood, intent)
         
-        # Prepara conteúdo
         if image_base64:
             user_content = []
             if text:
@@ -979,7 +916,6 @@ class Grok:
         else:
             user_content = text
         
-        # Tenta gerar resposta
         for attempt in range(max_retries + 1):
             payload = {
                 "model": MODELO,
@@ -1014,7 +950,6 @@ class Grok:
                         
                         answer = data["choices"][0]["message"]["content"]
                         
-                        # Parse JSON
                         try:
                             cleaned = answer.strip()
                             if "```json" in cleaned:
@@ -1041,7 +976,6 @@ class Grok:
                             result.setdefault("interest_level", "medium")
                             result.setdefault("is_hot", False)
                             
-                            # Anti-repetição
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
                                 continue
                             
@@ -1056,8 +990,6 @@ class Grok:
                             
                         except (json.JSONDecodeError, ValueError) as e:
                             logger.error(f"Parse erro: {e}")
-                            
-                            # FALLBACK inteligente
                             result = self._smart_fallback(answer, intent)
                             break
                         
@@ -1065,7 +997,6 @@ class Grok:
                 logger.exception(f"Grok erro: {e}")
                 return self._fallback_response(intent)
         
-        # Salva memória
         memory_text = f"[Foto] {text}" if image_base64 else text
         add_to_memory(uid, "user", memory_text)
         add_to_memory(uid, "assistant", result["response"])
@@ -1074,10 +1005,8 @@ class Grok:
         return result
     
     def _smart_fallback(self, raw_text, intent):
-        """Fallback inteligente quando JSON falha"""
         text_lower = raw_text.lower()
         
-        # Detecta se mencionou oferecer algo
         offer_keywords = [
             'vou mandar', 'vou te mandar', 'vou te mostrar',
             'te mando', 'te mostro', 'olha', 'vê', 've',
@@ -1085,10 +1014,8 @@ class Grok:
         ]
         offer_teaser = any(k in text_lower for k in offer_keywords)
         
-        # Detecta se é quente
         is_hot = any(k in text_lower for k in HOT_KEYWORDS[:15])
         
-        # Interesse level baseado em intent
         interest_map = {
             "pedido_conteudo": "high",
             "interesse_vip": "high",
@@ -1104,7 +1031,6 @@ class Grok:
         }
     
     def _fallback_response(self, intent):
-        """Resposta de emergência"""
         if intent in ["pedido_conteudo", "interesse_vip"]:
             return {
                 "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
@@ -1123,27 +1049,20 @@ class Grok:
 grok = Grok()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎯 ENVIO DE TEASER + PITCH VIP (CORE v8.0!)
+# 🎯 ENVIO DE TEASER + PITCH VIP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_and_pitch(bot, chat_id, uid):
-    """
-    Envia fotos teaser + pitch VIP.
-    Esta é a função MAIS IMPORTANTE do bot v8.0!
-    """
     try:
         ab_group = get_ab_group(uid)
         
-        # Marca que viu teaser
         set_saw_teaser(uid)
         track_funnel(uid, "saw_teaser")
         
-        # 1. MENSAGEM INTRODUTÓRIA
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
         
-        # 2. ENVIA 2-3 FOTOS TEASER
         num_photos = random.randint(2, 3)
         selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
         
@@ -1153,7 +1072,6 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
             
             caption = None
             if i == len(selected_photos) - 1:
-                # Última foto: adiciona caption provocante
                 captions = [
                     "Gostou? No VIP tem MUITO mais... 🔥",
                     "Isso é só o começo amor... 😏",
@@ -1168,11 +1086,9 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
             )
             await asyncio.sleep(1.5)
         
-        # 3. PITCH VIP
         await asyncio.sleep(2)
-        pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP_REAL)
+        pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP)
         
-        # Botão VIP
         keyboard = [[
             InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", callback_data="goto_vip")
         ]]
@@ -1198,7 +1114,6 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_reengagement_message(bot, uid, level):
-    """Mensagem de reengajamento para inativos"""
     if is_engagement_paused(uid):
         return False
     
@@ -1223,7 +1138,6 @@ async def send_reengagement_message(bot, uid, level):
         return False
 
 async def process_engagement_jobs(bot):
-    """Processa jobs de engagement"""
     logger.info("🔄 Processando engagement jobs...")
     
     users = get_all_active_users()
@@ -1241,15 +1155,12 @@ async def process_engagement_jobs(bot):
             if hours_inactive:
                 last_level = get_last_reengagement(uid)
                 
-                # 72h
                 if hours_inactive >= 72 and last_level < 3:
                     if await send_reengagement_message(bot, uid, 3):
                         reengagement_sent += 1
-                # 24h
                 elif hours_inactive >= 24 and last_level < 2:
                     if await send_reengagement_message(bot, uid, 2):
                         reengagement_sent += 1
-                # 2h
                 elif hours_inactive >= 2 and last_level < 1:
                     if await send_reengagement_message(bot, uid, 1):
                         reengagement_sent += 1
@@ -1262,7 +1173,6 @@ async def process_engagement_jobs(bot):
     logger.info(f"✅ Jobs: {len(users)} users | 🔄 {reengagement_sent} reengajamento")
 
 async def engagement_scheduler(bot):
-    """Scheduler - roda a cada 15 min"""
     logger.info("🚀 Scheduler v8.0 iniciado")
     while True:
         try:
@@ -1277,7 +1187,6 @@ async def engagement_scheduler(bot):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def check_and_send_limit_warning(uid, context, chat_id):
-    """Aviso aos 80% do limite"""
     if was_limit_warning_sent_today(uid):
         return
     
@@ -1302,10 +1211,8 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /start"""
     uid = update.effective_user.id
     
-    # Lock anti-duplicação
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
@@ -1332,7 +1239,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Erro /start: {e}")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler de botões"""
     query = update.callback_query
     await query.answer()
     
@@ -1345,13 +1251,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_last_activity(uid)
         reset_ignored(uid)
         
-        # BOTÃO VIP
         if query.data == "goto_vip":
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
             
-            # Mensagem de conversão
             conversion_msg = (
                 f"💎 **PERFEITO AMOR!**\n\n"
                 f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
@@ -1371,7 +1275,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Erro callback: {e}")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler principal de mensagens"""
     uid = update.effective_user.id
     
     if is_blacklisted(uid):
@@ -1390,7 +1293,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
         
-        # FOTO
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
@@ -1405,7 +1307,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                 await update.message.reply_text(grok_response["response"])
                 
-                # Se deve oferecer teaser
                 if grok_response.get("offer_teaser", False):
                     await asyncio.sleep(2)
                     await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
@@ -1415,17 +1316,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
                 return
         
-        # Marca primeiro contato
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
         
-        # VERIFICA LIMITE
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
         
         if current_count >= total:
-            # Limite atingido
             keyboard = [[
                 InlineKeyboardButton("💎 QUERO VIP AGORA", callback_data="goto_vip")
             ]]
@@ -1433,14 +1331,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=FOTO_LIMITE_ATINGIDO,
-                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP_REAL),
+                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
             logger.info(f"🚫 {uid} atingiu limite")
             return
         
-        # Incrementa contador
         if bonus > 0:
             use_bonus_msg(uid)
         else:
@@ -1448,10 +1345,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         increment_conversation_messages(uid)
         
-        # Aviso de limite
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
         
-        # GERA RESPOSTA IA
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
@@ -1460,17 +1355,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         grok_response = await grok.reply(uid, text)
         
-        # Envia resposta
         await update.message.reply_text(grok_response["response"])
         
-        # 🔥 DECISÃO CRÍTICA: Oferecer teaser?
         should_offer = grok_response.get("offer_teaser", False)
         
         if should_offer:
             await asyncio.sleep(2)
             await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
         
-        # Streak
         if streak_updated:
             streak_msg = get_streak_message(streak)
             if streak_msg:
@@ -1485,7 +1377,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Estatísticas v8.0"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -1494,10 +1385,8 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
     clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
     
-    # Taxa de conversão
     ctr_teaser_to_vip = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0
     
-    # A/B test
     if AB_TEST_ENABLED:
         group_a = sum(1 for uid in users if get_ab_group(uid) == "A")
         group_b = total - group_a
@@ -1515,7 +1404,6 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Funil v8.0"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -1535,7 +1423,6 @@ async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reset limite"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -1548,7 +1435,6 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Limite resetado: {uid}")
 
 async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dar bônus"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -1563,7 +1449,6 @@ async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ +{amount} bônus: {uid}")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Help"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -1577,7 +1462,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚀 SETUP
+# 🚀 SETUP APPLICATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def setup_application():
@@ -1622,6 +1507,80 @@ threading.Thread(target=start_loop, daemon=True).start()
 def health():
     return {"status": "ok", "version": "8.0"}, 200
 
+@app.route("/set-webhook", methods=["GET"])
+def set_webhook_route():
+    """Rota para configurar webhook manualmente"""
+    try:
+        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+        
+        async def setup():
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            await asyncio.sleep(1)
+            await application.bot.set_webhook(webhook_url)
+            await asyncio.sleep(1)
+            info = await application.bot.get_webhook_info()
+            return info
+        
+        info = asyncio.run_coroutine_threadsafe(setup(), loop).result(timeout=15)
+        
+        return {
+            "status": "success",
+            "webhook_url": info.url,
+            "pending_updates": info.pending_update_count,
+            "last_error": info.last_error_message,
+            "last_error_date": str(info.last_error_date) if info.last_error_date else None
+        }, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro set webhook: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+@app.route("/webhook-info", methods=["GET"])
+def webhook_info_route():
+    """Verifica status do webhook"""
+    try:
+        async def get_info():
+            return await application.bot.get_webhook_info()
+        
+        info = asyncio.run_coroutine_threadsafe(get_info(), loop).result(timeout=10)
+        
+        return {
+            "url": info.url,
+            "has_custom_certificate": info.has_custom_certificate,
+            "pending_update_count": info.pending_update_count,
+            "last_error_date": str(info.last_error_date) if info.last_error_date else None,
+            "last_error_message": info.last_error_message,
+            "max_connections": info.max_connections,
+            "allowed_updates": info.allowed_updates
+        }, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro webhook info: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+@app.route("/test-bot", methods=["GET"])
+def test_bot():
+    """Testa se o bot está respondendo"""
+    try:
+        async def test():
+            me = await application.bot.get_me()
+            return {
+                "bot": {
+                    "id": me.id,
+                    "username": me.username,
+                    "first_name": me.first_name,
+                    "can_join_groups": me.can_join_groups,
+                    "can_read_all_group_messages": me.can_read_all_group_messages
+                }
+            }
+        
+        result = asyncio.run_coroutine_threadsafe(test(), loop).result(timeout=10)
+        return {"status": "ok", "data": result}, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro test bot: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
 @app.route(WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook():
     try:
@@ -1640,40 +1599,67 @@ def telegram_webhook():
         return "error", 500
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎬 MAIN
+# 🎬 STARTUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def startup_sequence():
     try:
+        logger.info("🚀 Iniciando Sophia Bot v8.0...")
+        
         await application.initialize()
         await application.start()
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         
-        # Setup webhook com retry
-        max_retries = 5
+        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+        logger.info(f"📍 Configurando webhook: {webhook_url}")
+        
+        max_retries = 3
         for attempt in range(max_retries):
             try:
                 await application.bot.delete_webhook(drop_pending_updates=True)
-                webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-                await application.bot.set_webhook(webhook_url)
+                await asyncio.sleep(1)
                 
-                webhook_info = await application.bot.get_webhook_info()
-                if webhook_info.url == webhook_url:
-                    logger.info(f"✅ Webhook OK: {webhook_url}")
-                    break
+                success = await application.bot.set_webhook(
+                    url=webhook_url,
+                    allowed_updates=["message", "callback_query"]
+                )
+                
+                if success:
+                    info = await application.bot.get_webhook_info()
+                    if info.url == webhook_url:
+                        logger.info(f"✅ Webhook configurado: {webhook_url}")
+                        logger.info(f"📊 Pending updates: {info.pending_update_count}")
+                        if info.last_error_message:
+                            logger.warning(f"⚠️ Last error: {info.last_error_message}")
+                        break
+                    else:
+                        logger.warning(f"⚠️ Webhook URL diferente: {info.url}")
                 else:
-                    await asyncio.sleep(2)
+                    logger.error("❌ Falha ao configurar webhook")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+                    
             except Exception as e:
-                logger.error(f"Webhook erro tentativa {attempt + 1}: {e}")
+                logger.error(f"❌ Tentativa {attempt + 1} falhou: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(5)
+                else:
+                    raise
         
-        # Inicia scheduler
         asyncio.create_task(engagement_scheduler(application.bot))
+        logger.info("✅ Scheduler iniciado")
+        
+        me = await application.bot.get_me()
+        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
         
     except Exception as e:
-        logger.exception(f"ERRO STARTUP: {e}")
+        logger.exception(f"💥 ERRO CRÍTICO NO STARTUP: {e}")
         raise
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎬 MAIN
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
@@ -1681,4 +1667,5 @@ if __name__ == "__main__":
     logger.info(f"🌐 Flask rodando na porta {PORT}")
     logger.info("🚀 Sophia Bot v8.0 ULTRA OPTIMIZED operacional!")
     logger.info("💰 Modelo: PRÉVIAS INLINE → VIP DIRETO")
+    
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
