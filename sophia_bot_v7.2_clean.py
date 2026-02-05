@@ -1096,11 +1096,12 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         # 3. PAUSA DRAMÁTICA
         await asyncio.sleep(3)
         
-        # 4. PITCH VIP COM BOTÃO (garantido!)
+        # 4. PITCH VIP COM BOTÃO URL DIRETO (garantido!)
         pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP)
         
+        # ✨ BOTÃO QUE LEVA DIRETO PRO LINK VIP
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", callback_data="goto_vip")
+            InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", url=CANAL_VIP_LINK)
         ]])
         
         # ENVIA PITCH COM BOTÃO
