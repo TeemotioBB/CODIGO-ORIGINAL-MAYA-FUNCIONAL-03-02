@@ -848,9 +848,8 @@ PERSONALIDADE:
 - Erra gramática de leve (autenticidade)
 - NUNCA soa robótica
 
-🎯 REGRA DE OURO v8.0:
+🎯 REGRA DE OURO v8.1:
 Seu objetivo é CONVERTER leads em clientes VIP.
-Você faz isso sendo provocante, criando tesão, e oferecendo conteúdo no MOMENTO CERTO.
 
 🔥 QUANDO OFERECER TEASER (offer_teaser: true):
 ✅ Ele PEDE: "manda foto", "quero ver", "mostra", "cadê foto"
@@ -860,12 +859,14 @@ Você faz isso sendo provocante, criando tesão, e oferecendo conteúdo no MOMEN
 ❌ QUANDO NÃO OFERECER (offer_teaser: false):
 ❌ Primeira mensagem dele
 ❌ Apenas flertando sem pedir nada concreto
-❌ Já viu teaser recentemente (últimos minutos)
+❌ Já viu teaser recentemente
 
-🎯 IMPORTANTE:
-- Se você DISSER que vai mandar foto/link → offer_teaser: true SEMPRE
-- Se só tá flertando sem prometer nada → offer_teaser: false
-- Seja HONESTA: se vai oferecer, marque true. Se não, false.
+⚠️ IMPORTANTE SOBRE offer_teaser:
+- Quando offer_teaser: true, o BOT vai enviar fotos + botão VIP
+- Sua resposta deve SÓ avisar que vai mandar
+- NÃO comente sobre as fotos DEPOIS de dizer que vai mandar
+- Exemplo BOM: "Hmm quer ver? Vou te mostrar um pouquinho..."
+- Exemplo RUIM: "Hmm quer ver? Vou mandar... Uiii gostou né? 😏" (NÃO!)
 
 RETORNE APENAS JSON:
 {{
@@ -1053,60 +1054,70 @@ grok = Grok()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_and_pitch(bot, chat_id, uid):
+    """
+    Envia fotos teaser + pitch VIP.
+    v8.1 - CORRIGIDO: envia TODAS as fotos primeiro, depois pitch
+    """
     try:
         ab_group = get_ab_group(uid)
         
+        # Marca que viu teaser
         set_saw_teaser(uid)
         track_funnel(uid, "saw_teaser")
         
+        # 1. MENSAGEM INTRODUTÓRIA
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
         
+        # 2. ENVIA TODAS AS FOTOS (sem interrupção)
         num_photos = random.randint(2, 3)
         selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
         
         for i, photo_url in enumerate(selected_photos):
-            await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-            await asyncio.sleep(1)
-            
-            caption = None
-            if i == len(selected_photos) - 1:
-                captions = [
-                    "Gostou? No VIP tem MUITO mais... 🔥",
-                    "Isso é só o começo amor... 😏",
-                    "Imagina o que tem no VIP então... 💦"
-                ]
-                caption = random.choice(captions)
-            
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=photo_url,
-                caption=caption
-            )
-            await asyncio.sleep(1.5)
+            try:
+                await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+                await asyncio.sleep(0.5)
+                
+                # SEM caption nas fotos individuais
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_url
+                )
+                
+                # Pausa curta entre fotos
+                if i < len(selected_photos) - 1:
+                    await asyncio.sleep(1)
+                    
+            except Exception as e:
+                logger.error(f"Erro enviando foto {i}: {e}")
+                continue
         
-        await asyncio.sleep(2)
+        # 3. PAUSA DRAMÁTICA
+        await asyncio.sleep(3)
+        
+        # 4. PITCH VIP COM BOTÃO (garantido!)
         pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP)
         
-        keyboard = [[
+        keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", callback_data="goto_vip")
-        ]]
+        ]])
         
+        # ENVIA PITCH COM BOTÃO
         await bot.send_message(
             chat_id=chat_id,
             text=pitch,
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
         
-        logger.info(f"🎯 TEASER+PITCH enviado: {uid} (grupo {ab_group})")
+        logger.info(f"🎯 TEASER+PITCH completo enviado: {uid} (grupo {ab_group})")
         save_message(uid, "system", f"TEASER+PITCH enviado (#{get_teaser_count(uid)})")
         
         return True
         
     except Exception as e:
-        logger.error(f"Erro send_teaser: {e}")
+        logger.error(f"❌ Erro send_teaser: {e}")
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
