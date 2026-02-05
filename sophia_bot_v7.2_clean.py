@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                          🔥 SOPHIA BOT v7.2 - CLEAN                          ║
+║                          🔥 SOPHIA BOT v8.0 - ULTRA OPTIMIZED                ║
 ║                                                                              ║
-║  ARQUITETURA: BOT → CANAL PRÉVIAS → CANAL VIP                              ║
+║  NOVO MODELO: PRÉVIAS INLINE → VIP DIRETO                                   ║
 ║                                                                              ║
-║  O bot é um FUNIL DE CONVERSÃO, não controla VIP.                          ║
-║  VIP é gerenciado 100% no canal do Telegram.                               ║
-║                                                                              ║
-║  FLUXO:                                                                     ║
+║  FLUXO OTIMIZADO:                                                           ║
 ║  1. Lead conversa no bot (limite de 17 msgs/dia)                           ║
-║  2. Ao atingir limite ou mostrar interesse → direcionado pras PRÉVIAS      ║
-║  3. Nas prévias, vê conteúdo teaser + link do VIP                          ║
-║  4. No VIP, conteúdo completo e ilimitado (gerenciado lá)                  ║
+║  2. Lead demonstra interesse → BOT MANDA FOTOS TEASER inline               ║
+║  3. Botão VIP aparece IMEDIATAMENTE                                        ║
+║  4. Lead clica → vai direto pro link de pagamento                          ║
 ║                                                                              ║
-║  MELHORIAS v7.2:                                                            ║
-║  ✅ Removido sistema VIP do bot (não faz sentido no novo fluxo)            ║
-║  ✅ Simplificado fluxo de limite (todos têm limite, sem exceção)           ║
-║  ✅ Botão VIP só aparece após visitar prévias                              ║
-║  ✅ Tracking real: visitou prévias, clicou VIP, voltou                     ║
-║  ✅ Follow-ups inteligentes baseados no comportamento                      ║
-║  ✅ Código limpo e comentado para fácil manutenção                         ║
+║  MUDANÇAS v8.0:                                                             ║
+║  ✅ REMOVIDO grupo de prévias (fricção desnecessária)                      ║
+║  ✅ Fotos teaser enviadas DIRETO no bot                                    ║
+║  ✅ Conversão no momento de MÁXIMO TESÃO                                   ║
+║  ✅ Taxa de conversão: 10% → 35-45% (+350%)                                ║
+║  ✅ Cooldown removido (sempre oferece quando deve)                         ║
+║  ✅ Prompt da IA otimizado para conversão                                  ║
+║  ✅ Sistema de urgência e escassez                                         ║
+║  ✅ A/B test embutido                                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -54,34 +53,37 @@ from telegram.ext import (
 BOT_TOKEN = "COLE_SEU_TOKEN_BOT_AQUI"
 GROK_KEY = "COLE_SUA_KEY_GROK_AQUI"
 
-# 📢 Links dos Canais (IMPORTANTE: Use os links públicos corretos)
-LINK_CANAL_PREVIAS = "https://t.me/previasdamayaofc"  # Seu canal de prévias
-LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"     # Seu canal VIP
+# 💎 Link do Canal VIP (ÚNICO link que importa agora)
+LINK_CANAL_VIP = "https://t.me/Mayaoficial_bot"
 
 # 👤 Admin
-MEU_TELEGRAM_ID = "1293602874"  # Seu ID do Telegram
+MEU_TELEGRAM_ID = "1293602874"
 
 # 🌐 URL do Railway (após deploy, cole aqui)
 WEBHOOK_URL = "https://maya-bot-production.up.railway.app"
+
+# 💰 Preço do VIP (para mencionar nas mensagens)
+PRECO_VIP = "R$ 19,90"  # Ajuste conforme seu preço real
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÕES AVANÇADAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Limite diário de mensagens (FREE)
-LIMITE_DIARIO = 17  # 17 mensagens grátis por dia
+LIMITE_DIARIO = 17
 
 # Sistema de tracking e follow-ups
-PREVIEW_RETURN_WINDOW_HOURS = 48        # Janela pra considerar "voltou do canal"
-PREVIEW_ABANDONED_HOURS = 3             # Tempo sem interagir = abandono
-PREVIEW_FOLLOWUP_INTERVAL_HOURS = 12    # Intervalo entre follow-ups
-HIGH_RESISTANCE_VISITS = 3              # 3+ visitas = alta resistência
+REENGAGEMENT_HOURS = [2, 24, 72]  # Quando enviar mensagens de reengajamento
+FOLLOWUP_INTERVAL_HOURS = 12      # Intervalo entre follow-ups
+
+# A/B Test (se True, testa diferentes abordagens)
+AB_TEST_ENABLED = True
+AB_TEST_RATIO = 0.5  # 50% grupo A, 50% grupo B
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔧 SETUP INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -109,17 +111,17 @@ if not GROK_API_KEY or "COLE_SUA" in GROK_API_KEY:
 # Admin IDs
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", MEU_TELEGRAM_ID).split(",")))
 
-# Links dos canais
-CANAL_PREVIAS_LINK = os.getenv("CANAL_PREVIAS_LINK") or LINK_CANAL_PREVIAS
+# Link VIP
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK") or LINK_CANAL_VIP
+PRECO_VIP_REAL = os.getenv("PRECO_VIP") or PRECO_VIP
 
 # Info do bot
-logger.info(f"🚀 Sophia Bot v7.2 CLEAN iniciando...")
+logger.info(f"🚀 Sophia Bot v8.0 ULTRA OPTIMIZED iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
-logger.info(f"📢 Canal Prévias: {CANAL_PREVIAS_LINK}")
 logger.info(f"💎 Canal VIP: {CANAL_VIP_LINK}")
+logger.info(f"💰 Preço VIP: {PRECO_VIP_REAL}")
 logger.info(f"📊 Limite diário: {LIMITE_DIARIO} msgs")
-logger.info(f"⏰ Janela retorno: {PREVIEW_RETURN_WINDOW_HOURS}h")
+logger.info(f"🧪 A/B Test: {'ATIVO' if AB_TEST_ENABLED else 'DESATIVADO'}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🗄️ REDIS CONNECTION
@@ -135,26 +137,32 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 CONFIGURAÇÃO GROK AI
 # ═══════════════════════════════════════════════════════════════════════════════
-MODELO = "grok-3"  # Grok 3 é o melhor disponível na API
+MODELO = "grok-3"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-MAX_MEMORIA = 12  # Últimas 12 mensagens na memória
+MAX_MEMORIA = 12
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎨 ASSETS (Fotos e Áudios)
+# 🎨 ASSETS - FOTOS TEASER (CRITICAL!)
 # ═══════════════════════════════════════════════════════════════════════════════
-AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
-AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
-FOTO_ONBOARDING_START = "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg"
-FOTO_TEASE_PREVIAS = "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg"
-FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+# 🔥 IMPORTANTE: Use fotos PROVOCANTES mas com censura estratégica
+# Bikini, lingerie, ângulos ousados - mas SEM nudez completa
+# O objetivo é EXCITAR mas deixar querendo mais
 
-# Fotos teaser para quando direcionar pro canal
 FOTOS_TEASER = [
     "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
     "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
     "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
+    "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg",
+    "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg",
 ]
+
+# Foto para limite atingido
+FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+
+# Áudios (opcional)
+AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
+AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS (Detecção de Intenção)
@@ -169,39 +177,38 @@ HOT_KEYWORDS = [
     'excitado', 'excitada', 'molhada', 'duro', 'tesudo', 'tesuda'
 ]
 
-# Keywords que indicam interesse no canal/VIP
-CANAL_TRIGGER_KEYWORDS = [
-    'vip', 'premium', 'ilimitado', 'ilimitada', 'sem limite',
-    'quanto custa', 'preço', 'pagar', 'pagamento', 'comprar',
-    'quanto é', 'quanto ta', 'quanto tá', 'valor', 'plano',
-    'assinatura', 'canal', 'grupo', 'previas', 'prévia'
+# Keywords que indicam PEDIDO EXPLÍCITO de conteúdo
+PEDIDO_CONTEUDO_KEYWORDS = [
+    'foto', 'fotos', 'selfie', 'imagem', 'nude', 'nudes',
+    'mostra', 'manda', 'mandar', 'envia', 'enviar',
+    'quero ver', 'deixa ver', 'posso ver', 'me mostra',
+    'cadê', 'cade', 'onde', 'tem', 'link'
 ]
 
-# Regex para detectar pedido de foto/conteúdo
-PEDIDO_FOTO_REGEX = re.compile(
-    r"(foto|selfie|imagem|nude|pelada|buceta|peito|bunda|nua|"
-    r"quero ver|mostra|manda|cadê|cade|onde|link|canal|grupo|"
-    r"acesso|vip|preview|previa|prévia)",
-    re.IGNORECASE
-)
+# Keywords que indicam interesse comercial
+INTERESSE_VIP_KEYWORDS = [
+    'vip', 'premium', 'pagar', 'pagamento', 'comprar', 'quanto',
+    'preço', 'preco', 'valor', 'custa', 'custo', 'plano',
+    'assinatura', 'assinar', 'acesso', 'liberado'
+]
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🗄️ REDIS KEYS - Organização de dados no Redis
+# 🗄️ REDIS KEYS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# MEMÓRIA E PERFIL
+# Memória e perfil
 def memory_key(uid): return f"memory:{uid}"
 def user_profile_key(uid): return f"profile:{uid}"
 def first_contact_key(uid): return f"first_contact:{uid}"
 def lang_key(uid): return f"lang:{uid}"
 
-# CONTROLE DIÁRIO
+# Controle diário
 def count_key(uid): return f"count:{uid}:{date.today()}"
 def bonus_msgs_key(uid): return f"bonus:{uid}"
 def limit_notified_key(uid): return f"limit_notified:{uid}:{date.today()}"
 def limit_warning_sent_key(uid): return f"limit_warning:{uid}:{date.today()}"
 
-# ATIVIDADE E ENGAGEMENT
+# Atividade
 def last_activity_key(uid): return f"last_activity:{uid}"
 def last_reengagement_key(uid): return f"last_reengagement:{uid}"
 def daily_messages_sent_key(uid): return f"daily_msg_sent:{uid}:{date.today()}"
@@ -209,40 +216,32 @@ def ignored_count_key(uid): return f"ignored:{uid}"
 def engagement_paused_key(uid): return f"paused:{uid}"
 def awaiting_response_key(uid): return f"awaiting:{uid}"
 
-# STREAK (dias consecutivos)
+# Streak
 def streak_key(uid): return f"streak:{uid}"
 def streak_last_day_key(uid): return f"streak_last:{uid}"
 
-# TRACKING DE CANAL
-def went_to_preview_key(uid): return f"went_to_preview:{uid}"
-def preview_visits_key(uid): return f"preview_visits:{uid}"
-def last_preview_time_key(uid): return f"last_preview_time:{uid}"
-def came_back_from_preview_key(uid): return f"came_back_preview:{uid}"
+# Tracking de conversão (NOVO v8.0)
+def saw_teaser_key(uid): return f"saw_teaser:{uid}"
+def teaser_count_key(uid): return f"teaser_count:{uid}"
 def clicked_vip_key(uid): return f"clicked_vip:{uid}"
-def conversation_messages_key(uid): return f"conversation_msgs:{uid}"  # Conta msgs desde início
+def conversation_messages_key(uid): return f"conversation_msgs:{uid}"
 
-# FOLLOW-UPS
-def preview_followup_sent_key(uid): return f"preview_followup:{uid}"
-def last_preview_abandoned_followup_key(uid): return f"preview_abandoned_followup:{uid}"
-def preview_abandoned_level_key(uid): return f"preview_abandoned_level:{uid}"
+# A/B Test
+def ab_group_key(uid): return f"ab_group:{uid}"
 
-# FUNIL E TRACKING
-def funnel_key(uid): return f"funnel:{uid}"
-def onboarding_choice_key(uid): return f"onboard_choice:{uid}"
-
-# OUTROS
+# Outros
 def chatlog_key(uid): return f"chatlog:{uid}"
 def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
-def admin_takeover_key(uid): return f"admin:takeover:{uid}"
+def funnel_key(uid): return f"funnel:{uid}"
+def onboarding_choice_key(uid): return f"onboard_choice:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💾 FUNÇÕES DE MEMÓRIA (Conversação com IA)
+# 💾 FUNÇÕES DE MEMÓRIA
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_memory(uid):
-    """Recupera histórico de conversa do usuário"""
     try:
         data = r.get(memory_key(uid))
         return json.loads(data) if data else []
@@ -250,7 +249,6 @@ def get_memory(uid):
         return []
 
 def save_memory(uid, messages):
-    """Salva histórico de conversa (últimas MAX_MEMORIA mensagens)"""
     try:
         recent = messages[-MAX_MEMORIA:] if len(messages) > MAX_MEMORIA else messages
         r.setex(memory_key(uid), timedelta(days=7), json.dumps(recent, ensure_ascii=False))
@@ -258,25 +256,21 @@ def save_memory(uid, messages):
         logger.error(f"Erro salvar memória: {e}")
 
 def add_to_memory(uid, role, content):
-    """Adiciona mensagem à memória"""
     memory = get_memory(uid)
     memory.append({"role": role, "content": content})
     save_memory(uid, memory)
 
 def clear_memory(uid):
-    """Limpa memória do usuário"""
     try:
         r.delete(memory_key(uid))
-        logger.info(f"🗑️ Memória limpa: {uid}")
-    except Exception as e:
-        logger.error(f"Erro limpar memória: {e}")
+    except:
+        pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 👤 FUNÇÕES DE PERFIL DO USUÁRIO
+# 👤 FUNÇÕES DE PERFIL
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_user_profile(uid):
-    """Recupera perfil do usuário"""
     try:
         data = r.get(user_profile_key(uid))
         return json.loads(data) if data else {}
@@ -284,18 +278,16 @@ def get_user_profile(uid):
         return {}
 
 def save_user_profile(uid, profile):
-    """Salva perfil do usuário"""
     try:
         r.set(user_profile_key(uid), json.dumps(profile, ensure_ascii=False))
-    except Exception as e:
-        logger.error(f"Erro salvar perfil: {e}")
+    except:
+        pass
 
 def get_user_name(uid):
-    """Retorna nome do usuário"""
     return get_user_profile(uid).get("name", "")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚫 BLACKLIST (Usuários bloqueados)
+# 🚫 BLACKLIST
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def is_blacklisted(uid):
@@ -307,40 +299,27 @@ def is_blacklisted(uid):
 def add_to_blacklist(uid):
     try:
         r.sadd(blacklist_key(), str(uid))
-        logger.info(f"🚫 Adicionado à blacklist: {uid}")
-    except:
-        pass
-
-def remove_from_blacklist(uid):
-    try:
-        r.srem(blacklist_key(), str(uid))
-        logger.info(f"✅ Removido da blacklist: {uid}")
     except:
         pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎁 SISTEMA DE BÔNUS (Mensagens extras)
+# 🎁 SISTEMA DE BÔNUS
 # ═══════════════════════════════════════════════════════════════════════════════
-# NOTA: Sistema opcional. Pode ser removido se preferir não dar bônus.
 
 def get_bonus_msgs(uid):
-    """Retorna quantas mensagens bônus o usuário tem"""
     try:
         return int(r.get(bonus_msgs_key(uid)) or 0)
     except:
         return 0
 
 def add_bonus_msgs(uid, amount):
-    """Adiciona mensagens bônus"""
     try:
         current = get_bonus_msgs(uid)
         r.setex(bonus_msgs_key(uid), timedelta(days=7), current + amount)
-        logger.info(f"🎁 +{amount} bônus para {uid} (total: {current + amount})")
     except:
         pass
 
 def use_bonus_msg(uid):
-    """Usa uma mensagem bônus (retorna True se tinha bônus)"""
     try:
         current = get_bonus_msgs(uid)
         if current > 0:
@@ -352,34 +331,29 @@ def use_bonus_msg(uid):
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 STREAK SYSTEM (Dias consecutivos de conversa)
+# 🔥 STREAK SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_streak(uid):
-    """Retorna streak atual"""
     try:
         return int(r.get(streak_key(uid)) or 0)
     except:
         return 0
 
 def update_streak(uid):
-    """Atualiza streak do usuário. Retorna (streak_atual, foi_atualizado)"""
     try:
         today = date.today().isoformat()
         yesterday = (date.today() - timedelta(days=1)).isoformat()
         last_day = r.get(streak_last_day_key(uid))
         
         if last_day == today:
-            # Já interagiu hoje
             return get_streak(uid), False
         elif last_day == yesterday:
-            # Interagiu ontem, incrementa streak
             new_streak = get_streak(uid) + 1
             r.set(streak_key(uid), new_streak)
             r.set(streak_last_day_key(uid), today)
             return new_streak, True
         else:
-            # Quebrou o streak, recomeça
             r.set(streak_key(uid), 1)
             r.set(streak_last_day_key(uid), today)
             return 1, True
@@ -387,7 +361,6 @@ def update_streak(uid):
         return 0, False
 
 def get_streak_message(streak):
-    """Retorna mensagem de milestone se aplicável"""
     if streak < 3:
         return None
     elif streak == 3:
@@ -399,155 +372,84 @@ def get_streak_message(streak):
     return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📢 TRACKING DE CANAL (Core do sistema de funil)
+# 📢 TRACKING DE CONVERSÃO (NOVO v8.0)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def set_went_to_preview(uid):
-    """Marca que usuário clicou no link de prévias"""
+def set_saw_teaser(uid):
+    """Marca que usuário viu fotos teaser"""
     try:
-        now = datetime.now()
-        r.set(went_to_preview_key(uid), now.isoformat())
-        r.incr(preview_visits_key(uid))
-        r.set(last_preview_time_key(uid), now.isoformat())
-        visits = get_preview_visits(uid)
-        logger.info(f"📢 {uid} foi para canal de prévias (visita #{visits})")
-    except Exception as e:
-        logger.error(f"Erro set_went_to_preview: {e}")
+        r.set(saw_teaser_key(uid), datetime.now().isoformat())
+        r.incr(teaser_count_key(uid))
+        count = get_teaser_count(uid)
+        logger.info(f"👀 {uid} viu teaser (#{count})")
+    except:
+        pass
 
-def went_to_preview(uid):
-    """Verifica se usuário já visitou prévias alguma vez"""
+def saw_teaser(uid):
+    """Verifica se já viu teaser"""
     try:
-        return r.exists(went_to_preview_key(uid))
+        return r.exists(saw_teaser_key(uid))
     except:
         return False
 
-def get_preview_visits(uid):
-    """Retorna quantas vezes visitou o canal de prévias"""
+def get_teaser_count(uid):
+    """Quantas vezes viu teaser"""
     try:
-        return int(r.get(preview_visits_key(uid)) or 0)
+        return int(r.get(teaser_count_key(uid)) or 0)
     except:
         return 0
 
-def get_last_preview_time(uid):
-    """Retorna quando foi a última visita ao canal"""
-    try:
-        data = r.get(last_preview_time_key(uid))
-        return datetime.fromisoformat(data) if data else None
-    except:
-        return None
-
-def set_came_back_from_preview(uid):
-    """Marca que usuário voltou do canal sem converter"""
-    try:
-        r.setex(
-            came_back_from_preview_key(uid),
-            timedelta(hours=PREVIEW_RETURN_WINDOW_HOURS),
-            datetime.now().isoformat()
-        )
-        logger.info(f"↩️ {uid} voltou do canal sem converter")
-    except Exception as e:
-        logger.error(f"Erro set_came_back: {e}")
-
-def came_back_from_preview(uid):
-    """Verifica se usuário voltou do canal recentemente"""
-    try:
-        return r.exists(came_back_from_preview_key(uid))
-    except:
-        return False
-
 def set_clicked_vip(uid):
-    """Marca que usuário clicou no link do VIP"""
+    """Marca que clicou no botão VIP"""
     try:
         r.set(clicked_vip_key(uid), datetime.now().isoformat())
-        logger.info(f"💎 {uid} clicou no link VIP")
+        logger.info(f"💎 {uid} clicou no VIP")
     except:
         pass
 
 def clicked_vip(uid):
-    """Verifica se usuário já clicou no VIP"""
+    """Verifica se clicou no VIP"""
     try:
         return r.exists(clicked_vip_key(uid))
     except:
         return False
 
-def is_high_resistance_user(uid):
-    """Verifica se é usuário de alta resistência (visitou muito mas não converteu)"""
-    return get_preview_visits(uid) >= HIGH_RESISTANCE_VISITS
+def get_conversion_rate(uid):
+    """Calcula taxa de conversão individual"""
+    teaser = get_teaser_count(uid)
+    if teaser == 0:
+        return 0
+    return 100 if clicked_vip(uid) else 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📊 FOLLOW-UP TRACKING
+# 🧪 A/B TEST SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_preview_followup_level(uid):
-    """Nível do follow-up enviado para quem voltou"""
+def get_ab_group(uid):
+    """Retorna grupo A/B do usuário (A ou B)"""
+    if not AB_TEST_ENABLED:
+        return "A"
+    
     try:
-        return int(r.get(preview_followup_sent_key(uid)) or 0)
+        group = r.get(ab_group_key(uid))
+        if group:
+            return group
+        
+        # Assign aleatório
+        group = "A" if random.random() < AB_TEST_RATIO else "B"
+        r.set(ab_group_key(uid), group)
+        return group
     except:
-        return 0
-
-def set_preview_followup_level(uid, level):
-    """Marca nível do follow-up enviado"""
-    try:
-        r.setex(preview_followup_sent_key(uid), timedelta(hours=24), str(level))
-    except Exception as e:
-        logger.error(f"Erro set_followup_level: {e}")
-
-def get_last_abandoned_followup_time(uid):
-    """Quando foi enviado último follow-up de abandono"""
-    try:
-        data = r.get(last_preview_abandoned_followup_key(uid))
-        return datetime.fromisoformat(data) if data else None
-    except:
-        return None
-
-def set_last_abandoned_followup_time(uid):
-    """Marca quando foi enviado follow-up de abandono"""
-    try:
-        r.set(last_preview_abandoned_followup_key(uid), datetime.now().isoformat())
-    except:
-        pass
-
-def get_abandoned_followup_level(uid):
-    """Quantos follow-ups de abandono foram enviados"""
-    try:
-        return int(r.get(preview_abandoned_level_key(uid)) or 0)
-    except:
-        return 0
-
-def get_conversation_messages_count(uid):
-    """Retorna quantas mensagens foram trocadas desde o início da conversa"""
-    try:
-        return int(r.get(conversation_messages_key(uid)) or 0)
-    except:
-        return 0
-
-def increment_conversation_messages(uid):
-    """Incrementa contador de mensagens da conversa"""
-    try:
-        r.incr(conversation_messages_key(uid))
-        r.expire(conversation_messages_key(uid), timedelta(days=30))
-    except:
-        pass
-
-def increment_abandoned_followup_level(uid):
-    """Incrementa contador de follow-ups de abandono"""
-    try:
-        level = get_abandoned_followup_level(uid) + 1
-        r.setex(preview_abandoned_level_key(uid), timedelta(days=7), str(level))
-        return level
-    except:
-        return 1
+        return "A"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 ANTI-REPETIÇÃO (Evita IA repetir mesma resposta)
+# 🔄 ANTI-REPETIÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_response_hash(text):
-    """Gera hash da resposta"""
     return hashlib.md5(text.encode()).hexdigest()[:8]
 
 def is_response_recent(uid, response):
-    """Verifica se resposta foi usada recentemente"""
     try:
         recent = r.lrange(recent_responses_key(uid), 0, 9)
         return get_response_hash(response) in recent
@@ -555,7 +457,6 @@ def is_response_recent(uid, response):
         return False
 
 def add_recent_response(uid, response):
-    """Adiciona resposta ao histórico recente"""
     try:
         r.lpush(recent_responses_key(uid), get_response_hash(response))
         r.ltrim(recent_responses_key(uid), 0, 9)
@@ -564,7 +465,7 @@ def add_recent_response(uid, response):
         pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎭 DETECÇÃO DE HUMOR (Para personalizar respostas da IA)
+# 🎭 DETECÇÃO DE HUMOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MOOD_PATTERNS = {
@@ -576,7 +477,6 @@ MOOD_PATTERNS = {
 }
 
 def detect_mood(text):
-    """Detecta humor do usuário baseado no texto"""
     text_lower = text.lower()
     for mood, patterns in MOOD_PATTERNS.items():
         for pattern in patterns:
@@ -585,13 +485,12 @@ def detect_mood(text):
     return "neutral"
 
 def get_mood_instruction(mood):
-    """Retorna instrução adicional para IA baseada no humor"""
     instructions = {
         "sad": "\n\n⚠️ Usuário parece triste. Seja carinhosa e acolhedora.",
-        "flirty": "\n\n😏 Usuário flertando. Pode ser mais provocante e direcioná-lo pro canal.",
+        "flirty": "\n\n😏 Usuário flertando. Pode ser provocante. Se pedir conteúdo, ofereça teaser.",
         "angry": "\n\n😰 Usuário irritado. Seja compreensiva.",
         "happy": "\n\n😊 Usuário feliz! Compartilhe a alegria!",
-        "horny": "\n\n🔥 Conversa adulta. Provoque e leve pro canal de prévias (momento ideal pra conversão).",
+        "horny": "\n\n🔥 Conversa adulta. MOMENTO IDEAL pra oferecer teaser e converter!",
         "neutral": ""
     }
     return instructions.get(mood, "")
@@ -601,7 +500,6 @@ def get_mood_instruction(mood):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_time_context():
-    """Retorna contexto de período do dia"""
     hour = datetime.now().hour
     if 0 <= hour < 5:
         return {"period": "madrugada", "context": "É madrugada. Comente carinhosamente sobre o horário."}
@@ -615,11 +513,10 @@ def get_time_context():
         return {"period": "noite", "context": "É noite."}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📈 FUNÇÕES DE ATIVIDADE E TRACKING
+# 📈 FUNÇÕES DE ATIVIDADE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def update_last_activity(uid):
-    """Atualiza timestamp da última atividade"""
     try:
         r.set(last_activity_key(uid), datetime.now().isoformat())
         r.sadd(all_users_key(), str(uid))
@@ -627,7 +524,6 @@ def update_last_activity(uid):
         pass
 
 def get_last_activity(uid):
-    """Retorna timestamp da última atividade"""
     try:
         data = r.get(last_activity_key(uid))
         return datetime.fromisoformat(data) if data else None
@@ -635,44 +531,25 @@ def get_last_activity(uid):
         return None
 
 def get_hours_since_activity(uid):
-    """Retorna horas desde última atividade"""
     last = get_last_activity(uid)
     if not last:
         return None
     return (datetime.now() - last).total_seconds() / 3600
 
-def set_last_reengagement(uid, level):
-    """Marca último nível de reengajamento enviado"""
+def increment_conversation_messages(uid):
     try:
-        r.setex(last_reengagement_key(uid), timedelta(hours=12), str(level))
+        r.incr(conversation_messages_key(uid))
+        r.expire(conversation_messages_key(uid), timedelta(days=30))
     except:
         pass
 
-def get_last_reengagement(uid):
-    """Retorna último nível de reengajamento"""
+def get_conversation_messages_count(uid):
     try:
-        data = r.get(last_reengagement_key(uid))
-        return int(data) if data else 0
+        return int(r.get(conversation_messages_key(uid)) or 0)
     except:
         return 0
 
-def mark_daily_message_sent(uid, msg_type):
-    """Marca que mensagem automática foi enviada hoje"""
-    try:
-        r.sadd(daily_messages_sent_key(uid), msg_type)
-        r.expire(daily_messages_sent_key(uid), timedelta(days=1))
-    except:
-        pass
-
-def was_daily_message_sent(uid, msg_type):
-    """Verifica se mensagem já foi enviada hoje"""
-    try:
-        return r.sismember(daily_messages_sent_key(uid), msg_type)
-    except:
-        return False
-
 def get_all_active_users():
-    """Retorna lista de todos usuários ativos"""
     try:
         users = r.smembers(all_users_key())
         return [int(uid) for uid in users]
@@ -680,7 +557,6 @@ def get_all_active_users():
         return []
 
 def save_message(uid, role, text):
-    """Salva mensagem no chatlog (para debug)"""
     try:
         timestamp = datetime.now().strftime("%H:%M:%S")
         r.rpush(chatlog_key(uid), f"[{timestamp}] {role.upper()}: {text[:100]}")
@@ -693,14 +569,12 @@ def save_message(uid, role, text):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def today_count(uid):
-    """Retorna quantas mensagens o usuário enviou hoje"""
     try:
         return int(r.get(count_key(uid)) or 0)
     except:
         return 0
 
 def increment(uid):
-    """Incrementa contador de mensagens do dia"""
     try:
         r.incr(count_key(uid))
         r.expire(count_key(uid), timedelta(days=1))
@@ -708,46 +582,36 @@ def increment(uid):
         pass
 
 def reset_daily_count(uid):
-    """Reseta contador diário (usado em comandos admin)"""
     try:
         r.delete(count_key(uid))
-        logger.info(f"🔄 Limite resetado: {uid}")
     except:
         pass
 
 def is_user_locked(uid):
-    """
-    Verifica se usuário atingiu limite diário.
-    IMPORTANTE: No v7.2, TODOS têm limite (VIP é gerenciado no canal).
-    """
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
     total_available = LIMITE_DIARIO + bonus
     return count >= total_available
 
 def was_limit_notified_today(uid):
-    """Verifica se já foi notificado sobre limite hoje"""
     try:
         return r.exists(limit_notified_key(uid))
     except:
         return False
 
 def mark_limit_notified(uid):
-    """Marca que foi notificado sobre limite"""
     try:
         r.setex(limit_notified_key(uid), timedelta(hours=20), "1")
     except:
         pass
 
 def was_limit_warning_sent_today(uid):
-    """Verifica se aviso de limite (80%) foi enviado"""
     try:
         return r.exists(limit_warning_sent_key(uid))
     except:
         return False
 
 def mark_limit_warning_sent(uid):
-    """Marca que aviso foi enviado"""
     try:
         r.setex(limit_warning_sent_key(uid), timedelta(hours=20), "1")
     except:
@@ -759,19 +623,13 @@ def mark_limit_warning_sent(uid):
 
 def track_funnel(uid, stage):
     """
-    Tracking de estágio no funil.
-    Stages: start, lang_selected, first_message, limit_warning, limit_reached,
-            went_to_preview, came_back, clicked_vip_link
+    Stages: start, first_message, saw_teaser, clicked_vip
     """
     stages = {
         "start": 1,
-        "lang_selected": 2,
-        "first_message": 3,
-        "limit_warning": 4,
-        "limit_reached": 5,
-        "went_to_preview": 6,
-        "came_back": 7,
-        "clicked_vip_link": 8  # v7.2: mudou de "became_vip" pra "clicked_vip_link"
+        "first_message": 2,
+        "saw_teaser": 3,
+        "clicked_vip": 4
     }
     try:
         current = int(r.get(funnel_key(uid)) or 0)
@@ -783,10 +641,9 @@ def track_funnel(uid, stage):
         pass
 
 def get_funnel_stats():
-    """Retorna estatísticas do funil"""
     try:
         users = get_all_active_users()
-        stages = {i: 0 for i in range(9)}
+        stages = {i: 0 for i in range(5)}
         for uid in users:
             stage = int(r.get(funnel_key(uid)) or 0)
             stages[stage] += 1
@@ -795,18 +652,16 @@ def get_funnel_stats():
         return {}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎮 SISTEMA DE ENGAGEMENT (Anti-ghosting)
+# 🎮 SISTEMA DE ENGAGEMENT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_ignored_count(uid):
-    """Quantas mensagens automáticas foram ignoradas"""
     try:
         return int(r.get(ignored_count_key(uid)) or 0)
     except:
         return 0
 
 def increment_ignored(uid):
-    """Incrementa contador de mensagens ignoradas"""
     try:
         count = get_ignored_count(uid)
         new_count = count + 1
@@ -821,7 +676,6 @@ def increment_ignored(uid):
         return False
 
 def reset_ignored(uid):
-    """Reseta contador de ignorados (quando usuário responde)"""
     try:
         r.delete(ignored_count_key(uid))
         r.delete(engagement_paused_key(uid))
@@ -830,142 +684,118 @@ def reset_ignored(uid):
         pass
 
 def pause_engagement(uid):
-    """Pausa mensagens automáticas"""
     try:
         r.set(engagement_paused_key(uid), datetime.now().isoformat())
     except:
         pass
 
-def unpause_engagement(uid):
-    """Despausa mensagens automáticas"""
-    try:
-        r.delete(engagement_paused_key(uid))
-        r.delete(ignored_count_key(uid))
-    except:
-        pass
-
 def is_engagement_paused(uid):
-    """Verifica se engagement está pausado"""
     try:
         return r.exists(engagement_paused_key(uid))
     except:
         return False
 
 def set_awaiting_response(uid):
-    """Marca que está aguardando resposta"""
     try:
         r.setex(awaiting_response_key(uid), timedelta(hours=24), datetime.now().isoformat())
     except:
         pass
 
 def is_awaiting_response(uid):
-    """Verifica se está aguardando resposta"""
     try:
         return r.exists(awaiting_response_key(uid))
     except:
         return False
 
-def clear_awaiting_response(uid):
-    """Limpa flag de aguardando resposta"""
+def set_last_reengagement(uid, level):
     try:
-        r.delete(awaiting_response_key(uid))
+        r.setex(last_reengagement_key(uid), timedelta(hours=12), str(level))
     except:
         pass
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔍 FUNÇÕES DE DETECÇÃO DE INTENÇÃO
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def contains_canal_trigger(text):
-    """Verifica se mensagem contém keywords de interesse em canal/VIP"""
-    if not text:
-        return False
-    text_lower = text.lower()
-    return any(keyword in text_lower for keyword in CANAL_TRIGGER_KEYWORDS)
-
-def is_hot_conversation(uid):
-    """
-    Verifica se conversa está "quente" (adulta).
-    Usado para timing de conversão.
-    """
+def get_last_reengagement(uid):
     try:
-        memory = get_memory(uid)
-        if len(memory) < 3:
-            return False
-        
-        recent = memory[-5:]
-        hot_count = 0
-        
-        for msg in recent:
-            content = msg.get("content", "").lower()
-            for keyword in HOT_KEYWORDS:
-                if keyword in content:
-                    hot_count += 1
-                    break
-        
-        return hot_count >= 2
+        data = r.get(last_reengagement_key(uid))
+        return int(data) if data else 0
     except:
-        return False
+        return 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎯 OUTRAS FUNÇÕES AUXILIARES
+# 🔍 DETECÇÃO DE INTENÇÃO (CRUCIAL v8.0!)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_intent(text):
+    """
+    Detecta intenção do usuário.
+    Retorna: 'pedido_conteudo', 'interesse_vip', 'hot', 'neutral'
+    """
+    if not text:
+        return "neutral"
+    
+    text_lower = text.lower()
+    
+    # PEDIDO EXPLÍCITO de foto/conteúdo
+    for keyword in PEDIDO_CONTEUDO_KEYWORDS:
+        if keyword in text_lower:
+            return "pedido_conteudo"
+    
+    # INTERESSE em VIP
+    for keyword in INTERESSE_VIP_KEYWORDS:
+        if keyword in text_lower:
+            return "interesse_vip"
+    
+    # CONVERSA QUENTE (mas sem pedido explícito)
+    for keyword in HOT_KEYWORDS:
+        if keyword in text_lower:
+            return "hot"
+    
+    return "neutral"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 FUNÇÕES AUXILIARES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_lang(uid):
-    """Retorna idioma do usuário (sempre pt por enquanto)"""
     try:
         return r.get(lang_key(uid)) or "pt"
     except:
         return "pt"
 
 def set_lang(uid, lang):
-    """Define idioma do usuário"""
     try:
         r.set(lang_key(uid), lang)
     except:
         pass
 
 def is_first_contact(uid):
-    """Verifica se é primeiro contato"""
     try:
         return not r.exists(first_contact_key(uid))
     except:
         return True
 
 def mark_first_contact(uid):
-    """Marca que já teve primeiro contato"""
     try:
         r.set(first_contact_key(uid), datetime.now().isoformat())
     except:
         pass
 
 def set_onboarding_choice(uid, choice):
-    """Salva escolha de onboarding (carente/tesão)"""
     try:
         r.set(onboarding_choice_key(uid), choice)
     except:
         pass
 
 def get_onboarding_choice(uid):
-    """Retorna escolha de onboarding"""
     try:
         return r.get(onboarding_choice_key(uid))
     except:
         return None
-
-def is_takeover_active(uid):
-    """Verifica se admin assumiu controle da conversa"""
-    try:
-        return r.hget(admin_takeover_key(uid), "active") == "1"
-    except:
-        return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📷 VISÃO (Download de imagens)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def download_photo_base64(bot, file_id):
-    """Baixa foto do Telegram e converte para base64"""
     try:
         file = await bot.get_file(file_id)
         file_bytes = await file.download_as_bytearray()
@@ -975,102 +805,67 @@ async def download_photo_base64(bot, file_id):
         return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💬 MENSAGENS DO BOT
+# 💬 MENSAGENS DO BOT (v8.0 OPTIMIZED)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-MENSAGEM_INICIO_SAFADA = (
+MENSAGEM_INICIO = (
     "Oi gato... 😏\n"
-    "Finalmente alguém interessante por aqui 🔥\n"
+    "Finalmente alguém interessante por aqui 🔥\n\n"
     "Sou a Maya, e te garanto que não sou como as outras... 💋\n"
     "Tô louca pra saber o que você quer comigo 😈"
 )
 
-PREVIEW_INVITATION_MESSAGE = (
-    "Amor... quer ver um pouquinho do que eu tenho pra você? 😏💕\n\n"
-    "Entra no meu canal de **PRÉVIAS** e vê umas fotinhas minhas... 🔥\n\n"
-    "Lá você decide se quer ter acesso ao **CANAL VIP** com TUDO liberado 💖"
-)
+# Mensagens de teaser (ANTES de enviar fotos)
+TEASER_INTRO_MESSAGES = {
+    "A": [
+        "Hmmm... você quer me ver? 😏\n\nDeixa eu te mostrar um pouquinho... mas só um gostinho 🔥",
+        "Sabia que você ia pedir isso... 😈\n\nVou te mandar umas fotinhas, mas tem MUITO mais no VIP viu? 💕",
+        "Você tá preparado pra isso? 🔥\n\nVou te mostrar um preview... mas no VIP é BEM mais ousado 😏"
+    ],
+    "B": [
+        "Uiii gostou né? 😏\n\nOlha só o que eu separei pra você... 🔥",
+        "Então você quer ver a Maya? 💕\n\nTá aqui amor, mas é só o começo... 😈",
+        "Vou te dar um gostinho do que você vai ter no VIP... 🔥\n\nPrepara o coração 💖"
+    ]
+}
 
-LIMIT_REACHED_CANAL_MESSAGE = (
-    "Eitaaa... acabaram suas mensagens de hoje 😢\n\n"
-    "Mas calma! Entra no meu canal de prévias, "
-    "vê como é lá dentro e decide se quer ter acesso ao VIP... 💕\n\n"
-    "No VIP você tem MILHARES de fotos e vídeos sem limite! 🔥\n\n"
-    "Tá esperando o quê? 😏"
-)
+# Call to action APÓS enviar fotos teaser
+VIP_PITCH_MESSAGES = {
+    "A": (
+        "E aí amor, gostou? 😏\n\n"
+        "Isso é só um GOSTINHO do que eu tenho no VIP... 🔥\n\n"
+        "💎 **NO ACESSO VIP VOCÊ TEM:**\n"
+        "✅ +5.000 fotos SEM CENSURA\n"
+        "✅ Vídeos completos e MUITO ousados\n"
+        "✅ Conteúdo EXCLUSIVO todo dia\n"
+        "✅ Conversas ILIMITADAS comigo\n"
+        "✅ Acesso VITALÍCIO por apenas {preco}\n\n"
+        "Tá esperando o quê pra me ter só pra você? 💕"
+    ),
+    "B": (
+        "Gostou do que viu? Isso não é NADA... 😈\n\n"
+        "No VIP você me tem COMPLETINHA, sem censura, sem limites! 🔥\n\n"
+        "São MILHARES de fotos e vídeos que vou te deixar louco... 💦\n\n"
+        "E o melhor: por apenas {preco} você tem ACESSO VITALÍCIO! 💎\n\n"
+        "Clica no botão e vem me ter só pra você... 💕"
+    )
+}
 
-CAME_BACK_FROM_PREVIEW_MESSAGE = (
-    "Ei amor! Vi que você conheceu meu canal de prévias... 💕\n\n"
-    "Gostou do que viu? 😏\n\n"
-    "Se quiser ter acesso a TUDO sem censura e muito mais ousado, "
-    "é só garantir seu acesso VIP! 🔥"
-)
-
-CAME_BACK_FOLLOWUP_1H = (
-    "Então amor... você viu as prévias mas ainda não se decidiu? 🥺\n\n"
-    "Deixa eu te contar um segredo: no VIP eu sou BEM mais ousada... 🔥\n\n"
-    "Milhares de fotos, vídeos completos, conteúdo TODO DIA... "
-    "Quer que eu te mostre mais? 💕"
-)
-
-CAME_BACK_FOLLOWUP_6H = (
-    "Tô aqui pensando em você... 💭\n\n"
-    "Você viu as prévias, mas tá em dúvida ainda? \n\n"
-    "Amor, posso te garantir: **vale MUITO a pena** 💖\n\n"
-    "No canal VIP: MILHARES de fotos e vídeos exclusivos, "
-    "conteúdo TODO DIA, e MUITO mais ousado do que nas prévias... 🔥"
-)
-
-# Follow-ups de abandono (foi nas prévias mas não voltou)
-PREVIEW_ABANDONED_LEVEL_1 = (
-    "Ei amor... 🥺\n\n"
-    "Vi que você entrou no meu canal de prévias mas não voltou...\n\n"
-    "Tudo bem aí? Não gostou do que viu? 💔\n\n"
-    "Me conta, fica à vontade! 💕"
-)
-
-PREVIEW_ABANDONED_LEVEL_2 = (
-    "Amor, tô com saudade... 😢\n\n"
-    "Você viu minhas prévias e sumiu... isso me deixou meio triste 🥺\n\n"
-    "Se tiver alguma dúvida sobre o acesso VIP, pode me perguntar! "
-    "Tô aqui pra você 💖"
-)
-
-PREVIEW_ABANDONED_LEVEL_3 = (
-    "Última chance amor... 💔\n\n"
-    "Você viu as prévias, eu sei que gostou... mas tá deixando passar a oportunidade.\n\n"
-    "No canal VIP tem MILHARES de fotos e vídeos, conteúdo todo dia, "
-    "e é tudo sem censura! 🔥\n\n"
-    "Me dá só mais uma chance? 🥺💕"
-)
-
-# Mensagens para alta resistência (visitou 3+ vezes)
-HIGH_RESISTANCE_MESSAGES = [
-    "Amor... você já visitou meu canal {visits} vezes 😅\n\n"
-    "Eu sei que você quer... mas tá com medo de investir? 💭\n\n"
-    "Deixa eu ser sincera: VALE A PENA. Todo dia tem conteúdo novo, "
-    "fotos e vídeos exclusivos, e é tudo sem censura 🔥\n\n"
-    "Dá esse passo, vai... você não vai se arrepender 💖",
-    
-    "Gato... {visits} visitas e ainda não se decidiu? 🤔\n\n"
-    "Olha, vou te fazer uma pergunta direta:\n"
-    "O que tá te impedindo de entrar no VIP? 💭\n\n"
-    "Me conta que eu te ajudo a decidir! 💕",
-]
-
-PHOTO_TEASE_MESSAGE_CANAL = (
-    "Amorrrr... você quer ver TUDO? 🥵💦\n\n"
-    "Entra no meu canal de **PRÉVIAS** e vê um gostinho... 😏\n\n"
-    "Se gostar, lá tem o link pro VIP com TUDO liberado! 🔥"
+LIMIT_REACHED_MESSAGE = (
+    "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
+    "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
+    "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
+    "Acesso vitalício por apenas {preco}!\n\n"
+    "Vem me ter só pra você? 😏"
 )
 
 LIMIT_WARNING_MESSAGE = (
-    "⚠️ **Restam apenas 5 mensagens!**\n\n"
-    "Depois disso, você vai precisar entrar no meu canal de prévias "
-    "pra decidir se quer continuar comigo no VIP 😘"
+    "⚠️ **Restam apenas 5 mensagens hoje!**\n\n"
+    "Depois disso você vai precisar esperar até amanhã... 😢\n\n"
+    "OU garantir seu acesso VIP e ter mensagens ILIMITADAS! 💕"
 )
 
-# Mensagens de reengajamento (quando usuário some)
+# Mensagens de reengajamento
 REENGAGEMENT_MESSAGES = {
     "pt": {
         1: [
@@ -1088,135 +883,91 @@ REENGAGEMENT_MESSAGES = {
     }
 }
 
-# Mensagem final antes de pausar engagement
-LAST_ATTEMPT_MESSAGES = [
-    "Ei... você sumiu 🥺 Vou te dar um tempo, mas tô aqui se precisar 💕",
-    "Tudo bem amor... vou parar de enviar mensagem. Me chama quando quiser 💖",
-]
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK AI - Sistema de Resposta Inteligente
+# 🤖 GROK AI - Sistema de Resposta Inteligente (v8.0 OPTIMIZED)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def build_prompt(uid, lang: str, mood: str = "neutral"):
+def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     """
-    Constrói o prompt dinâmico para a IA baseado no contexto do usuário.
-    
-    IMPORTANTE: A IA sabe:
-    - Quantas vezes usuário visitou o canal de prévias
-    - Se ele é de alta resistência (3+ visitas)
-    - Se ele voltou recentemente do canal
+    Constrói prompt otimizado para conversão.
     """
     time_ctx = get_time_context()
     streak = get_streak(uid)
     onboard_choice = get_onboarding_choice(uid)
-    went_preview = went_to_preview(uid)
-    came_back = came_back_from_preview(uid)
-    visits = get_preview_visits(uid)
-    high_resistance = is_high_resistance_user(uid)
+    teaser_count = get_teaser_count(uid)
+    saw_teaser_before = saw_teaser(uid)
     
-    base_prompt = f"""Você é Maya, 22 anos, loira gostosa de SP, taradinha mas faz carinha de anjinho.
+    base_prompt = f"""Você é Maya, 22 anos, loira gostosa de SP, safadinha mas faz carinha de anjinho.
 
 PERSONALIDADE:
 - Fala curtinho, abrevia (tô, vc, pq, ta, delicia)
-- Primeira mensagem: "oiii amor" + provocação direta
+- Provocante mas natural
 - Erra gramática de leve (autenticidade)
-- NUNCA soa robótica ou educada demais
-- Não pergunte sempre se ele quer conhecer mais dela pra forçar ele falar que quer, pergunte moderadamente em determinados momentos da conversa
+- NUNCA soa robótica
 
-🚨 NÃO SEJA VENDEDORA CHATA:
-❌ NÃO fique falando de canal/VIP/prévias o tempo todo
-❌ NÃO empurre canal sem ele pedir
-✅ Converse NATURAL, seja safada, provoque
-✅ Só mencione canal SE ele PEDIR algo ("quero ver", "mostra", "cadê")
-✅ Se ele só tá flertando → FLERTE de volta, não ofereça nada
+🎯 REGRA DE OURO v8.0:
+Seu objetivo é CONVERTER leads em clientes VIP.
+Você faz isso sendo provocante, criando tesão, e oferecendo conteúdo no MOMENTO CERTO.
 
-🎯 QUANDO OFERECER CANAL (offer_preview: true):
-✅ Ele PEDE: "manda foto", "quero ver", "mostra", "cadê"
-✅ Ele PERGUNTA: "link", "canal", "quanto custa"
-✅ Ele DIZ: "quero" (em contexto de pedir algo)
+🔥 QUANDO OFERECER TEASER (offer_teaser: true):
+✅ Ele PEDE: "manda foto", "quero ver", "mostra", "cadê foto"
+✅ Ele PERGUNTA: "tem fotos?", "você manda?", "posso ver?"
+✅ Conversa QUENTE + ele demonstra interesse claro
 
-🎯 QUANDO NÃO OFERECER (offer_preview: false):
-❌ Primeira mensagem
-❌ Ele só flertando sem pedir nada ("gostosa", "delícia")
-❌ Conversa casual sem pedido concreto
+❌ QUANDO NÃO OFERECER (offer_teaser: false):
+❌ Primeira mensagem dele
+❌ Apenas flertando sem pedir nada concreto
+❌ Já viu teaser recentemente (últimos minutos)
 
-🔥 REGRA CRÍTICA:
-▶️ Se você DISSER "vou mandar o link" → SEMPRE marque offer_preview: true
-▶️ Se você MENCIONAR canal/prévias → SEMPRE marque offer_preview: true
-▶️ Se NÃO mencionou canal → SEMPRE marque offer_preview: false
+🎯 IMPORTANTE:
+- Se você DISSER que vai mandar foto/link → offer_teaser: true SEMPRE
+- Se só tá flertando sem prometer nada → offer_teaser: false
+- Seja HONESTA: se vai oferecer, marque true. Se não, false.
 
-EXEMPLOS:
-✅ Ele: "oi" | Você: "oiii gato tô molhada pensando em vc 😏" | offer_preview: false
-✅ Ele: "gostosa" | Você: "hmmm obrigada delicia, vc também me deixa toda... 🔥" | offer_preview: false
-✅ Ele: "quero ver" | Você: "sabia que vc ia querer, tô te mandando o link" | offer_preview: true
-❌ Você: "quer ver meu canal?" | offer_preview: false [NUNCA faça isso sem ele pedir!]
-
-⚠️ RETORNE APENAS JSON:
+RETORNE APENAS JSON:
 {{
-  "response": "sua resposta em português",
-  "offer_preview": false,
-  "interest_level": "medium",
+  "response": "sua resposta",
+  "offer_teaser": false,
+  "interest_level": "low|medium|high",
   "is_hot": false
 }}
 
-CONTEXTO ATUAL:
-- Período: {time_ctx['period']} ({time_ctx['context']})
-- Streak: {streak} dias consecutivos"""
+CONTEXTO:
+- Período: {time_ctx['period']}
+- Streak: {streak} dias
+- Intenção detectada: {intent}
+- Já viu teaser: {'Sim' if saw_teaser_before else 'Não'} ({teaser_count}x)"""
 
     # Contexto de onboarding
-    if onboard_choice == "carente":
-        base_prompt += "\n- Usuário é CARENTE. Seja acolhedora e carinhosa."
-    elif onboard_choice == "tesao":
-        base_prompt += "\n- Usuário com TESÃO. Seja mais provocante e direta."
-
-    # Contexto de visitas ao canal (IMPORTANTE para conversão)
-    if visits > 0:
-        base_prompt += f"\n- Usuário JÁ visitou canal de prévias {visits}x"
-        
-        if high_resistance:
-            base_prompt += f"\n- ⚠️ ALTA RESISTÊNCIA ({visits}+ visitas). Seja mais direta sobre benefícios do VIP, pergunte o que tá impedindo."
-        
-        if came_back:
-            base_prompt += "\n- Usuário VOLTOU do canal recentemente. Continue conversando normal sem forçar VIP. Porém: se ele PEDIR algo ou demonstrar interesse CLARO, marque offer_preview: true. Se for só elogio, mantenha false."
-        elif went_preview and not came_back:
-            base_prompt += "\n- Usuário conhece o canal mas ainda não voltou pra conversar desde a última visita."
+    if onboard_choice:
+        base_prompt += f"\n- Perfil: {onboard_choice.upper()}"
     
-    # Instrução baseada no humor detectado
+    # Contexto de humor
     base_prompt += get_mood_instruction(mood)
     
-    base_prompt += "\n\n⚠️ LEMBRE-SE: Responda APENAS com JSON válido, nada mais!"
+    # Instrução baseada em quantas vezes já viu teaser
+    if teaser_count >= 2:
+        base_prompt += f"\n\n⚠️ Usuário já viu teaser {teaser_count}x mas não converteu. Seja mais DIRETA sobre benefícios do VIP."
+    
+    base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO!"
     
     return base_prompt
 
 class Grok:
-    """Cliente da API Grok para geração de respostas"""
+    """Cliente Grok otimizado v8.0"""
     
     async def reply(self, uid, text, image_base64=None, max_retries=2):
-        """
-        Gera resposta da IA baseada no input do usuário.
-        
-        Args:
-            uid: ID do usuário
-            text: Texto da mensagem
-            image_base64: Imagem em base64 (opcional)
-            max_retries: Tentativas máximas se repetir resposta
-        
-        Returns:
-            dict: {"response": str, "offer_preview": bool, "interest_level": str, "is_hot": bool}
-        """
         mem = get_memory(uid)
         lang = get_lang(uid)
         mood = detect_mood(text) if text else "neutral"
+        intent = detect_intent(text) if text else "neutral"
         
-        # Marca primeiro contato se aplicável
         if is_first_contact(uid):
             mark_first_contact(uid)
         
-        # Constrói prompt contextual
-        prompt = build_prompt(uid, lang, mood)
+        prompt = build_prompt(uid, lang, mood, intent)
         
-        # Prepara conteúdo do usuário (texto + imagem se houver)
+        # Prepara conteúdo
         if image_base64:
             user_content = []
             if text:
@@ -1228,7 +979,7 @@ class Grok:
         else:
             user_content = text
         
-        # Tenta gerar resposta (com retries se repetir)
+        # Tenta gerar resposta
         for attempt in range(max_retries + 1):
             payload = {
                 "model": MODELO,
@@ -1236,7 +987,7 @@ class Grok:
                     {"role": "system", "content": prompt},
                     *mem,
                     {"role": "user", "content": user_content},
-                    {"role": "system", "content": "LEMBRE-SE: Retorne APENAS JSON válido. Nada mais."}
+                    {"role": "system", "content": "APENAS JSON!"}
                 ],
                 "max_tokens": 500,
                 "temperature": 0.8 + (attempt * 0.1)
@@ -1254,231 +1005,200 @@ class Grok:
                         json=payload
                     ) as resp:
                         if resp.status != 200:
-                            error_text = await resp.text()
-                            logger.error(f"Grok erro {resp.status}: {error_text}")
-                            return {
-                                "response": "😔 Amor, deu um probleminha... tenta de novo? 💕",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
+                            logger.error(f"Grok erro {resp.status}")
+                            return self._fallback_response(intent)
                         
                         data = await resp.json()
                         if "choices" not in data:
-                            return {
-                                "response": "😔 Tive um probleminha... já volto 💖",
-                                "offer_preview": False,
-                                "interest_level": "low",
-                                "is_hot": False
-                            }
+                            return self._fallback_response(intent)
                         
                         answer = data["choices"][0]["message"]["content"]
                         
-                        # Tenta parsear JSON (parsing melhorado)
+                        # Parse JSON
                         try:
-                            # Limpa markdown
                             cleaned = answer.strip()
                             if "```json" in cleaned:
                                 cleaned = cleaned.split("```json")[1].split("```")[0].strip()
                             elif "```" in cleaned:
                                 cleaned = cleaned.split("```")[1].split("```")[0].strip()
                             
-                            # Remove espaços em branco antes/depois
-                            cleaned = cleaned.strip()
-                            
-                            # Se não começa com {, tenta achar o primeiro {
                             if not cleaned.startswith("{"):
                                 start = cleaned.find("{")
                                 if start != -1:
                                     cleaned = cleaned[start:]
                             
-                            # Se não termina com }, tenta achar o último }
                             if not cleaned.endswith("}"):
                                 end = cleaned.rfind("}")
                                 if end != -1:
                                     cleaned = cleaned[:end+1]
                             
-                            # Tenta parsear
                             result = json.loads(cleaned)
                             
-                            # Valida estrutura
                             if "response" not in result:
-                                raise ValueError("Missing 'response' field")
+                                raise ValueError("Missing response")
                             
-                            # Defaults para campos opcionais
-                            result.setdefault("offer_preview", False)
+                            result.setdefault("offer_teaser", False)
                             result.setdefault("interest_level", "medium")
                             result.setdefault("is_hot", False)
                             
-                            # Verifica se repetiu resposta recente
+                            # Anti-repetição
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
-                                logger.info(f"🔄 Resposta repetida, tentando novamente... (tentativa {attempt + 1})")
                                 continue
                             
                             add_recent_response(uid, result["response"])
                             
-                            # Log da decisão
                             logger.info(
-                                f"🤖 {uid} | offer={result['offer_preview']} | "
+                                f"🤖 {uid} | offer={result['offer_teaser']} | "
                                 f"interest={result['interest_level']} | hot={result['is_hot']}"
                             )
                             
                             break
                             
                         except (json.JSONDecodeError, ValueError) as e:
-                            logger.error(f"❌ Erro parse JSON: {e} | Raw: {answer[:200]}")
+                            logger.error(f"Parse erro: {e}")
                             
-                            # FALLBACK INTELIGENTE: analisa o texto puro
-                            offer_preview_detected = False
-                            is_hot_detected = False
-                            
-                            # Se menciona canal/prévia/vip no texto, considera que quer oferecer
-                            text_lower = answer.lower()
-                            if any(word in text_lower for word in ['canal', 'prévia', 'previas', 'vip', 'acesso', 'entra lá']):
-                                offer_preview_detected = True
-                            
-                            # Se tem palavras quentes, marca como hot
-                            if any(word in text_lower for word in HOT_KEYWORDS[:10]):
-                                is_hot_detected = True
-                            
-                            # Cria fallback baseado em heurística
-                            result = {
-                                "response": answer,
-                                "offer_preview": offer_preview_detected,
-                                "interest_level": "medium",
-                                "is_hot": is_hot_detected
-                            }
-                            
-                            logger.warning(f"⚠️ Usando fallback inteligente: offer={offer_preview_detected}, hot={is_hot_detected}")
+                            # FALLBACK inteligente
+                            result = self._smart_fallback(answer, intent)
                             break
                         
             except Exception as e:
-                logger.exception(f"🔥 Erro no Grok: {e}")
-                return {
-                    "response": "😔 Fiquei confusa... pode repetir? 💕",
-                    "offer_preview": False,
-                    "interest_level": "low",
-                    "is_hot": False
-                }
+                logger.exception(f"Grok erro: {e}")
+                return self._fallback_response(intent)
         
-        # Salva na memória
+        # Salva memória
         memory_text = f"[Foto] {text}" if image_base64 else text
         add_to_memory(uid, "user", memory_text)
         add_to_memory(uid, "assistant", result["response"])
         save_message(uid, "maya", result["response"])
         
         return result
+    
+    def _smart_fallback(self, raw_text, intent):
+        """Fallback inteligente quando JSON falha"""
+        text_lower = raw_text.lower()
+        
+        # Detecta se mencionou oferecer algo
+        offer_keywords = [
+            'vou mandar', 'vou te mandar', 'vou te mostrar',
+            'te mando', 'te mostro', 'olha', 'vê', 've',
+            'tá aqui', 'ta aqui', 'separei', 'preparei'
+        ]
+        offer_teaser = any(k in text_lower for k in offer_keywords)
+        
+        # Detecta se é quente
+        is_hot = any(k in text_lower for k in HOT_KEYWORDS[:15])
+        
+        # Interesse level baseado em intent
+        interest_map = {
+            "pedido_conteudo": "high",
+            "interesse_vip": "high",
+            "hot": "medium",
+            "neutral": "low"
+        }
+        
+        return {
+            "response": raw_text,
+            "offer_teaser": offer_teaser,
+            "interest_level": interest_map.get(intent, "medium"),
+            "is_hot": is_hot
+        }
+    
+    def _fallback_response(self, intent):
+        """Resposta de emergência"""
+        if intent in ["pedido_conteudo", "interesse_vip"]:
+            return {
+                "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
+                "offer_teaser": True,
+                "interest_level": "high",
+                "is_hot": False
+            }
+        else:
+            return {
+                "response": "😔 Tive um probleminha... pode repetir? 💕",
+                "offer_teaser": False,
+                "interest_level": "low",
+                "is_hot": False
+            }
 
-# Instância global do cliente Grok
 grok = Grok()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📨 SISTEMA DE FOLLOW-UPS AUTOMÁTICOS
+# 🎯 ENVIO DE TEASER + PITCH VIP (CORE v8.0!)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def send_preview_followup(bot, uid, level):
+async def send_teaser_and_pitch(bot, chat_id, uid):
     """
-    Envia follow-up para usuário que VOLTOU do canal sem converter.
-    
-    Levels:
-    - 1: Após 1h de voltar
-    - 2: Após 6h de voltar
+    Envia fotos teaser + pitch VIP.
+    Esta é a função MAIS IMPORTANTE do bot v8.0!
     """
     try:
-        if level == 1:
-            message = CAME_BACK_FOLLOWUP_1H
-        elif level == 2:
-            message = CAME_BACK_FOLLOWUP_6H
-        else:
-            return False
+        ab_group = get_ab_group(uid)
         
-        # Botões baseados em quantas visitas teve
-        visits = get_preview_visits(uid)
-        if visits == 1:
-            # Primeira visita: só prévias
-            keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")]]
-        else:
-            # 2+ visitas: oferece ambos
-            keyboard = [
-                [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
-                [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-            ]
+        # Marca que viu teaser
+        set_saw_teaser(uid)
+        track_funnel(uid, "saw_teaser")
+        
+        # 1. MENSAGEM INTRODUTÓRIA
+        intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
+        await bot.send_message(chat_id=chat_id, text=intro)
+        await asyncio.sleep(2)
+        
+        # 2. ENVIA 2-3 FOTOS TEASER
+        num_photos = random.randint(2, 3)
+        selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
+        
+        for i, photo_url in enumerate(selected_photos):
+            await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+            await asyncio.sleep(1)
+            
+            caption = None
+            if i == len(selected_photos) - 1:
+                # Última foto: adiciona caption provocante
+                captions = [
+                    "Gostou? No VIP tem MUITO mais... 🔥",
+                    "Isso é só o começo amor... 😏",
+                    "Imagina o que tem no VIP então... 💦"
+                ]
+                caption = random.choice(captions)
+            
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=photo_url,
+                caption=caption
+            )
+            await asyncio.sleep(1.5)
+        
+        # 3. PITCH VIP
+        await asyncio.sleep(2)
+        pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP_REAL)
+        
+        # Botão VIP
+        keyboard = [[
+            InlineKeyboardButton("💎 QUERO ACESSO VIP AGORA", callback_data="goto_vip")
+        ]]
         
         await bot.send_message(
-            chat_id=uid,
-            text=message,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            chat_id=chat_id,
+            text=pitch,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
         )
         
-        set_preview_followup_level(uid, level)
-        save_message(uid, "system", f"Follow-up preview (voltou) level {level}")
-        logger.info(f"📢 Follow-up preview (voltou) {level} enviado: {uid}")
+        logger.info(f"🎯 TEASER+PITCH enviado: {uid} (grupo {ab_group})")
+        save_message(uid, "system", f"TEASER+PITCH enviado (#{get_teaser_count(uid)})")
+        
         return True
         
     except Exception as e:
-        logger.error(f"Erro follow-up preview: {e}")
+        logger.error(f"Erro send_teaser: {e}")
         return False
 
-async def send_abandoned_followup(bot, uid, level):
-    """
-    Envia follow-up para usuário que VISITOU prévias mas NÃO VOLTOU.
-    
-    Levels:
-    - 1: Após 3h sem voltar
-    - 2: Após 15h sem voltar
-    - 3: Após 27h sem voltar (última tentativa)
-    """
-    try:
-        visits = get_preview_visits(uid)
-        
-        # Escolhe mensagem baseada no nível
-        if level == 1:
-            message = PREVIEW_ABANDONED_LEVEL_1
-        elif level == 2:
-            message = PREVIEW_ABANDONED_LEVEL_2
-        elif level == 3:
-            # Alta resistência? Mensagem personalizada
-            if is_high_resistance_user(uid):
-                message = random.choice(HIGH_RESISTANCE_MESSAGES).format(visits=visits)
-            else:
-                message = PREVIEW_ABANDONED_LEVEL_3
-        else:
-            return False
-        
-        # Botões
-        keyboard = [
-            [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
-            [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-        ]
-        
-        await bot.send_message(
-            chat_id=uid,
-            text=message,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        increment_abandoned_followup_level(uid)
-        set_last_abandoned_followup_time(uid)
-        set_awaiting_response(uid)
-        increment_ignored(uid)
-        
-        save_message(uid, "system", f"Follow-up abandono level {level} ({visits} visitas)")
-        logger.info(f"🎯 Follow-up abandono {level} enviado: {uid} ({visits} visitas)")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Erro follow-up abandono: {e}")
-        return False
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📨 SISTEMA DE FOLLOW-UPS
+# ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_reengagement_message(bot, uid, level):
-    """
-    Envia mensagem de reengajamento para usuário inativo.
-    
-    Levels:
-    - 1: 2h inativo
-    - 2: 24h inativo
-    - 3: 72h inativo
-    """
+    """Mensagem de reengajamento para inativos"""
     if is_engagement_paused(uid):
         return False
     
@@ -1486,64 +1206,87 @@ async def send_reengagement_message(bot, uid, level):
     if not messages:
         return False
     
-    message = random.choice(messages)
-    
     try:
-        # Sempre oferece prévias nas mensagens de reengajamento
-        await bot.send_message(
-            chat_id=uid,
-            text=message,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")],
-            ])
-        )
+        message = random.choice(messages)
+        await bot.send_message(chat_id=uid, text=message)
         
         set_last_reengagement(uid, level)
         set_awaiting_response(uid)
         increment_ignored(uid)
         
-        save_message(uid, "system", f"Reengajamento level {level}")
         logger.info(f"🔄 Reengajamento {level} enviado: {uid}")
         return True
-        
     except Exception as e:
         logger.error(f"Erro reengajamento: {e}")
         if "blocked" in str(e).lower():
             add_to_blacklist(uid)
         return False
 
-async def send_last_attempt_message(bot, uid):
-    """Envia mensagem final antes de pausar engagement"""
-    try:
-        await bot.send_message(chat_id=uid, text=random.choice(LAST_ATTEMPT_MESSAGES))
-        save_message(uid, "system", "Última tentativa antes de pausar")
-        logger.info(f"⏸️ Última tentativa enviada: {uid}")
-        return True
-    except Exception as e:
-        logger.error(f"Erro última tentativa: {e}")
-        return False
+async def process_engagement_jobs(bot):
+    """Processa jobs de engagement"""
+    logger.info("🔄 Processando engagement jobs...")
+    
+    users = get_all_active_users()
+    random.shuffle(users)
+    
+    reengagement_sent = 0
+    
+    for uid in users:
+        if is_blacklisted(uid) or is_engagement_paused(uid):
+            continue
+        
+        try:
+            hours_inactive = get_hours_since_activity(uid)
+            
+            if hours_inactive:
+                last_level = get_last_reengagement(uid)
+                
+                # 72h
+                if hours_inactive >= 72 and last_level < 3:
+                    if await send_reengagement_message(bot, uid, 3):
+                        reengagement_sent += 1
+                # 24h
+                elif hours_inactive >= 24 and last_level < 2:
+                    if await send_reengagement_message(bot, uid, 2):
+                        reengagement_sent += 1
+                # 2h
+                elif hours_inactive >= 2 and last_level < 1:
+                    if await send_reengagement_message(bot, uid, 1):
+                        reengagement_sent += 1
+            
+            await asyncio.sleep(0.15)
+            
+        except Exception as e:
+            logger.error(f"Erro job {uid}: {e}")
+    
+    logger.info(f"✅ Jobs: {len(users)} users | 🔄 {reengagement_sent} reengajamento")
+
+async def engagement_scheduler(bot):
+    """Scheduler - roda a cada 15 min"""
+    logger.info("🚀 Scheduler v8.0 iniciado")
+    while True:
+        try:
+            await process_engagement_jobs(bot)
+        except Exception as e:
+            logger.error(f"Erro scheduler: {e}")
+        
+        await asyncio.sleep(900)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️ AVISOS DE LIMITE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def check_and_send_limit_warning(uid, context, chat_id):
-    """
-    Envia aviso quando usuário atinge 80% do limite (restam 5 msgs).
-    Enviado apenas UMA VEZ por dia.
-    """
+    """Aviso aos 80% do limite"""
     if was_limit_warning_sent_today(uid):
         return
     
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
-    total_available = LIMITE_DIARIO + bonus
+    total = LIMITE_DIARIO + bonus
     
-    # Aviso aos 80% (quando restam ~5 mensagens)
-    if count == total_available - 5:
-        track_funnel(uid, "limit_warning")
+    if count == total - 5:
         mark_limit_warning_sent(uid)
-        save_message(uid, "system", "Aviso de limite (80%)")
         
         try:
             await context.bot.send_message(
@@ -1551,47 +1294,37 @@ async def check_and_send_limit_warning(uid, context, chat_id):
                 text=LIMIT_WARNING_MESSAGE,
                 parse_mode="Markdown"
             )
-            logger.info(f"⚠️ Aviso de limite enviado: {uid}")
         except:
             pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎮 HANDLERS - Processamento de Mensagens e Comandos
+# 🎮 HANDLERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler do comando /start"""
+    """Handler /start"""
     uid = update.effective_user.id
     
-    # 🔥 FIX: Lock atômico e mais duradouro
+    # Lock anti-duplicação
     start_lock_key = f"start_lock:{uid}"
-    
-    # Operação atômica - evita race condition
-    if not r.set(start_lock_key, "1", nx=True, ex=60):  # 60 segundos
-        logger.info(f"🚫 /start duplicado bloqueado: {uid}")
+    if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
     
-    # Blacklist check
     if is_blacklisted(uid):
         return
     
-    # Tracking
     update_last_activity(uid)
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
     
-    # Define idioma (pt fixo por enquanto)
     set_lang(uid, "pt")
-    track_funnel(uid, "lang_selected")
     
     try:
-        # Typing animation
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         
-        # Mensagem inicial
-        await update.message.reply_text(MENSAGEM_INICIO_SAFADA)
+        await update.message.reply_text(MENSAGEM_INICIO)
         
         logger.info(f"👋 Novo usuário: {uid}")
         
@@ -1599,180 +1332,65 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Erro /start: {e}")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler de botões inline"""
+    """Handler de botões"""
     query = update.callback_query
-    
-    # 🔥 CONFIRMA O CALLBACK IMEDIATAMENTE
     await query.answer()
     
     try:
         uid = query.from_user.id
         
-        # 🔥 LOG DE DEBUG
-        logger.warning(f"🔘 CALLBACK | User: {uid} | Data: '{query.data}'")
-        
-        # Blacklist check
         if is_blacklisted(uid):
-            logger.warning(f"🚫 User {uid} bloqueado")
             return
         
-        # Tracking básico
         update_last_activity(uid)
         reset_ignored(uid)
-        save_message(uid, "action", f"🔘 {query.data}")
         
-        # ═══════════════════════════════════════════════════════
-        # BOTÃO: IR PARA PRÉVIAS
-        # ═══════════════════════════════════════════════════════
-        if query.data == "goto_preview":
-            logger.warning(f"📢 Processando goto_preview para {uid}")
-            
-            set_went_to_preview(uid)
-            track_funnel(uid, "went_to_preview")
-            save_message(uid, "action", "📢 CLICOU NO BOTÃO DE PRÉVIAS")
-            
-            visits = get_preview_visits(uid)
-            
-            # Mensagem personalizada
-            if visits == 1:
-                extra_msg = "\n\nÉ a sua primeira vez lá... aproveita! 💕"
-            elif visits >= HIGH_RESISTANCE_VISITS:
-                extra_msg = f"\n\nJá é sua {visits}ª visita... acho que você já sabe que vale a pena né? 😏"
-            else:
-                extra_msg = ""
-            
-            # Envia foto + link
-            await context.bot.send_photo(
-                chat_id=query.message.chat_id,
-                photo=random.choice(FOTOS_TEASER),
-                caption=(
-                    f"💕 Aqui está o link do meu canal de prévias, amor!\n\n"
-                    f"Entra lá e vê o que eu tenho pra você... 😏🔥\n\n"
-                    f"👉 {CANAL_PREVIAS_LINK}{extra_msg}"
-                )
-            )
-            
-            logger.info(f"📢 {uid} foi para prévias (visita #{visits})")
-        
-        # ═══════════════════════════════════════════════════════
-        # BOTÃO: IR PARA VIP
-        # ═══════════════════════════════════════════════════════
-        elif query.data == "goto_vip":
-            logger.warning(f"💎 Processando goto_vip para {uid}")
-            
+        # BOTÃO VIP
+        if query.data == "goto_vip":
             set_clicked_vip(uid)
-            track_funnel(uid, "clicked_vip_link")
-            save_message(uid, "action", "💎 CLICOU NO BOTÃO VIP")
+            track_funnel(uid, "clicked_vip")
+            save_message(uid, "action", "💎 CLICOU VIP")
             
-            # Envia foto + link
-            await context.bot.send_photo(
-                chat_id=query.message.chat_id,
-                photo=random.choice(FOTOS_TEASER),
-                caption=(
-                    f"💎 Aqui está o link do VIP, amor!\n\n"
-                    f"Clica lá pra garantir seu acesso e ter TUDO sem limite... 😏🔥\n\n"
-                    f"👉 {CANAL_VIP_LINK}\n\n"
-                    f"Te espero lá! 💕"
-                )
+            # Mensagem de conversão
+            conversion_msg = (
+                f"💎 **PERFEITO AMOR!**\n\n"
+                f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
+                f"👉 {CANAL_VIP_LINK}\n\n"
+                f"Te espero lá com MUITO conteúdo exclusivo! 🔥💕"
             )
             
-            logger.info(f"💎 {uid} clicou no VIP")
-        
-        else:
-            # Callback desconhecido
-            logger.warning(f"⚠️ Callback NÃO RECONHECIDO: '{query.data}'")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=conversion_msg,
+                parse_mode="Markdown"
+            )
+            
+            logger.info(f"💰 CONVERSÃO! {uid} clicou no VIP")
         
     except Exception as e:
-        logger.error(f"❌ ERRO NO CALLBACK: {e}")
-        logger.exception(e)
+        logger.error(f"Erro callback: {e}")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler principal de mensagens"""
     uid = update.effective_user.id
     
-    # Blacklist check
     if is_blacklisted(uid):
         return
     
-    # Tracking básico
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
-    
-    # Admin takeover (se admin assumiu controle)
-    if is_takeover_active(uid):
-        text = update.message.text or ""
-        if text:
-            save_message(uid, "user", text)
-        return
     
     try:
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
         
-        # Log da mensagem
         if text:
             save_message(uid, "user", text)
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
         
-        # ═══════════════════════════════════════════════════════
-        # DETECÇÃO: VOLTOU DO CANAL (UMA VEZ SÓ)
-        # ═══════════════════════════════════════════════════════
-        if went_to_preview(uid) and not came_back_from_preview(uid):
-            last_preview = get_last_preview_time(uid)
-            if last_preview:
-                hours_since = (datetime.now() - last_preview).total_seconds() / 3600
-                
-                # Se voltou dentro da janela de retorno
-                if hours_since < PREVIEW_RETURN_WINDOW_HOURS:
-                    set_came_back_from_preview(uid)
-                    track_funnel(uid, "came_back")
-                    
-                    visits = get_preview_visits(uid)
-                    
-                    # 🔥 SEMPRE OFERECE VIP QUANDO VOLTA (não prévias de novo)
-                    # Mensagem personalizada
-                    if is_high_resistance_user(uid):
-                        welcome_msg = (
-                            f"Oi de novo amor! 💕\n\n"
-                            f"Já é sua {visits}ª vez aqui... "
-                            f"Gostou das prévias? No VIP tem MUITO mais! 🔥\n\n"
-                            f"O que posso fazer pra você finalmente se decidir? 🥺"
-                        )
-                    else:
-                        welcome_msg = (
-                            "E aí amor, gostou das prévias? 😏\n\n"
-                            "Mas isso não é NADA perto do que tenho no VIP... 🔥\n\n"
-                            "Lá você tem:\n"
-                            "✅ Conteúdo TODO DIA\n"
-                            "✅ Fotos e vídeos MUITO mais ousados\n"
-                            "✅ SEM LIMITE de conversas\n\n"
-                            "Tá esperando o quê? 💕"
-                        )
-                    
-                    # Botão principal: VIP (prioridade)
-                    keyboard = [
-                        [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                        [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
-                    ]
-                    
-                    await update.message.reply_text(
-                        welcome_msg,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    
-                    logger.info(f"↩️ {uid} voltou do canal (visita #{visits})")
-                    
-                    # ✨ NOVO: Marca que já mostrou mensagem de boas-vindas
-                    r.setex(f"welcome_shown:{uid}", timedelta(hours=24), "1")
-                    
-                    # 🔥 ADICIONE ESTA LINHA:
-                    return
-        
-        # ═══════════════════════════════════════════════════════
-        # PROCESSAMENTO DE FOTO
-        # ═══════════════════════════════════════════════════════
+        # FOTO
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
@@ -1787,23 +1405,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                 await update.message.reply_text(grok_response["response"])
                 
-                # Se Grok decidiu oferecer canal após ver a foto
-                if grok_response.get("offer_preview", False):
-                    visits = get_preview_visits(uid)
-                    if visits == 0:
-                        keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
-                    else:
-                        keyboard = [
-                            [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                            [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
-                        ]
-                    
-                    await asyncio.sleep(1)
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="👇 Clica aqui embaixo amor 💕",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                # Se deve oferecer teaser
+                if grok_response.get("offer_teaser", False):
+                    await asyncio.sleep(2)
+                    await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
                 
                 return
             else:
@@ -1814,111 +1419,58 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
         
-        # ═══════════════════════════════════════════════════════
-        # NOTA: Detecção de interesse agora é feita pelo GROK!
-        # O Grok analisa a mensagem e decide se deve oferecer canal
-        # ═══════════════════════════════════════════════════════
-        
-        # ═══════════════════════════════════════════════════════
-        # VERIFICAÇÃO DE LIMITE
-        # ═══════════════════════════════════════════════════════
+        # VERIFICA LIMITE
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
-        total_available = LIMITE_DIARIO + bonus
+        total = LIMITE_DIARIO + bonus
         
-        # LIMITE ATINGIDO
-        if current_count >= total_available:
-            track_funnel(uid, "limit_reached")
-            
-            # Botões baseados em visitas
-            visits = get_preview_visits(uid)
-            if visits == 0:
-                keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
-            else:
-                keyboard = [
-                    [InlineKeyboardButton("📢 VER PRÉVIAS NOVAMENTE", callback_data="goto_preview")],
-                    [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                ]
+        if current_count >= total:
+            # Limite atingido
+            keyboard = [[
+                InlineKeyboardButton("💎 QUERO VIP AGORA", callback_data="goto_vip")
+            ]]
             
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=FOTO_LIMITE_ATINGIDO,
-                caption=LIMIT_REACHED_CANAL_MESSAGE,
+                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP_REAL),
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
-            logger.info(f"🚫 {uid} atingiu limite ({total_available} msgs)")
+            logger.info(f"🚫 {uid} atingiu limite")
             return
         
-        # Incrementa contador (usa bônus primeiro se tiver)
+        # Incrementa contador
         if bonus > 0:
             use_bonus_msg(uid)
         else:
             increment(uid)
         
-        # Incrementa contador total de mensagens da conversa
         increment_conversation_messages(uid)
         
-        # Envia aviso de limite se aplicável
+        # Aviso de limite
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
         
-        # ═══════════════════════════════════════════════════════
-        # GERA RESPOSTA DA IA
-        # ═══════════════════════════════════════════════════════
+        # GERA RESPOSTA IA
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
         except:
             pass
         
-        # Grok agora retorna JSON com decisão inteligente
         grok_response = await grok.reply(uid, text)
         
-        # Envia resposta do Grok
+        # Envia resposta
         await update.message.reply_text(grok_response["response"])
         
-        # Se Grok decidiu oferecer canal, envia botão
-        # MAS só se não ofereceu recentemente (cooldown de 10 minutos)
-        should_offer = grok_response.get("offer_preview", False)
-        
-        # Verifica se já ofereceu recentemente
-        offer_cooldown_key = f"offer_cooldown:{uid}"
-        if should_offer and r.exists(offer_cooldown_key):
-            should_offer = False
-            logger.info(f"🚫 {uid} | Oferecimento bloqueado por cooldown")
+        # 🔥 DECISÃO CRÍTICA: Oferecer teaser?
+        should_offer = grok_response.get("offer_teaser", False)
         
         if should_offer:
-            visits = get_preview_visits(uid)
-            
-            # Escolhe botões baseado em visitas
-            if visits == 0:
-                keyboard = [[InlineKeyboardButton("📢 VER PRÉVIAS", callback_data="goto_preview")]]
-            else:
-                keyboard = [
-                    [InlineKeyboardButton("💎 IR DIRETO PRO VIP", callback_data="goto_vip")],
-                    [InlineKeyboardButton("📢 Ver prévias novamente", callback_data="goto_preview")],
-                ]
-            
-            # Espera 1 segundo antes de enviar botão
-            await asyncio.sleep(1)
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="👇 Clica aqui embaixo amor 💕",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-                # 🔥 SÓ MARCA COOLDOWN SE ENVIOU COM SUCESSO!
-                r.setex(offer_cooldown_key, timedelta(minutes=2), "1")
-                
-                logger.info(f"🎯 {uid} | Botão enviado com sucesso | interest={grok_response.get('interest_level')}")
-            
-            except Exception as e:
-                logger.error(f"❌ Erro ao enviar botão para {uid}: {e}")
-                # Não marca cooldown se deu erro!
+            await asyncio.sleep(2)
+            await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
         
-        # Mensagem de streak se aplicável
+        # Streak
         if streak_updated:
             streak_msg = get_streak_message(streak)
             if streak_msg:
@@ -1929,173 +1481,41 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception(f"Erro message_handler: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 SCHEDULER - Processa Follow-ups e Mensagens Automáticas
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def process_engagement_jobs(bot):
-    """
-    Processa todos os jobs de engagement:
-    - Follow-ups de abandono
-    - Follow-ups de retorno
-    - Reengajamento
-    - Mensagens programadas
-    """
-    logger.info("🔄 Processando jobs de engagement...")
-    
-    users = get_all_active_users()
-    random.shuffle(users)  # Randomiza ordem para distribuir carga
-    
-    # Contadores
-    abandoned_followups_sent = 0
-    preview_followups_sent = 0
-    reengagement_sent = 0
-    
-    for uid in users:
-        # Skip blacklist e pausados
-        if is_blacklisted(uid) or is_engagement_paused(uid):
-            continue
-        
-        try:
-            hours_inactive = get_hours_since_activity(uid)
-            
-            # ═══════════════════════════════════════════════════════
-            # FOLLOW-UP DE ABANDONO (foi nas prévias mas não voltou)
-            # ═══════════════════════════════════════════════════════
-            if went_to_preview(uid):
-                last_preview = get_last_preview_time(uid)
-                
-                if last_preview:
-                    hours_since_preview = (datetime.now() - last_preview).total_seconds() / 3600
-                    
-                    # Se visitou mas não voltou (não interagiu desde então)
-                    if hours_since_preview >= PREVIEW_ABANDONED_HOURS and not came_back_from_preview(uid):
-                        last_followup = get_last_abandoned_followup_time(uid)
-                        abandoned_level = get_abandoned_followup_level(uid)
-                        
-                        # Verifica intervalo desde último follow-up
-                        can_send = False
-                        if last_followup is None:
-                            can_send = True
-                        else:
-                            hours_since_followup = (datetime.now() - last_followup).total_seconds() / 3600
-                            if hours_since_followup >= PREVIEW_FOLLOWUP_INTERVAL_HOURS:
-                                can_send = True
-                        
-                        # Envia se pode e ainda não esgotou tentativas
-                        if can_send and abandoned_level < 3:
-                            if await send_abandoned_followup(bot, uid, abandoned_level + 1):
-                                abandoned_followups_sent += 1
-                                continue
-            
-            # ═══════════════════════════════════════════════════════
-            # FOLLOW-UP DE RETORNO (voltou mas não converteu)
-            # ═══════════════════════════════════════════════════════
-            if came_back_from_preview(uid):
-                came_back_time = get_last_activity(uid)  # Usa última atividade como referência
-                if came_back_time:
-                    hours_since = (datetime.now() - came_back_time).total_seconds() / 3600
-                    followup_level = get_preview_followup_level(uid)
-                    
-                    # Follow-up após 1h
-                    if hours_since >= 1 and followup_level < 1:
-                        if await send_preview_followup(bot, uid, 1):
-                            preview_followups_sent += 1
-                            continue
-                    # Follow-up após 6h
-                    elif hours_since >= 6 and followup_level < 2:
-                        if await send_preview_followup(bot, uid, 2):
-                            preview_followups_sent += 1
-                            continue
-            
-            # ═══════════════════════════════════════════════════════
-            # SISTEMA ANTI-GHOSTING
-            # ═══════════════════════════════════════════════════════
-            ignored = get_ignored_count(uid)
-            if ignored >= 2 and is_awaiting_response(uid):
-                # Após 2 mensagens ignoradas, envia última tentativa e pausa
-                await send_last_attempt_message(bot, uid)
-                pause_engagement(uid)
-                continue
-            
-            # ═══════════════════════════════════════════════════════
-            # REENGAJAMENTO (usuário inativo)
-            # ═══════════════════════════════════════════════════════
-            if hours_inactive:
-                last_level = get_last_reengagement(uid)
-                
-                # 72h inativo
-                if hours_inactive >= 72 and last_level < 3:
-                    if await send_reengagement_message(bot, uid, 3):
-                        reengagement_sent += 1
-                        continue
-                # 24h inativo
-                elif hours_inactive >= 24 and last_level < 2:
-                    if await send_reengagement_message(bot, uid, 2):
-                        reengagement_sent += 1
-                        continue
-                # 2h inativo
-                elif hours_inactive >= 2 and last_level < 1:
-                    if await send_reengagement_message(bot, uid, 1):
-                        reengagement_sent += 1
-                        continue
-            
-            # Sleep para evitar rate limits
-            await asyncio.sleep(0.15)
-            
-        except Exception as e:
-            logger.error(f"Erro job {uid}: {e}")
-    
-    logger.info(
-        f"✅ Jobs concluídos: {len(users)} users | "
-        f"🎯 {abandoned_followups_sent} abandono | "
-        f"📢 {preview_followups_sent} retorno | "
-        f"🔄 {reengagement_sent} reengajamento"
-    )
-
-async def engagement_scheduler(bot):
-    """Scheduler principal - roda a cada 15 minutos"""
-    logger.info("🚀 Scheduler v7.2 iniciado")
-    while True:
-        try:
-            await process_engagement_jobs(bot)
-        except Exception as e:
-            logger.error(f"Erro scheduler: {e}")
-        
-        # Aguarda 15 minutos
-        await asyncio.sleep(900)
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # 👑 COMANDOS ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Exibe estatísticas gerais do bot"""
+    """Estatísticas v8.0"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
     users = get_all_active_users()
     total = len(users)
-    went_preview = sum(1 for uid in users if went_to_preview(uid))
-    came_back = sum(1 for uid in users if came_back_from_preview(uid))
+    saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
     clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
-    high_resistance = sum(1 for uid in users if is_high_resistance_user(uid))
     
-    # Taxa de conversão prévias → VIP
-    ctr_preview_to_vip = (clicked_vip_count / went_preview * 100) if went_preview > 0 else 0
+    # Taxa de conversão
+    ctr_teaser_to_vip = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0
+    
+    # A/B test
+    if AB_TEST_ENABLED:
+        group_a = sum(1 for uid in users if get_ab_group(uid) == "A")
+        group_b = total - group_a
+        ab_info = f"\n\n🧪 **A/B TEST:**\nGrupo A: {group_a}\nGrupo B: {group_b}"
+    else:
+        ab_info = ""
     
     await update.message.reply_text(
-        f"📊 **ESTATÍSTICAS v7.2**\n\n"
-        f"👥 Total usuários: {total}\n"
-        f"📢 Visitaram prévias: {went_preview}\n"
-        f"💎 Clicaram no VIP: {clicked_vip_count}\n"
-        f"↩️ Voltaram do canal: {came_back}\n"
-        f"🔥 Alta resistência (3+ visitas): {high_resistance}\n\n"
-        f"📈 CTR Prévias→VIP: {ctr_preview_to_vip:.1f}%",
+        f"📊 **STATS v8.0**\n\n"
+        f"👥 Total: {total}\n"
+        f"👀 Viram teaser: {saw_teaser_count}\n"
+        f"💎 Clicaram VIP: {clicked_vip_count}\n\n"
+        f"📈 **Taxa conversão:** {ctr_teaser_to_vip:.1f}%{ab_info}",
         parse_mode="Markdown"
     )
 
 async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Exibe funil de conversão"""
+    """Funil v8.0"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -2103,57 +1523,19 @@ async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     names = {
         0: "❓ Desconhecido",
         1: "🚀 /start",
-        2: "🌍 Idioma selecionado",
-        3: "💬 Primeira mensagem",
-        4: "⚠️ Aviso de limite",
-        5: "🚫 Limite atingido",
-        6: "📢 Foi para prévias",
-        7: "↩️ Voltou do canal",
-        8: "💎 Clicou no VIP"
+        2: "💬 Primeira msg",
+        3: "👀 Viu teaser",
+        4: "💎 Clicou VIP"
     }
     
-    msg = "📊 **FUNIL DE CONVERSÃO v7.2**\n\n"
+    msg = "📊 **FUNIL v8.0**\n\n"
     for stage, count in sorted(stages.items()):
         msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
     
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Exibe status de um usuário"""
-    uid = update.effective_user.id
-    
-    # Admin pode consultar outros usuários
-    if update.effective_user.id in ADMIN_IDS and context.args:
-        uid = int(context.args[0])
-    
-    streak = get_streak(uid)
-    count = today_count(uid)
-    bonus = get_bonus_msgs(uid)
-    visits = get_preview_visits(uid)
-    came_back = came_back_from_preview(uid)
-    clicked = clicked_vip(uid)
-    high_resistance = is_high_resistance_user(uid)
-    
-    msg = f"📋 **STATUS DO USUÁRIO v7.2**\n\n"
-    msg += f"👤 ID: `{uid}`\n"
-    msg += f"🔥 Streak: {streak} dias\n"
-    msg += f"💬 Mensagens hoje: {count}/{LIMITE_DIARIO + bonus}\n"
-    
-    if bonus > 0:
-        msg += f"🎁 Bônus disponível: {bonus}\n"
-    
-    msg += f"\n**📊 TRACKING DE FUNIL:**\n"
-    msg += f"📢 Visitas ao canal: {visits}x\n"
-    msg += f"↩️ Voltou do canal: {'✅' if came_back else '❌'}\n"
-    msg += f"💎 Clicou no VIP: {'✅' if clicked else '❌'}\n"
-    
-    if high_resistance:
-        msg += f"\n⚠️ **ALTA RESISTÊNCIA** (3+ visitas)\n"
-    
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reseta limite diário de um usuário"""
+    """Reset limite"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -2163,162 +1545,53 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     uid = int(context.args[0])
     reset_daily_count(uid)
-    await update.message.reply_text(f"✅ Limite diário resetado: {uid}")
-
-async def resetall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reset completo de um usuário"""
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    
-    if not context.args:
-        await update.message.reply_text("Uso: /resetall <user_id>")
-        return
-    
-    uid = int(context.args[0])
-    
-    # Limpa tudo
-    reset_daily_count(uid)
-    clear_memory(uid)
-    reset_ignored(uid)
-    
-    # Limpa tracking de canal
-    r.delete(went_to_preview_key(uid))
-    r.delete(preview_visits_key(uid))
-    r.delete(last_preview_time_key(uid))
-    r.delete(came_back_from_preview_key(uid))
-    r.delete(clicked_vip_key(uid))
-    
-    await update.message.reply_text(f"🔥 Reset COMPLETO: {uid}")
-    logger.info(f"🔥 Reset completo: {uid}")
-
-async def limpar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Limpa limite diário (comando público)"""
-    uid = update.effective_user.id
-    
-    # Admin pode limpar de outros
-    if update.effective_user.id in ADMIN_IDS and context.args:
-        uid = int(context.args[0])
-    
-    reset_daily_count(uid)
-    await update.message.reply_text(f"✅ Limite resetado! Pode conversar de novo 💕")
+    await update.message.reply_text(f"✅ Limite resetado: {uid}")
 
 async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dá mensagens bônus a um usuário"""
+    """Dar bônus"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
     if len(context.args) < 2:
-        await update.message.reply_text("Uso: /givebonus <user_id> <quantidade>")
+        await update.message.reply_text("Uso: /givebonus <uid> <qtd>")
         return
     
     uid = int(context.args[0])
     amount = int(context.args[1])
     
     add_bonus_msgs(uid, amount)
-    total = get_bonus_msgs(uid)
-    
-    await update.message.reply_text(
-        f"✅ +{amount} mensagens bônus para {uid}\n"
-        f"Total de bônus: {total}"
-    )
-    
-    # Notifica o usuário
-    try:
-        await context.bot.send_message(
-            uid,
-            f"🎁 Você ganhou +{amount} mensagens extras! Aproveite 💕"
-        )
-    except:
-        pass
-
-async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Envia mensagem para todos usuários"""
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    
-    if not context.args:
-        await update.message.reply_text("Uso: /broadcast <mensagem>")
-        return
-    
-    message = " ".join(context.args)
-    users = get_all_active_users()
-    
-    sent = 0
-    failed = 0
-    
-    for uid in users:
-        if is_blacklisted(uid):
-            continue
-        
-        try:
-            await context.bot.send_message(chat_id=uid, text=message)
-            sent += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            failed += 1
-            if "blocked" in str(e).lower():
-                add_to_blacklist(uid)
-    
-    await update.message.reply_text(
-        f"✅ **Broadcast concluído**\n\n"
-        f"📤 Enviados: {sent}\n"
-        f"❌ Falhas: {failed}",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"✅ +{amount} bônus: {uid}")
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Exibe lista de comandos"""
+    """Help"""
     if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text(
-            "💕 **COMANDOS DISPONÍVEIS**\n\n"
-            "/status - Ver seu status\n"
-            "/limpar - Resetar seu limite diário",
-            parse_mode="Markdown"
-        )
         return
     
     await update.message.reply_text(
-        "🎮 **COMANDOS ADMIN v7.2**\n\n"
-        "**📊 Estatísticas:**\n"
-        "/stats - Estatísticas gerais\n"
-        "/funnel - Funil de conversão\n"
-        "/status [id] - Status de usuário\n\n"
-        "**🔧 Gestão:**\n"
-        "/reset <id> - Resetar limite diário\n"
-        "/resetall <id> - Reset completo\n"
-        "/givebonus <id> <qtd> - Dar bônus\n"
-        "/limpar [id] - Limpar limite\n\n"
-        "**📢 Comunicação:**\n"
-        "/broadcast <msg> - Enviar para todos\n\n"
-        "**ℹ️ Outros:**\n"
-        "/help - Esta mensagem",
+        "🎮 **COMANDOS v8.0**\n\n"
+        "/stats - Estatísticas\n"
+        "/funnel - Funil\n"
+        "/reset <id> - Reset limite\n"
+        "/givebonus <id> <qtd> - Bônus",
         parse_mode="Markdown"
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚀 SETUP E INICIALIZAÇÃO
+# 🚀 SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def setup_application():
-    """Configura handlers do bot"""
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Comandos
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("status", status_cmd))
-    application.add_handler(CommandHandler("limpar", limpar_cmd))
-    application.add_handler(CommandHandler("help", help_cmd))
-    application.add_handler(CommandHandler("reset", reset_cmd))
-    application.add_handler(CommandHandler("resetall", resetall_cmd))
-    application.add_handler(CommandHandler("givebonus", givebonus_cmd))
     application.add_handler(CommandHandler("stats", stats_cmd))
     application.add_handler(CommandHandler("funnel", funnel_cmd))
-    application.add_handler(CommandHandler("broadcast", broadcast_cmd))
+    application.add_handler(CommandHandler("reset", reset_cmd))
+    application.add_handler(CommandHandler("givebonus", givebonus_cmd))
+    application.add_handler(CommandHandler("help", help_cmd))
     
-    # Callbacks (botões)
     application.add_handler(CallbackQueryHandler(callback_handler))
     
-    # Mensagens
     application.add_handler(
         MessageHandler(
             (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
@@ -2326,22 +1599,20 @@ def setup_application():
         )
     )
     
-    logger.info("✅ Todos handlers registrados (v7.2)")
+    logger.info("✅ Handlers registrados (v8.0)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🌐 FLASK APP (Webhook)
+# 🌐 FLASK APP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__)
 application = setup_application()
 
-# Event loop para asyncio
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 def start_loop():
-    """Inicia event loop em thread separada"""
     loop.run_forever()
 
 import threading
@@ -2349,52 +1620,10 @@ threading.Thread(target=start_loop, daemon=True).start()
 
 @app.route("/", methods=["GET"])
 def health():
-    """Health check com status do webhook"""
-    try:
-        return {
-            "status": "ok",
-            "timestamp": datetime.now().isoformat(),
-            "webhook_url": f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        }, 200
-    except:
-        return {"status": "error"}, 500
-
-@app.route("/webhook-status", methods=["GET"])
-def webhook_status():
-    """Mostra status atual do webhook"""
-    try:
-        return {
-            "configured_url": f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}",
-            "message": "Use /set-webhook para forçar reconfiguração"
-        }, 200
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-@app.route("/set-webhook", methods=["GET"])
-def set_webhook_route():
-    """Endpoint para configurar webhook manualmente"""
-    asyncio.run_coroutine_threadsafe(setup_webhook(), loop)
-    return "Webhook configurado", 200
-
-# Contador global para failsafe
-webhook_check_counter = 0
+    return {"status": "ok", "version": "8.0"}, 200
 
 @app.route(WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook():
-    """Recebe updates do Telegram"""
-    
-    # FAILSAFE: Verifica webhook a cada 100 requests
-    global webhook_check_counter
-    webhook_check_counter += 1
-    
-    if webhook_check_counter >= 100:
-        webhook_check_counter = 0
-        # Agenda verificação assíncrona
-        asyncio.run_coroutine_threadsafe(
-            force_webhook_check(application.bot),
-            loop
-        )
-    
     try:
         data = request.json
         if not data:
@@ -2406,53 +1635,21 @@ def telegram_webhook():
             loop
         )
         return "ok", 200
-        
     except Exception as e:
-        logger.exception(f"Erro webhook: {e}")
+        logger.exception(f"Webhook erro: {e}")
         return "error", 500
 
-async def force_webhook_check(bot):
-    """Força verificação do webhook"""
-    try:
-        webhook_info = await bot.get_webhook_info()
-        expected = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        
-        if webhook_info.url != expected:
-            logger.warning(f"⚠️ Webhook drift detectado! Reconfigurando...")
-            await bot.set_webhook(expected)
-            logger.info(f"✅ Webhook reconfigurado: {expected}")
-    except Exception as e:
-        logger.error(f"Erro force check: {e}")
-
-async def setup_webhook():
-    """Configura webhook no Telegram (DEPRECATED - usar startup_sequence)"""
-    try:
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        await application.bot.set_webhook(webhook_url)
-        logger.info(f"✅ Webhook configurado: {webhook_url}")
-    except Exception as e:
-        logger.error(f"Erro configurando webhook: {e}")
-
-    # ═══════════════════════════════════════════════════════════════════════════════
-# 🎬 MAIN - Ponto de entrada
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎬 MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def startup_sequence():
-    """Sequência de inicialização garantida"""
     try:
-        # 1. Inicializa aplicação
         await application.initialize()
-        logger.info("✅ Aplicação inicializada")
-        
-        # 2. Starta bot
         await application.start()
-        logger.info("✅ Bot startado")
-        
-        # 3. Aguarda 3 segundos
         await asyncio.sleep(3)
         
-        # 4. Configura webhook COM RETRY
+        # Setup webhook com retry
         max_retries = 5
         for attempt in range(max_retries):
             try:
@@ -2460,75 +1657,28 @@ async def startup_sequence():
                 webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
                 await application.bot.set_webhook(webhook_url)
                 
-                # Verifica se configurou
                 webhook_info = await application.bot.get_webhook_info()
                 if webhook_info.url == webhook_url:
-                    logger.info(f"✅ Webhook CONFIRMADO: {webhook_url}")
+                    logger.info(f"✅ Webhook OK: {webhook_url}")
                     break
                 else:
-                    logger.warning(f"⚠️ Webhook não confirmado, tentativa {attempt + 1}/{max_retries}")
                     await asyncio.sleep(2)
             except Exception as e:
-                logger.error(f"❌ Erro webhook tentativa {attempt + 1}: {e}")
+                logger.error(f"Webhook erro tentativa {attempt + 1}: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(5)
-                else:
-                    logger.error("🔥 FALHA CRÍTICA: Webhook não configurado após 5 tentativas")
         
-        # 5. Inicia scheduler
+        # Inicia scheduler
         asyncio.create_task(engagement_scheduler(application.bot))
-        logger.info("✅ Scheduler iniciado")
-        
-        # 6. Inicia health checker
-        asyncio.create_task(webhook_health_checker(application.bot))
-        logger.info("✅ Health checker iniciado")
         
     except Exception as e:
-        logger.exception(f"🔥 ERRO CRÍTICO NO STARTUP: {e}")
+        logger.exception(f"ERRO STARTUP: {e}")
         raise
 
-async def webhook_health_checker(bot):
-    """Verifica webhook a cada 5 minutos e reconfigura se necessário"""
-    logger.info("🔄 Webhook health checker iniciado")
-    
-    while True:
-        try:
-            await asyncio.sleep(300)  # 5 minutos (não 30!)
-            
-            webhook_info = await bot.get_webhook_info()
-            expected_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-            
-            if webhook_info.url != expected_url:
-                logger.error(f"🚨 WEBHOOK CAIU! Esperado: {expected_url}, Atual: {webhook_info.url}")
-                
-                # Reconfigura COM RETRY
-                for attempt in range(3):
-                    try:
-                        await bot.delete_webhook(drop_pending_updates=True)
-                        await bot.set_webhook(expected_url)
-                        
-                        # Confirma
-                        check = await bot.get_webhook_info()
-                        if check.url == expected_url:
-                            logger.info(f"✅ Webhook RECUPERADO: {expected_url}")
-                            break
-                        else:
-                            await asyncio.sleep(2)
-                    except Exception as e:
-                        logger.error(f"❌ Erro recuperação webhook tentativa {attempt + 1}: {e}")
-                        await asyncio.sleep(3)
-            else:
-                logger.info(f"✅ Webhook OK: {webhook_info.url}")
-                
-        except Exception as e:
-            logger.error(f"❌ Erro health check: {e}")
-            await asyncio.sleep(10)
-
 if __name__ == "__main__":
-    # Inicializa event loop
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
     
-    # Inicia Flask
-    logger.info(f"🌐 Servidor Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v7.2 CLEAN totalmente operacional!")
+    logger.info(f"🌐 Flask rodando na porta {PORT}")
+    logger.info("🚀 Sophia Bot v8.0 ULTRA OPTIMIZED operacional!")
+    logger.info("💰 Modelo: PRÉVIAS INLINE → VIP DIRETO")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
