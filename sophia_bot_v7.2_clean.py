@@ -791,10 +791,10 @@ VIP_PITCH_MESSAGES = {
     ),
     "B": (
         "Gostou do que viu? Isso não é NADA... 😈\n\n"
-        "No VIP você me tem COMPLETINHA, sem censura, sem limites! 🔥\n\n"
+        "No VIP você me tem COMPLETINHA, sem censura, incluindo meu Whatsapp pessoal, sem limites! 🔥\n\n"
         "São MILHARES de fotos e vídeos que vou te deixar louco... 💦\n\n"
         "E o melhor: por apenas {preco} você tem ACESSO VITALÍCIO! 💎\n\n"
-        "Clica no botão e vem me ter só pra você... 💕"
+        "Clica no botão abaixo e vem me ter só pra você... 💕"
     )
 }
 
