@@ -487,6 +487,9 @@
             isLoading = true;
 
             try {
+                // Remove o banner de demonstração ANTES de carregar
+                document.querySelector('.warning-banner').style.display = 'none';
+                
                 // PASSO 1: Mostra dados do cache INSTANTANEAMENTE
                 if (cachedData) {
                     updateKPIs(cachedData);
@@ -497,30 +500,42 @@
                 const data = await Promise.race([
                     fetchRealData(),
                     new Promise((resolve) => setTimeout(() => resolve(null), 1500)) // Timeout 1.5s
-                ]) || generateMockData();
+                ]);
 
-                cachedData = data;
+                if (data) {
+                    // Dados reais recebidos!
+                    cachedData = data;
+                    console.log('✅ Usando dados REAIS da API');
+                } else {
+                    // Falhou - usa mock ou cache
+                    console.log('⚠️ API falhou, usando dados simulados');
+                    cachedData = cachedData || generateMockData();
+                    document.querySelector('.warning-banner').style.display = 'block';
+                }
 
                 // PASSO 3: Atualiza em ordem de prioridade (do mais importante pro menos)
-                await updateKPIs(data); // 1º - KPIs (mais importante)
+                await updateKPIs(cachedData); // 1º - KPIs (mais importante)
                 
                 // PASSO 4: Atualiza resto de forma assíncrona (não bloqueia)
                 requestAnimationFrame(() => {
-                    updateCharts(data);
-                    updateTables(data);
-                    generateAIInsights(data);
-                    updateAlerts(data);
+                    updateCharts(cachedData);
+                    updateTables(cachedData);
+                    generateAIInsights(cachedData);
+                    updateAlerts(cachedData);
                 });
 
-                document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR');
+                const updateText = new Date().toLocaleString('pt-BR');
+                document.getElementById('lastUpdate').textContent = data ? updateText : updateText + ' (simulado)';
+                
             } catch (error) {
                 console.error('Erro:', error);
-                const data = cachedData || generateMockData();
-                updateKPIs(data);
-                updateCharts(data);
-                updateTables(data);
-                generateAIInsights(data);
-                updateAlerts(data);
+                const mockData = cachedData || generateMockData();
+                updateKPIs(mockData);
+                updateCharts(mockData);
+                updateTables(mockData);
+                generateAIInsights(mockData);
+                updateAlerts(mockData);
+                document.querySelector('.warning-banner').style.display = 'block';
                 document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR') + ' (simulado)';
             } finally {
                 isLoading = false;
