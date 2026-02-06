@@ -65,8 +65,8 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             position: relative;
             overflow: hidden;
-            will-change: transform; /* Hardware acceleration */
-            transform: translateZ(0); /* Force GPU */
+            will-change: transform;
+            transform: translateZ(0);
         }
 
         .stat-card::before {
@@ -127,7 +127,7 @@
             padding: 25px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            contain: layout; /* Otimiza reflows */
+            contain: layout;
         }
 
         .chart-card h3 {
@@ -196,6 +196,21 @@
         .badge.cold {
             background: #e3f2fd;
             color: #2196f3;
+        }
+
+        .badge.vip {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .badge.cooldown {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+
+        .badge.normal {
+            background: #e3f2fd;
+            color: #1976d2;
         }
 
         .refresh-btn {
@@ -434,6 +449,26 @@
             </table>
         </div>
 
+        <!-- Conversas em Tempo Real -->
+        <div class="table-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3>💬 Conversas em Tempo Real</h3>
+                <div>
+                    <select id="conversationFilter" onchange="loadConversations()" style="padding: 8px 15px; border-radius: 8px; border: 1px solid #ddd; margin-right: 10px;">
+                        <option value="all">Todas</option>
+                        <option value="hot">🔥 Quentes</option>
+                        <option value="cooldown">🚫 Cooldown</option>
+                        <option value="converted">💎 Compraram VIP</option>
+                    </select>
+                    <button class="refresh-btn" onclick="loadConversations()">🔄 Atualizar</button>
+                </div>
+            </div>
+            
+            <div id="conversationsList" style="display: grid; gap: 15px;">
+                <p style="text-align: center; color: #888; padding: 30px;">Carregando conversas...</p>
+            </div>
+        </div>
+
         <!-- Usuários em Cooldown -->
         <div class="table-card">
             <h3>🚫 Usuários em Cooldown (Rejeitaram VIP)</h3>
@@ -551,7 +586,7 @@
                 }
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // ← 30 segundos
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
 
                 const response = await fetch('/admin/stats', {
                     headers: { 
@@ -589,7 +624,6 @@
         // ═══════════════════════════════════════════════════════════
         
         async function updateKPIs(data) {
-            // Usa requestAnimationFrame pra atualizar sem lag
             requestAnimationFrame(() => {
                 const conversionRate = data.stats.sawTeaser > 0 
                     ? (data.stats.clickedVip / data.stats.sawTeaser * 100).toFixed(1)
@@ -619,10 +653,8 @@
         }
 
         function updateCharts(data) {
-            // Desabilita animações pra renderizar mais rápido
             Chart.defaults.animation = false;
             
-            // Usa requestIdleCallback pra não travar a UI
             const renderCharts = () => {
                 // Funil
                 if (charts.funnel) charts.funnel.destroy();
@@ -724,7 +756,6 @@
                 });
             };
 
-            // Usa requestIdleCallback se disponível, senão requestAnimationFrame
             if ('requestIdleCallback' in window) {
                 requestIdleCallback(renderCharts, { timeout: 1000 });
             } else {
@@ -734,7 +765,7 @@
 
         function updateTables(data) {
             requestAnimationFrame(() => {
-                // Top Users - usa DocumentFragment pra renderizar tudo de uma vez
+                // Top Users
                 const topUsersBody = document.getElementById('topUsersBody');
                 const fragment = document.createDocumentFragment();
                 
@@ -913,23 +944,117 @@
         }
 
         // ═══════════════════════════════════════════════════════════
+        // 💬 CONVERSAS EM TEMPO REAL
+        // ═══════════════════════════════════════════════════════════
+        
+        async function loadConversations() {
+            const filter = document.getElementById('conversationFilter').value;
+            
+            try {
+                const token = localStorage.getItem('adminToken');
+                if (!token) return;
+
+                const response = await fetch(`/admin/conversations?filter=${filter}`, {
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error('Erro ao carregar conversas');
+                    return;
+                }
+
+                const data = await response.json();
+                displayConversations(data.conversations);
+                
+            } catch (error) {
+                console.error('Erro:', error);
+            }
+        }
+
+        function displayConversations(conversations) {
+            const container = document.getElementById('conversationsList');
+            
+            if (conversations.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #888; padding: 30px;">Nenhuma conversa ativa nas últimas 24h</p>';
+                return;
+            }
+
+            container.innerHTML = conversations.map(conv => `
+                <div style="background: #f9f9f9; border-radius: 10px; padding: 15px; border-left: 4px solid ${getStatusColor(conv.statusClass)};">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div>
+                            <strong style="font-size: 16px;">User ${conv.userId}</strong>
+                            <span class="badge ${conv.statusClass}" style="margin-left: 10px;">${conv.status}</span>
+                        </div>
+                        <div style="text-align: right; font-size: 13px; color: #666;">
+                            <div>📊 ${conv.totalMessages} mensagens</div>
+                            <div>⏰ ${conv.lastActivity} atrás</div>
+                            ${conv.teaserCount > 0 ? `<div>👀 ${conv.teaserCount} teasers</div>` : ''}
+                        </div>
+                    </div>
+                    
+                    <div style="background: white; border-radius: 8px; padding: 12px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6;">
+                        ${conv.messages.length > 0 
+                            ? conv.messages.map(msg => {
+                                const isUser = msg.includes('USER:');
+                                const isMaya = msg.includes('MAYA:');
+                                const isSystem = msg.includes('SYSTEM:') || msg.includes('ACTION:');
+                                
+                                let color = '#333';
+                                let icon = '💬';
+                                
+                                if (isUser) {
+                                    color = '#2196f3';
+                                    icon = '👤';
+                                } else if (isMaya) {
+                                    color = '#e91e63';
+                                    icon = '💋';
+                                } else if (isSystem) {
+                                    color = '#9e9e9e';
+                                    icon = '⚙️';
+                                }
+                                
+                                return `<div style="color: ${color}; margin: 4px 0;">${icon} ${msg}</div>`;
+                            }).join('')
+                            : '<div style="color: #999;">Nenhuma mensagem ainda</div>'
+                        }
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getStatusColor(statusClass) {
+            const colors = {
+                'vip': '#4CAF50',
+                'hot': '#f44336',
+                'cooldown': '#ff9800',
+                'normal': '#2196f3'
+            };
+            return colors[statusClass] || '#666';
+        }
+
+        // Auto-refresh das conversas a cada 10 segundos
+        setInterval(loadConversations, 10000);
+
+        // ═══════════════════════════════════════════════════════════
         // ⚡ AUTO-REFRESH INTELIGENTE (só atualiza se aba visível)
         // ═══════════════════════════════════════════════════════════
         
         let refreshInterval;
         
         function startAutoRefresh() {
-            // Para refresh se aba não está visível (economiza CPU/memória)
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) {
                     clearInterval(refreshInterval);
                 } else {
-                    loadAllData(); // Atualiza imediatamente ao voltar
+                    loadAllData();
                     refreshInterval = setInterval(loadAllData, 30000);
                 }
             });
 
-            // Inicia interval
             refreshInterval = setInterval(loadAllData, 30000);
         }
 
@@ -937,15 +1062,15 @@
         // 🚀 INICIALIZAÇÃO ULTRA RÁPIDA
         // ═══════════════════════════════════════════════════════════
         
-        // Carrega dados IMEDIATAMENTE quando DOM estiver pronto
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 loadAllData();
+                loadConversations();
                 startAutoRefresh();
             });
         } else {
-            // DOM já está pronto
             loadAllData();
+            loadConversations();
             startAutoRefresh();
         }
     </script>
