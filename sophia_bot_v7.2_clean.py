@@ -1807,6 +1807,461 @@ def telegram_webhook():
         return "error", 500
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📊 ADICIONE ESSAS ROTAS AO SEU BOT (depois da linha 1391 - após /test-bot)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📊 ADICIONE ESSAS ROTAS AO SEU BOT (depois da linha 1391 - após /test-bot)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/admin/login", methods=["GET"])
+def admin_login_page():
+    """Serve a página de login"""
+    try:
+        with open("admin_login.html", "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    except FileNotFoundError:
+        return {"error": "Login page not found"}, 404
+
+@app.route("/admin/dashboard", methods=["GET"])
+def admin_dashboard():
+    """Serve o painel HTML de admin"""
+    # O painel agora checa autenticação via JavaScript
+    try:
+        with open("admin_panel.html", "r", encoding="utf-8") as f:
+            return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    except FileNotFoundError:
+        return {"error": "Admin panel not found"}, 404
+
+@app.route("/admin/stats", methods=["GET"])
+def admin_stats():
+    """API endpoint para o dashboard - retorna TODOS os dados"""
+    # Verificação de segurança OBRIGATÓRIA
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized"}, 401
+    
+    token = auth_header.replace("Bearer ", "")
+    if token != ADMIN_TOKEN:
+        return {"error": "Invalid token"}, 401
+    
+    try:
+        users = get_all_active_users()
+        total_users = len(users)
+        
+        # ═══════════════════════════════════════════════════════
+        # 📊 KPIs PRINCIPAIS
+        # ═══════════════════════════════════════════════════════
+        
+        saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
+        clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
+        in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
+        rejected_vip_count = sum(1 for uid in users if r.exists(last_offer_rejected_key(uid)))
+        ignored_count = sum(1 for uid in users if get_ignored_count(uid) > 0)
+        
+        # Usuários ativos
+        now = datetime.now()
+        active_today = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 24)
+        active_week = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 168)
+        
+        # Novos usuários 24h
+        new_users_24h = sum(1 for uid in users 
+                           if r.exists(first_contact_key(uid)) 
+                           and (now - datetime.fromisoformat(r.get(first_contact_key(uid)))).total_seconds() < 86400)
+        
+        # Total de mensagens e streak médio
+        total_messages = sum(get_conversation_messages_count(uid) for uid in users)
+        streaks = [get_streak(uid) for uid in users if get_streak(uid) > 0]
+        avg_streak = sum(streaks) / len(streaks) if streaks else 0
+        
+        # ═══════════════════════════════════════════════════════
+        # 📊 FUNIL DE CONVERSÃO
+        # ═══════════════════════════════════════════════════════
+        
+        funnel_stages = {i: 0 for i in range(5)}
+        for uid in users:
+            try:
+                stage = int(r.get(funnel_key(uid)) or 0)
+                funnel_stages[stage] += 1
+            except:
+                pass
+        
+        # ═══════════════════════════════════════════════════════
+        # 📊 ATIVIDADE DOS ÚLTIMOS 7 DIAS
+        # ═══════════════════════════════════════════════════════
+        
+        activity_labels = []
+        activity_messages = []
+        
+        for i in range(6, -1, -1):
+            day = now - timedelta(days=i)
+            day_name = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][day.weekday()]
+            activity_labels.append(day_name)
+            
+            # Conta msgs enviadas naquele dia (aproximação via daily_messages_sent)
+            msgs = 0
+            for uid in users:
+                try:
+                    daily_key = f"daily_msg_sent:{uid}:{day.date()}"
+                    msgs += int(r.get(daily_key) or 0)
+                except:
+                    pass
+            activity_messages.append(msgs)
+        
+        # ═══════════════════════════════════════════════════════
+        # 📊 NÍVEL DE INTERESSE (últimas 24h)
+        # ═══════════════════════════════════════════════════════
+        
+        interest_levels = {"high": 0, "medium": 0, "low": 0}
+        
+        for uid in users:
+            # Heurística: quem tem muitas msgs + viu teaser = alto interesse
+            msgs = get_conversation_messages_count(uid)
+            saw = saw_teaser(uid)
+            
+            if msgs > 20 and saw:
+                interest_levels["high"] += 1
+            elif msgs > 10 or saw:
+                interest_levels["medium"] += 1
+            else:
+                interest_levels["low"] += 1
+        
+        # ═══════════════════════════════════════════════════════
+        # 📊 OFERTAS VIP POR HORÁRIO
+        # ═══════════════════════════════════════════════════════
+        
+        hourly_labels = [f"{h}h" for h in range(0, 24, 2)]
+        hourly_offers = [0] * 12
+        
+        # Simulação - você pode logar timestamps reais das ofertas no Redis
+        # Por agora, vamos fazer uma distribuição baseada em quando os teasers foram vistos
+        for uid in users:
+            try:
+                saw_time = r.get(saw_teaser_key(uid))
+                if saw_time:
+                    hour = datetime.fromisoformat(saw_time).hour
+                    hourly_offers[hour // 2] += 1
+            except:
+                pass
+        
+        # ═══════════════════════════════════════════════════════
+        # 👥 TOP 20 USUÁRIOS MAIS ENGAJADOS
+        # ═══════════════════════════════════════════════════════
+        
+        user_data = []
+        for uid in users:
+            msgs = get_conversation_messages_count(uid)
+            if msgs > 0:
+                user_data.append({
+                    "id": uid,
+                    "messages": msgs,
+                    "streak": get_streak(uid),
+                    "teasers": get_teaser_count(uid),
+                    "last_activity_hours": get_hours_since_activity(uid) or 999
+                })
+        
+        # Ordena por engajamento (msgs * streak)
+        user_data.sort(key=lambda x: x["messages"] * (x["streak"] + 1), reverse=True)
+        
+        top_users = []
+        for user in user_data[:20]:
+            # Determina status
+            hours = user["last_activity_hours"]
+            if hours < 2:
+                status, status_text = "hot", "🔥 Quente"
+            elif hours < 24:
+                status, status_text = "warm", "😊 Morno"
+            else:
+                status, status_text = "cold", "❄️ Frio"
+            
+            # Determina interesse
+            if user["messages"] > 20:
+                interest, interest_text = "hot", "Alto"
+            elif user["messages"] > 10:
+                interest, interest_text = "warm", "Médio"
+            else:
+                interest, interest_text = "cold", "Baixo"
+            
+            # Formata última atividade
+            if hours < 1:
+                last_activity = "< 1h atrás"
+            elif hours < 24:
+                last_activity = f"{int(hours)}h atrás"
+            else:
+                last_activity = f"{int(hours/24)}d atrás"
+            
+            top_users.append({
+                "id": user["id"],
+                "messages": user["messages"],
+                "streak": user["streak"],
+                "teasers": user["teasers"],
+                "lastActivity": last_activity,
+                "status": status,
+                "statusText": status_text,
+                "interest": interest,
+                "interestText": interest_text
+            })
+        
+        # ═══════════════════════════════════════════════════════
+        # 🚫 USUÁRIOS EM COOLDOWN
+        # ═══════════════════════════════════════════════════════
+        
+        cooldown_users = []
+        for uid in users:
+            if is_in_rejection_cooldown(uid):
+                cooldown_remaining = get_rejection_cooldown_remaining(uid)
+                offers_today = get_vip_offers_today(uid)
+                total_teasers = get_teaser_count(uid)
+                hours = get_hours_since_activity(uid) or 0
+                
+                if hours < 1:
+                    last_contact = "< 1h atrás"
+                elif hours < 24:
+                    last_contact = f"{int(hours)}h atrás"
+                else:
+                    last_contact = f"{int(hours/24)}d atrás"
+                
+                cooldown_users.append({
+                    "id": uid,
+                    "cooldownRemaining": cooldown_remaining,
+                    "offersToday": offers_today,
+                    "totalTeasers": total_teasers,
+                    "lastContact": last_contact
+                })
+        
+        # ═══════════════════════════════════════════════════════
+        # 📉 ANÁLISE DE DROP-OFF
+        # ═══════════════════════════════════════════════════════
+        
+        started = funnel_stages[1]  # /start
+        first_message = funnel_stages[2]  # primeira msg
+        saw_teaser_funnel = funnel_stages[3]  # viu teaser
+        clicked_vip_funnel = funnel_stages[4]  # clicou VIP
+        
+        def calc_drop(from_stage, to_stage):
+            if from_stage == 0:
+                return 0
+            return ((from_stage - to_stage) / from_stage * 100)
+        
+        drop_1 = calc_drop(started, first_message)
+        drop_2 = calc_drop(first_message, saw_teaser_funnel)
+        drop_3 = calc_drop(saw_teaser_funnel, clicked_vip_funnel)
+        
+        def get_drop_class(rate):
+            if rate > 70:
+                return "hot"
+            elif rate > 40:
+                return "warm"
+            else:
+                return "cold"
+        
+        def get_status(rate):
+            if rate > 70:
+                return "🚨 Crítico"
+            elif rate > 40:
+                return "⚠️ Alto"
+            else:
+                return "✅ Normal"
+        
+        dropoff = [
+            {
+                "name": "Start → 1ª Msg",
+                "users": started - first_message,
+                "percent": round((first_message / started * 100) if started > 0 else 0, 1),
+                "dropRate": f"{drop_1:.1f}",
+                "dropClass": get_drop_class(drop_1),
+                "status": get_status(drop_1)
+            },
+            {
+                "name": "1ª Msg → Teaser",
+                "users": first_message - saw_teaser_funnel,
+                "percent": round((saw_teaser_funnel / first_message * 100) if first_message > 0 else 0, 1),
+                "dropRate": f"{drop_2:.1f}",
+                "dropClass": get_drop_class(drop_2),
+                "status": get_status(drop_2)
+            },
+            {
+                "name": "Teaser → Clique VIP",
+                "users": saw_teaser_funnel - clicked_vip_funnel,
+                "percent": round((clicked_vip_funnel / saw_teaser_funnel * 100) if saw_teaser_funnel > 0 else 0, 1),
+                "dropRate": f"{drop_3:.1f}",
+                "dropClass": get_drop_class(drop_3),
+                "status": get_status(drop_3)
+            }
+        ]
+        
+        # ═══════════════════════════════════════════════════════
+        # 📦 MONTA RESPOSTA FINAL
+        # ═══════════════════════════════════════════════════════
+        
+        return {
+            "stats": {
+                "totalUsers": total_users,
+                "newUsers24h": new_users_24h,
+                "activeToday": active_today,
+                "activeWeek": active_week,
+                "sawTeaser": saw_teaser_count,
+                "clickedVip": clicked_vip_count,
+                "totalMessages": total_messages,
+                "avgStreak": round(avg_streak, 1),
+                "inCooldown": in_cooldown_count,
+                "rejectedVip": rejected_vip_count,
+                "ignored": ignored_count
+            },
+            "funnel": {
+                "started": started,
+                "firstMessage": first_message,
+                "sawTeaser": saw_teaser_funnel,
+                "clickedVip": clicked_vip_funnel
+            },
+            "activity": {
+                "labels": activity_labels,
+                "messages": activity_messages
+            },
+            "interest": interest_levels,
+            "hourly": {
+                "labels": hourly_labels,
+                "offers": hourly_offers
+            },
+            "topUsers": top_users,
+            "cooldownUsers": cooldown_users,
+            "dropoff": dropoff
+        }, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro admin stats: {e}")
+        return {"error": str(e)}, 500
+
+@app.route("/admin/user/<int:user_id>", methods=["GET"])
+def admin_user_detail(user_id):
+    """Detalhes de um usuário específico"""
+    # Verificação de segurança
+    # auth_token = request.headers.get("Authorization")
+    # if auth_token != "SEU_TOKEN_SECRETO":
+    #     return {"error": "Unauthorized"}, 401
+    
+    try:
+        if not r.sismember(all_users_key(), str(user_id)):
+            return {"error": "User not found"}, 404
+        
+        # Pega toda a conversa
+        chatlog = r.lrange(chatlog_key(user_id), 0, -1)
+        
+        # Pega perfil
+        profile = get_user_profile(user_id)
+        
+        # Pega memória da IA
+        memory = get_memory(user_id)
+        
+        # Métricas
+        return {
+            "id": user_id,
+            "profile": profile,
+            "stats": {
+                "messages": get_conversation_messages_count(user_id),
+                "streak": get_streak(user_id),
+                "teasers": get_teaser_count(user_id),
+                "sawTeaser": saw_teaser(user_id),
+                "clickedVip": clicked_vip(user_id),
+                "inCooldown": is_in_rejection_cooldown(user_id),
+                "cooldownRemaining": get_rejection_cooldown_remaining(user_id),
+                "vipOffersToday": get_vip_offers_today(user_id),
+                "bonusMessages": get_bonus_msgs(user_id),
+                "todayCount": today_count(user_id),
+                "ignored": get_ignored_count(user_id),
+                "lastActivity": r.get(last_activity_key(user_id)),
+                "firstContact": r.get(first_contact_key(user_id))
+            },
+            "chatlog": chatlog,
+            "memory": memory
+        }, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro user detail: {e}")
+        return {"error": str(e)}, 500
+
+@app.route("/admin/broadcast", methods=["POST"])
+def admin_broadcast():
+    """Envia mensagem para todos os usuários ativos"""
+    # ⚠️ CUIDADO: Isso pode violar ToS do Telegram se usado errado!
+    # Use apenas para mensagens importantes e relevantes
+    
+    # auth_token = request.headers.get("Authorization")
+    # if auth_token != "SEU_TOKEN_SECRETO":
+    #     return {"error": "Unauthorized"}, 401
+    
+    try:
+        data = request.json
+        message = data.get("message")
+        target_group = data.get("target", "all")  # all, active_24h, saw_teaser, etc
+        
+        if not message:
+            return {"error": "Message required"}, 400
+        
+        users = get_all_active_users()
+        
+        # Filtra target group
+        if target_group == "active_24h":
+            users = [u for u in users if get_hours_since_activity(u) and get_hours_since_activity(u) < 24]
+        elif target_group == "saw_teaser":
+            users = [u for u in users if saw_teaser(u)]
+        elif target_group == "not_converted":
+            users = [u for u in users if saw_teaser(u) and not clicked_vip(u)]
+        
+        # Envia mensagens (de forma assíncrona para não travar)
+        async def send_broadcast():
+            sent = 0
+            failed = 0
+            for uid in users:
+                try:
+                    await application.bot.send_message(chat_id=uid, text=message)
+                    sent += 1
+                    await asyncio.sleep(0.05)  # Rate limiting
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"Broadcast failed for {uid}: {e}")
+            return sent, failed
+        
+        # Executa no event loop
+        future = asyncio.run_coroutine_threadsafe(send_broadcast(), loop)
+        sent, failed = future.result(timeout=300)
+        
+        return {
+            "success": True,
+            "sent": sent,
+            "failed": failed,
+            "total": len(users)
+        }, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro broadcast: {e}")
+        return {"error": str(e)}, 500
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔐 SISTEMA DE AUTENTICAÇÃO SIMPLES (ADICIONE ISSO!)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "seu_token_super_secreto_aqui_123")
+
+def require_auth():
+    """Decorator para proteger rotas admin"""
+    def decorator(f):
+        def wrapped(*args, **kwargs):
+            auth = request.headers.get("Authorization")
+            if not auth or auth != f"Bearer {ADMIN_TOKEN}":
+                return {"error": "Unauthorized"}, 401
+            return f(*args, **kwargs)
+        wrapped.__name__ = f.__name__
+        return wrapped
+    return decorator
+
+# USO:
+# @app.route("/admin/stats", methods=["GET"])
+# @require_auth()
+# def admin_stats():
+#     ...
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 STARTUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
