@@ -2132,6 +2132,92 @@ def admin_stats():
         logger.exception(f"Erro admin stats: {e}")
         return {"error": str(e)}, 500
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💬 ADICIONE ESTA ROTA NO SEU BOT PYTHON
+# Cole este código ANTES da linha @app.route("/admin/user/<int:user_id>")
+# (por volta da linha 1650)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/admin/conversations", methods=["GET"])
+def admin_conversations():
+    """Retorna conversas em tempo real"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized"}, 401
+    
+    token = auth_header.replace("Bearer ", "")
+    if token != ADMIN_TOKEN:
+        return {"error": "Invalid token"}, 401
+    
+    try:
+        # Pega filtro (opcional)
+        filter_type = request.args.get('filter', 'all')  # all, hot, cooldown, converted
+        
+        users = get_all_active_users()
+        conversations = []
+        
+        for uid in users:
+            # Filtra por atividade recente (últimas 24h)
+            hours = get_hours_since_activity(uid)
+            if not hours or hours > 24:
+                continue
+            
+            # Aplica filtros
+            if filter_type == 'hot' and get_conversation_messages_count(uid) < 10:
+                continue
+            elif filter_type == 'cooldown' and not is_in_rejection_cooldown(uid):
+                continue
+            elif filter_type == 'converted' and not clicked_vip(uid):
+                continue
+            
+            # Pega as últimas 50 mensagens do chatlog
+            chatlog = r.lrange(chatlog_key(uid), -50, -1)
+            
+            # Formata última atividade
+            if hours < 1:
+                last_activity = "< 1 min"
+            elif hours < 1/60:
+                last_activity = f"{int(hours * 60)} min"
+            else:
+                last_activity = f"{int(hours)}h"
+            
+            # Status
+            if clicked_vip(uid):
+                status = "💎 Comprou VIP"
+                status_class = "vip"
+            elif is_in_rejection_cooldown(uid):
+                status = "🚫 Cooldown"
+                status_class = "cooldown"
+            elif get_conversation_messages_count(uid) > 20:
+                status = "🔥 Quente"
+                status_class = "hot"
+            else:
+                status = "💬 Conversando"
+                status_class = "normal"
+            
+            conversations.append({
+                "userId": uid,
+                "messages": chatlog,
+                "totalMessages": get_conversation_messages_count(uid),
+                "lastActivity": last_activity,
+                "status": status,
+                "statusClass": status_class,
+                "sawTeaser": saw_teaser(uid),
+                "teaserCount": get_teaser_count(uid),
+                "inCooldown": is_in_rejection_cooldown(uid),
+                "clickedVip": clicked_vip(uid)
+            })
+        
+        # Ordena por última atividade (mais recente primeiro)
+        conversations.sort(key=lambda x: x['lastActivity'])
+        
+        return {"conversations": conversations}, 200
+        
+    except Exception as e:
+        logger.exception(f"Erro admin conversations: {e}")
+        return {"error": str(e)}, 500
+
 @app.route("/admin/user/<int:user_id>", methods=["GET"])
 def admin_user_detail(user_id):
     """Detalhes de um usuário específico"""
