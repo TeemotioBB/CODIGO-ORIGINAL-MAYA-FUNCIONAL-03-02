@@ -544,21 +544,44 @@
 
         async function fetchRealData() {
             try {
+                // Pega o token salvo no localStorage
+                const token = localStorage.getItem('adminToken');
+                
+                if (!token) {
+                    console.error('❌ Sem token de admin salvo');
+                    return null;
+                }
+
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 1000); // Timeout 1s (RÁPIDO!)
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // Aumentei para 5s
 
                 const response = await fetch('/admin/stats', {
-                    headers: { 'Authorization': 'Bearer admin' },
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,  // ← USA O TOKEN DO LOCALSTORAGE
+                        'Content-Type': 'application/json'
+                    },
                     signal: controller.signal
                 });
 
                 clearTimeout(timeoutId);
 
-                if (response.ok) {
-                    return await response.json();
+                if (response.status === 401) {
+                    console.error('❌ Token inválido - redirecionando para login');
+                    localStorage.removeItem('adminToken');
+                    window.location.href = '/admin/login';
+                    return null;
                 }
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ Dados recebidos da API');
+                    return data;
+                }
+                
+                console.error('❌ Erro na resposta:', response.status);
                 return null;
             } catch (error) {
+                console.error('❌ Erro ao buscar dados:', error);
                 return null; // Silencioso - apenas usa cache/mock
             }
         }
