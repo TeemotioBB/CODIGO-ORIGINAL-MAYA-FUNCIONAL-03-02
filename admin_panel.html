@@ -483,12 +483,13 @@
         // ═══════════════════════════════════════════════════════════
         
         async function loadAllData() {
-            if (isLoading) return; // Evita múltiplas chamadas simultâneas
+            if (isLoading) return;
             isLoading = true;
 
             try {
                 // Remove o banner de demonstração ANTES de carregar
                 document.querySelector('.warning-banner').style.display = 'none';
+                console.log('🔍 Iniciando carregamento de dados...');
                 
                 // PASSO 1: Mostra dados do cache INSTANTANEAMENTE
                 if (cachedData) {
@@ -496,11 +497,8 @@
                     document.getElementById('lastUpdate').textContent = 'Atualizando...';
                 }
 
-                // PASSO 2: Busca dados novos (rápido - só API)
-                const data = await Promise.race([
-                    fetchRealData(),
-                    new Promise((resolve) => setTimeout(() => resolve(null), 1500)) // Timeout 1.5s
-                ]);
+                // PASSO 2: Busca dados novos (SEM timeout de 1.5s)
+                const data = await fetchRealData();
 
                 if (data) {
                     // Dados reais recebidos!
@@ -513,10 +511,10 @@
                     document.querySelector('.warning-banner').style.display = 'block';
                 }
 
-                // PASSO 3: Atualiza em ordem de prioridade (do mais importante pro menos)
-                await updateKPIs(cachedData); // 1º - KPIs (mais importante)
+                // PASSO 3: Atualiza em ordem de prioridade
+                await updateKPIs(cachedData);
                 
-                // PASSO 4: Atualiza resto de forma assíncrona (não bloqueia)
+                // PASSO 4: Atualiza resto de forma assíncrona
                 requestAnimationFrame(() => {
                     updateCharts(cachedData);
                     updateTables(cachedData);
@@ -553,11 +551,11 @@
                 }
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // Aumentei para 5s
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // ← 30 segundos
 
                 const response = await fetch('/admin/stats', {
                     headers: { 
-                        'Authorization': `Bearer ${token}`,  // ← USA O TOKEN DO LOCALSTORAGE
+                        'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     },
                     signal: controller.signal
@@ -582,7 +580,7 @@
                 return null;
             } catch (error) {
                 console.error('❌ Erro ao buscar dados:', error);
-                return null; // Silencioso - apenas usa cache/mock
+                return null;
             }
         }
 
