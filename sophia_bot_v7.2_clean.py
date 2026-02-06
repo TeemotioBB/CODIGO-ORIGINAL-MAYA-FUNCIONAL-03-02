@@ -58,7 +58,7 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.
 WEBHOOK_PATH = "/telegram"
 
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
-PRECO_VIP = os.getenv("PRECO_VIP", "R$ 19,90")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 9,99")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
