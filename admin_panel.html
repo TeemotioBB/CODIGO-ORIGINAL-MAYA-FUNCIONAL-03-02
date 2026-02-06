@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sophia Bot - Admin Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- ⚡ OTIMIZAÇÕES DE PERFORMANCE -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/chart.js" as="script">
+    
+    <!-- Carrega Chart.js de forma assíncrona -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    
     <style>
         * {
             margin: 0;
@@ -57,6 +65,8 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             position: relative;
             overflow: hidden;
+            will-change: transform; /* Hardware acceleration */
+            transform: translateZ(0); /* Force GPU */
         }
 
         .stat-card::before {
@@ -117,6 +127,7 @@
             padding: 25px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            contain: layout; /* Otimiza reflows */
         }
 
         .chart-card h3 {
@@ -464,219 +475,289 @@
 
     <script>
         let charts = {};
+        let cachedData = null;
+        let isLoading = false;
 
+        // ═══════════════════════════════════════════════════════════
+        // 🚀 CARREGAMENTO ULTRA RÁPIDO - PROGRESSIVO
+        // ═══════════════════════════════════════════════════════════
+        
         async function loadAllData() {
-            try {
-                // Tenta buscar dados reais da API
-                const data = await fetchRealData() || generateMockData();
+            if (isLoading) return; // Evita múltiplas chamadas simultâneas
+            isLoading = true;
 
-                updateKPIs(data);
-                updateCharts(data);
-                updateTables(data);
-                generateAIInsights(data);
-                updateAlerts(data);
+            try {
+                // PASSO 1: Mostra dados do cache INSTANTANEAMENTE
+                if (cachedData) {
+                    updateKPIs(cachedData);
+                    document.getElementById('lastUpdate').textContent = 'Atualizando...';
+                }
+
+                // PASSO 2: Busca dados novos (rápido - só API)
+                const data = await Promise.race([
+                    fetchRealData(),
+                    new Promise((resolve) => setTimeout(() => resolve(null), 1500)) // Timeout 1.5s
+                ]) || generateMockData();
+
+                cachedData = data;
+
+                // PASSO 3: Atualiza em ordem de prioridade (do mais importante pro menos)
+                await updateKPIs(data); // 1º - KPIs (mais importante)
+                
+                // PASSO 4: Atualiza resto de forma assíncrona (não bloqueia)
+                requestAnimationFrame(() => {
+                    updateCharts(data);
+                    updateTables(data);
+                    generateAIInsights(data);
+                    updateAlerts(data);
+                });
 
                 document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR');
             } catch (error) {
-                console.error('Erro ao carregar dados:', error);
-                // Se falhar, usa dados simulados
-                const data = generateMockData();
+                console.error('Erro:', error);
+                const data = cachedData || generateMockData();
                 updateKPIs(data);
                 updateCharts(data);
                 updateTables(data);
                 generateAIInsights(data);
                 updateAlerts(data);
                 document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR') + ' (simulado)';
+            } finally {
+                isLoading = false;
             }
         }
 
         async function fetchRealData() {
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 1000); // Timeout 1s (RÁPIDO!)
+
                 const response = await fetch('/admin/stats', {
-                    headers: {
-                        'Authorization': 'Bearer admin' // Tenta com o token padrão
-                    },
-                    timeout: 3000
+                    headers: { 'Authorization': 'Bearer admin' },
+                    signal: controller.signal
                 });
+
+                clearTimeout(timeoutId);
 
                 if (response.ok) {
                     return await response.json();
                 }
                 return null;
             } catch (error) {
-                console.log('API não disponível, usando dados simulados');
-                return null;
+                return null; // Silencioso - apenas usa cache/mock
             }
         }
 
-        function updateKPIs(data) {
-            const conversionRate = data.stats.sawTeaser > 0 
-                ? (data.stats.clickedVip / data.stats.sawTeaser * 100).toFixed(1)
-                : 0;
-            document.getElementById('conversionRate').textContent = `${conversionRate}%`;
-            document.getElementById('conversionChange').textContent = 
-                `${data.stats.clickedVip} de ${data.stats.sawTeaser} converteram`;
-            document.getElementById('clickedVip').textContent = data.stats.clickedVip;
-            document.getElementById('sawTeaser').textContent = data.stats.sawTeaser;
+        // ═══════════════════════════════════════════════════════════
+        // ⚡ ATUALIZAÇÃO ULTRA RÁPIDA DOS KPIs (PRIORIDADE MÁXIMA)
+        // ═══════════════════════════════════════════════════════════
+        
+        async function updateKPIs(data) {
+            // Usa requestAnimationFrame pra atualizar sem lag
+            requestAnimationFrame(() => {
+                const conversionRate = data.stats.sawTeaser > 0 
+                    ? (data.stats.clickedVip / data.stats.sawTeaser * 100).toFixed(1)
+                    : 0;
+                document.getElementById('conversionRate').textContent = `${conversionRate}%`;
+                document.getElementById('conversionChange').textContent = 
+                    `${data.stats.clickedVip} de ${data.stats.sawTeaser} converteram`;
+                document.getElementById('clickedVip').textContent = data.stats.clickedVip;
+                document.getElementById('sawTeaser').textContent = data.stats.sawTeaser;
 
-            document.getElementById('totalUsers').textContent = data.stats.totalUsers;
-            document.getElementById('userGrowth').textContent = `+${data.stats.newUsers24h} nas últimas 24h`;
-            document.getElementById('activeToday').textContent = data.stats.activeToday;
-            document.getElementById('activeWeek').textContent = data.stats.activeWeek;
+                document.getElementById('totalUsers').textContent = data.stats.totalUsers;
+                document.getElementById('userGrowth').textContent = `+${data.stats.newUsers24h} nas últimas 24h`;
+                document.getElementById('activeToday').textContent = data.stats.activeToday;
+                document.getElementById('activeWeek').textContent = data.stats.activeWeek;
 
-            const avgMsgs = (data.stats.totalMessages / data.stats.totalUsers).toFixed(1);
-            document.getElementById('avgEngagement').textContent = `${avgMsgs} msgs`;
-            document.getElementById('msgsPerUser').textContent = avgMsgs;
-            document.getElementById('avgStreak').textContent = `${data.stats.avgStreak} dias`;
+                const avgMsgs = (data.stats.totalMessages / data.stats.totalUsers).toFixed(1);
+                document.getElementById('avgEngagement').textContent = `${avgMsgs} msgs`;
+                document.getElementById('msgsPerUser').textContent = avgMsgs;
+                document.getElementById('avgStreak').textContent = `${data.stats.avgStreak} dias`;
 
-            document.getElementById('cooldownUsers').textContent = data.stats.inCooldown;
-            const cooldownPercent = (data.stats.inCooldown / data.stats.totalUsers * 100).toFixed(1);
-            document.getElementById('cooldownPercent').textContent = `${cooldownPercent}% do total`;
-            document.getElementById('rejectedVip').textContent = data.stats.rejectedVip;
-            document.getElementById('ignored').textContent = data.stats.ignored;
+                document.getElementById('cooldownUsers').textContent = data.stats.inCooldown;
+                const cooldownPercent = (data.stats.inCooldown / data.stats.totalUsers * 100).toFixed(1);
+                document.getElementById('cooldownPercent').textContent = `${cooldownPercent}% do total`;
+                document.getElementById('rejectedVip').textContent = data.stats.rejectedVip;
+                document.getElementById('ignored').textContent = data.stats.ignored;
+            });
         }
 
         function updateCharts(data) {
-            if (charts.funnel) charts.funnel.destroy();
-            const funnelCtx = document.getElementById('funnelChart').getContext('2d');
-            charts.funnel = new Chart(funnelCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Iniciaram', '1ª Mensagem', 'Viram Teaser', 'Clicaram VIP'],
-                    datasets: [{
-                        label: 'Usuários',
-                        data: [
-                            data.funnel.started,
-                            data.funnel.firstMessage,
-                            data.funnel.sawTeaser,
-                            data.funnel.clickedVip
-                        ],
-                        backgroundColor: [
-                            'rgba(102, 126, 234, 0.8)',
-                            'rgba(118, 75, 162, 0.8)',
-                            'rgba(240, 147, 251, 0.8)',
-                            'rgba(245, 87, 108, 0.8)'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false }
+            // Desabilita animações pra renderizar mais rápido
+            Chart.defaults.animation = false;
+            
+            // Usa requestIdleCallback pra não travar a UI
+            const renderCharts = () => {
+                // Funil
+                if (charts.funnel) charts.funnel.destroy();
+                const funnelCtx = document.getElementById('funnelChart').getContext('2d');
+                charts.funnel = new Chart(funnelCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Iniciaram', '1ª Msg', 'Teaser', 'VIP'],
+                        datasets: [{
+                            label: 'Usuários',
+                            data: [
+                                data.funnel.started,
+                                data.funnel.firstMessage,
+                                data.funnel.sawTeaser,
+                                data.funnel.clickedVip
+                            ],
+                            backgroundColor: [
+                                'rgba(102, 126, 234, 0.8)',
+                                'rgba(118, 75, 162, 0.8)',
+                                'rgba(240, 147, 251, 0.8)',
+                                'rgba(245, 87, 108, 0.8)'
+                            ]
+                        }]
                     },
-                    scales: {
-                        y: { beginAtZero: true }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
                     }
-                }
-            });
+                });
 
-            if (charts.activity) charts.activity.destroy();
-            const activityCtx = document.getElementById('activityChart').getContext('2d');
-            charts.activity = new Chart(activityCtx, {
-                type: 'line',
-                data: {
-                    labels: data.activity.labels,
-                    datasets: [{
-                        label: 'Mensagens',
-                        data: data.activity.messages,
-                        borderColor: 'rgba(102, 126, 234, 1)',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false }
+                // Atividade
+                if (charts.activity) charts.activity.destroy();
+                const activityCtx = document.getElementById('activityChart').getContext('2d');
+                charts.activity = new Chart(activityCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.activity.labels,
+                        datasets: [{
+                            label: 'Mensagens',
+                            data: data.activity.messages,
+                            borderColor: 'rgba(102, 126, 234, 1)',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: { legend: { display: false } }
                     }
-                }
-            });
+                });
 
-            if (charts.interest) charts.interest.destroy();
-            const interestCtx = document.getElementById('interestChart').getContext('2d');
-            charts.interest = new Chart(interestCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Alto', 'Médio', 'Baixo'],
-                    datasets: [{
-                        data: [data.interest.high, data.interest.medium, data.interest.low],
-                        backgroundColor: [
-                            'rgba(245, 87, 108, 0.8)',
-                            'rgba(255, 152, 0, 0.8)',
-                            'rgba(33, 150, 243, 0.8)'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true
-                }
-            });
-
-            if (charts.hourly) charts.hourly.destroy();
-            const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
-            charts.hourly = new Chart(hourlyCtx, {
-                type: 'line',
-                data: {
-                    labels: data.hourly.labels,
-                    datasets: [{
-                        label: 'Ofertas VIP',
-                        data: data.hourly.offers,
-                        borderColor: 'rgba(118, 75, 162, 1)',
-                        backgroundColor: 'rgba(118, 75, 162, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false }
+                // Interesse
+                if (charts.interest) charts.interest.destroy();
+                const interestCtx = document.getElementById('interestChart').getContext('2d');
+                charts.interest = new Chart(interestCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Alto', 'Médio', 'Baixo'],
+                        datasets: [{
+                            data: [data.interest.high, data.interest.medium, data.interest.low],
+                            backgroundColor: [
+                                'rgba(245, 87, 108, 0.8)',
+                                'rgba(255, 152, 0, 0.8)',
+                                'rgba(33, 150, 243, 0.8)'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true
                     }
-                }
-            });
+                });
+
+                // Horários
+                if (charts.hourly) charts.hourly.destroy();
+                const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+                charts.hourly = new Chart(hourlyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.hourly.labels,
+                        datasets: [{
+                            label: 'Ofertas VIP',
+                            data: data.hourly.offers,
+                            borderColor: 'rgba(118, 75, 162, 1)',
+                            backgroundColor: 'rgba(118, 75, 162, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            };
+
+            // Usa requestIdleCallback se disponível, senão requestAnimationFrame
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(renderCharts, { timeout: 1000 });
+            } else {
+                requestAnimationFrame(renderCharts);
+            }
         }
 
         function updateTables(data) {
-            const topUsersBody = document.getElementById('topUsersBody');
-            topUsersBody.innerHTML = data.topUsers.map((user, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td>${user.id}</td>
-                    <td>${user.messages}</td>
-                    <td>${user.streak} 🔥</td>
-                    <td>${user.teasers}</td>
-                    <td>${user.lastActivity}</td>
-                    <td><span class="badge ${user.status}">${user.statusText}</span></td>
-                    <td><span class="badge ${user.interest}">${user.interestText}</span></td>
-                </tr>
-            `).join('');
-
-            const cooldownBody = document.getElementById('cooldownBody');
-            if (data.cooldownUsers.length === 0) {
-                cooldownBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">Nenhum usuário em cooldown</td></tr>';
-            } else {
-                cooldownBody.innerHTML = data.cooldownUsers.map(user => `
-                    <tr>
+            requestAnimationFrame(() => {
+                // Top Users - usa DocumentFragment pra renderizar tudo de uma vez
+                const topUsersBody = document.getElementById('topUsersBody');
+                const fragment = document.createDocumentFragment();
+                
+                data.topUsers.forEach((user, index) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
                         <td>${user.id}</td>
-                        <td>${user.cooldownRemaining} msgs</td>
-                        <td>${user.offersToday}</td>
-                        <td>${user.totalTeasers}</td>
-                        <td>${user.lastContact}</td>
-                    </tr>
-                `).join('');
-            }
+                        <td>${user.messages}</td>
+                        <td>${user.streak} 🔥</td>
+                        <td>${user.teasers}</td>
+                        <td>${user.lastActivity}</td>
+                        <td><span class="badge ${user.status}">${user.statusText}</span></td>
+                        <td><span class="badge ${user.interest}">${user.interestText}</span></td>
+                    `;
+                    fragment.appendChild(tr);
+                });
+                
+                topUsersBody.innerHTML = '';
+                topUsersBody.appendChild(fragment);
 
-            const dropoffBody = document.getElementById('dropoffBody');
-            dropoffBody.innerHTML = data.dropoff.map(stage => `
-                <tr>
-                    <td>${stage.name}</td>
-                    <td>${stage.users}</td>
-                    <td>${stage.percent}%</td>
-                    <td><span class="badge ${stage.dropClass}">${stage.dropRate}%</span></td>
-                    <td>${stage.status}</td>
-                </tr>
-            `).join('');
+                // Cooldown
+                const cooldownBody = document.getElementById('cooldownBody');
+                if (data.cooldownUsers.length === 0) {
+                    cooldownBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">Nenhum usuário em cooldown</td></tr>';
+                } else {
+                    const fragment2 = document.createDocumentFragment();
+                    data.cooldownUsers.forEach(user => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${user.id}</td>
+                            <td>${user.cooldownRemaining} msgs</td>
+                            <td>${user.offersToday}</td>
+                            <td>${user.totalTeasers}</td>
+                            <td>${user.lastContact}</td>
+                        `;
+                        fragment2.appendChild(tr);
+                    });
+                    cooldownBody.innerHTML = '';
+                    cooldownBody.appendChild(fragment2);
+                }
+
+                // Dropoff
+                const dropoffBody = document.getElementById('dropoffBody');
+                const fragment3 = document.createDocumentFragment();
+                data.dropoff.forEach(stage => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${stage.name}</td>
+                        <td>${stage.users}</td>
+                        <td>${stage.percent}%</td>
+                        <td><span class="badge ${stage.dropClass}">${stage.dropRate}%</span></td>
+                        <td>${stage.status}</td>
+                    `;
+                    fragment3.appendChild(tr);
+                });
+                dropoffBody.innerHTML = '';
+                dropoffBody.appendChild(fragment3);
+            });
         }
 
         function generateAIInsights(data) {
@@ -795,11 +876,42 @@
             };
         }
 
-        // Auto-refresh a cada 30 segundos
-        setInterval(loadAllData, 30000);
+        // ═══════════════════════════════════════════════════════════
+        // ⚡ AUTO-REFRESH INTELIGENTE (só atualiza se aba visível)
+        // ═══════════════════════════════════════════════════════════
+        
+        let refreshInterval;
+        
+        function startAutoRefresh() {
+            // Para refresh se aba não está visível (economiza CPU/memória)
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    clearInterval(refreshInterval);
+                } else {
+                    loadAllData(); // Atualiza imediatamente ao voltar
+                    refreshInterval = setInterval(loadAllData, 30000);
+                }
+            });
 
-        // Carregar dados na inicialização
-        loadAllData();
+            // Inicia interval
+            refreshInterval = setInterval(loadAllData, 30000);
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // 🚀 INICIALIZAÇÃO ULTRA RÁPIDA
+        // ═══════════════════════════════════════════════════════════
+        
+        // Carrega dados IMEDIATAMENTE quando DOM estiver pronto
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                loadAllData();
+                startAutoRefresh();
+            });
+        } else {
+            // DOM já está pronto
+            loadAllData();
+            startAutoRefresh();
+        }
     </script>
 </body>
 </html>
