@@ -891,24 +891,90 @@ VIP_PITCH_MESSAGES = {
         "✅ +5.000 fotos SEM CENSURA\n"
         "✅ Vídeos completos e MUITO ousados\n"
         "✅ Conteúdo EXCLUSIVO todo dia\n"
-        "✅ Conversas ILIMITADAS comigo\n"
-        "✅ Acesso VITALÍCIO por apenas {preco}\n\n"
+        "✅ Conversas ILIMITADAS comigo\n\n"
+        "{urgencia}\n\n"
         "Tá esperando o quê pra me ter só pra você? 💕"
     ),
     "B": (
         "Gostou do que viu? Isso não é NADA... 😈\n\n"
         "No VIP você me tem COMPLETINHA, sem censura, sem limites! 🔥\n\n"
         "São MILHARES de fotos e vídeos que vão te deixar louco... 💦\n\n"
-        "E o melhor: por apenas {preco} você tem ACESSO VITALÍCIO! 💎\n\n"
+        "{urgencia}\n\n"
         "Clica no botão abaixo e vem me ter só pra você... 💕"
     )
 }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⏰ SISTEMA DE URGÊNCIA DINÂMICA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_urgency_message(uid):
+    """
+    Gera mensagem de urgência dinâmica baseada em:
+    - Horário do dia (meia-noite, madrugada)
+    - Número da oferta (primeira vez vs repetida)
+    - Dia da semana
+    
+    IMPORTANTE: A urgência é FALSA (escassez artificial).
+    Mas funciona porque cria senso de "agora ou nunca".
+    """
+    hour = datetime.now().hour
+    offer_num = get_vip_offers_today(uid)
+    teaser_count = get_teaser_count(uid)
+    
+    # Pool de urgências por contexto
+    urgencias = []
+    
+    # === BASEADO NO HORÁRIO ===
+    if 20 <= hour <= 23:
+        # Noite — deadline de meia-noite
+        urgencias.extend([
+            f"⚡ **PROMOÇÃO SÓ ATÉ MEIA-NOITE!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!",
+            f"🔥 **ÚLTIMAS HORAS!** Esse preço de {PRECO_VIP} só vale até meia-noite!\n⏰ Depois volta pra R$ 39,90...",
+            f"⏰ **Faltam poucas horas!**\nHoje ainda tá {PRECO_VIP} com acesso vitalício... amanhã não garanto esse preço 😏",
+        ])
+    elif 0 <= hour <= 5:
+        # Madrugada — "última chance"
+        urgencias.extend([
+            f"🌙 **PREÇO DE MADRUGADA!**\n💰 {PRECO_VIP} por acesso VITALÍCIO — só pra quem tá acordado agora 😈",
+            f"⚡ Shhh... esse preço de {PRECO_VIP} é segredo, só pra quem tá online agora 🤫\nAmanhã volta pra R$ 39,90!",
+        ])
+    elif 6 <= hour <= 11:
+        # Manhã
+        urgencias.extend([
+            f"☀️ **PROMOÇÃO DA MANHÃ!**\n💰 Acesso vitalício por apenas {PRECO_VIP}!\n⚠️ Só até o meio-dia, depois volta pra R$ 39,90",
+            f"💎 {PRECO_VIP} por TUDO — acesso vitalício!\n⏰ Essa promoção acaba em poucas horas...",
+        ])
+    else:
+        # Tarde
+        urgencias.extend([
+            f"🔥 **PROMOÇÃO RELÂMPAGO!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!\n⚡ Poucas vagas restantes!",
+            f"💎 Acesso vitalício por apenas {PRECO_VIP}!\n⚠️ Esse preço é por TEMPO LIMITADO...",
+        ])
+    
+    # === BASEADO NO NÚMERO DE TEASERS (escassez) ===
+    if teaser_count <= 1:
+        # Primeira vez — vagas
+        urgencias.extend([
+            f"💰 Por apenas {PRECO_VIP} você tem ACESSO VITALÍCIO!\n🔥 Últimas 10 vagas com esse preço... depois sobe pra R$ 39,90!",
+            f"⚡ Tô com uma promoção ESPECIAL agora: {PRECO_VIP} vitalício!\n⚠️ Só restam algumas vagas nesse valor...",
+        ])
+    else:
+        # Já viu antes — mais pressão
+        urgencias.extend([
+            f"⚠️ **ÚLTIMA CHANCE!** Esse preço de {PRECO_VIP} tá acabando!\n🔥 Restam só 3 vagas... depois sobe pra R$ 39,90!",
+            f"💰 Amor, da última vez você não garantiu... mas AINDA dá tempo!\n{PRECO_VIP} vitalício — mas só tem mais algumas vagas! 😢",
+            f"⏰ Não vai perder de novo né?\n{PRECO_VIP} com acesso VITALÍCIO — mas tá acabando de verdade! 🔥",
+        ])
+    
+    return random.choice(urgencias)
 
 LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "Acesso vitalício por apenas {preco}!\n\n"
+    "⚡ **PROMOÇÃO:** De ~~R$ 39,90~~ por apenas {preco} — ACESSO VITALÍCIO!\n"
+    "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
 
@@ -1276,10 +1342,11 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         # 3. PAUSA
         await asyncio.sleep(3)
         
-        # 4. PITCH + BOTÃO
-        pitch = VIP_PITCH_MESSAGES[ab_group].format(preco=PRECO_VIP)
+        # 4. PITCH + BOTÃO COM URGÊNCIA DINÂMICA
+        urgencia = get_urgency_message(uid)
+        pitch = VIP_PITCH_MESSAGES[ab_group].format(urgencia=urgencia)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("CLICA AQUI: 👉QUERO ACESSO VIP👈", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("🔥 QUERO ACESSO VIP AGORA 🔥", url=CANAL_VIP_LINK)
         ]])
         
         await bot.send_message(
