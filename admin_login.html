@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sophia Bot - Admin Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            padding: 50px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+
+        .logo p {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+            animation: shake 0.3s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #1565c0;
+        }
+
+        .info strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🔥 Sophia Bot</h1>
+            <p>Admin Dashboard</p>
+        </div>
+
+        <div id="error" class="error"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="token">Token de Acesso</label>
+                <input 
+                    type="password" 
+                    id="token" 
+                    name="token" 
+                    placeholder="Digite seu token de admin"
+                    autocomplete="off"
+                    required
+                >
+            </div>
+
+            <button type="submit" class="btn" id="loginBtn">
+                <span id="btnText">Acessar Dashboard</span>
+            </button>
+        </form>
+
+        <div class="info">
+            <strong>🔐 Acesso Seguro</strong>
+            Entre em contato com o administrador do sistema para obter seu token de acesso.
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('loginForm');
+        const tokenInput = document.getElementById('token');
+        const loginBtn = document.getElementById('loginBtn');
+        const btnText = document.getElementById('btnText');
+        const errorDiv = document.getElementById('error');
+
+        // Verifica se já está logado
+        const savedToken = localStorage.getItem('adminToken');
+        if (savedToken) {
+            // Tenta validar o token
+            validateAndRedirect(savedToken);
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const token = tokenInput.value.trim();
+            
+            if (!token) {
+                showError('Por favor, digite o token de acesso');
+                return;
+            }
+
+            // Disable button
+            loginBtn.disabled = true;
+            btnText.innerHTML = '<span class="loader"></span>';
+
+            try {
+                // Valida o token tentando acessar a API
+                const response = await fetch('/admin/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    // Token válido!
+                    localStorage.setItem('adminToken', token);
+                    
+                    // Sucesso
+                    btnText.textContent = '✓ Acesso autorizado!';
+                    setTimeout(() => {
+                        window.location.href = '/admin/dashboard';
+                    }, 500);
+                } else if (response.status === 401) {
+                    showError('Token inválido. Verifique e tente novamente.');
+                    loginBtn.disabled = false;
+                    btnText.textContent = 'Acessar Dashboard';
+                } else {
+                    showError('Erro ao conectar com o servidor. Tente novamente.');
+                    loginBtn.disabled = false;
+                    btnText.textContent = 'Acessar Dashboard';
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                showError('Erro de conexão. Verifique sua internet e tente novamente.');
+                loginBtn.disabled = false;
+                btnText.textContent = 'Acessar Dashboard';
+            }
+        });
+
+        async function validateAndRedirect(token) {
+            try {
+                const response = await fetch('/admin/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    // Token ainda é válido, redireciona
+                    window.location.href = '/admin/dashboard';
+                } else {
+                    // Token expirou ou é inválido
+                    localStorage.removeItem('adminToken');
+                }
+            } catch (error) {
+                console.error('Erro ao validar token:', error);
+            }
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('show');
+            // Force reflow
+            void errorDiv.offsetWidth;
+            errorDiv.classList.add('show');
+
+            setTimeout(() => {
+                errorDiv.classList.remove('show');
+            }, 5000);
+        }
+
+        // Clear error on input
+        tokenInput.addEventListener('input', () => {
+            errorDiv.classList.remove('show');
+        });
+
+        // Auto-focus no input
+        tokenInput.focus();
+
+        // Allow paste
+        tokenInput.addEventListener('paste', (e) => {
+            setTimeout(() => {
+                tokenInput.value = tokenInput.value.trim();
+            }, 10);
+        });
+    </script>
+</body>
+</html>
