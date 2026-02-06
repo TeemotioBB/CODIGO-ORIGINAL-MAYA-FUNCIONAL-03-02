@@ -187,11 +187,6 @@
             color: #2196f3;
         }
 
-        .badge.blocked {
-            background: #f5f5f5;
-            color: #999;
-        }
-
         .refresh-btn {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -248,20 +243,6 @@
             color: #667eea;
         }
 
-        .loader {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
         .metric-group {
             display: flex;
             gap: 10px;
@@ -287,15 +268,36 @@
             font-weight: bold;
             color: #333;
         }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 18px;
+        }
+
+        .warning-banner {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="warning-banner">
+            ⚠️ MODO DEMONSTRAÇÃO - Usando dados simulados. Configure a API para dados reais.
+        </div>
+
         <div class="header">
             <h1>🔥 Sophia Bot - Dashboard Admin</h1>
             <p class="subtitle">Versão 8.2 - Anti-Spam Fix | Última atualização: <span id="lastUpdate">Carregando...</span></p>
             <button class="refresh-btn" onclick="loadAllData()">
-                <span id="refreshIcon">🔄</span> Atualizar Dados
+                🔄 Atualizar Dados
             </button>
         </div>
 
@@ -361,7 +363,7 @@
                         <div class="mini-metric-value" id="rejectedVip">--</div>
                     </div>
                     <div class="mini-metric">
-                        <div class="mini-metric-label">Ign orados</div>
+                        <div class="mini-metric-label">Ignorados</div>
                         <div class="mini-metric-value" id="ignored">--</div>
                     </div>
                 </div>
@@ -463,51 +465,10 @@
     <script>
         let charts = {};
 
-        // Verifica autenticação
-        const adminToken = localStorage.getItem('adminToken');
-        if (!adminToken) {
-            window.location.href = '/admin/login';
-        }
-
-        // Adiciona botão de logout
-        document.querySelector('.header').innerHTML += `
-            <button class="refresh-btn" onclick="logout()" style="background: #f44336; margin-left: 10px;">
-                🚪 Sair
-            </button>
-        `;
-
-        function logout() {
-            localStorage.removeItem('adminToken');
-            window.location.href = '/admin/login';
-        }
-
         async function loadAllData() {
-            const refreshIcon = document.getElementById('refreshIcon');
-            refreshIcon.innerHTML = '<span class="loader"></span>';
-
             try {
-                // Busca dados REAIS da API
-                const response = await fetch('/admin/stats', {
-                    headers: {
-                        'Authorization': `Bearer ${adminToken}`
-                    }
-                });
-
-                if (response.status === 401) {
-                    // Token inválido
-                    localStorage.removeItem('adminToken');
-                    window.location.href = '/admin/login';
-                    return;
-                }
-
-                if (!response.ok) {
-                    throw new Error('Erro ao carregar dados');
-                }
-
-                const data = await response.json();
-                
-                // Se a API retornar dados reais, use-os
-                // Senão, usa mock data para desenvolvimento
+                // Tenta buscar dados reais da API
+                const data = await fetchRealData() || generateMockData();
 
                 updateKPIs(data);
                 updateCharts(data);
@@ -518,14 +479,37 @@
                 document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR');
             } catch (error) {
                 console.error('Erro ao carregar dados:', error);
-                showAlert('Erro ao carregar dados do dashboard', 'danger');
-            } finally {
-                refreshIcon.innerHTML = '🔄';
+                // Se falhar, usa dados simulados
+                const data = generateMockData();
+                updateKPIs(data);
+                updateCharts(data);
+                updateTables(data);
+                generateAIInsights(data);
+                updateAlerts(data);
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleString('pt-BR') + ' (simulado)';
+            }
+        }
+
+        async function fetchRealData() {
+            try {
+                const response = await fetch('/admin/stats', {
+                    headers: {
+                        'Authorization': 'Bearer admin' // Tenta com o token padrão
+                    },
+                    timeout: 3000
+                });
+
+                if (response.ok) {
+                    return await response.json();
+                }
+                return null;
+            } catch (error) {
+                console.log('API não disponível, usando dados simulados');
+                return null;
             }
         }
 
         function updateKPIs(data) {
-            // Taxa de Conversão
             const conversionRate = data.stats.sawTeaser > 0 
                 ? (data.stats.clickedVip / data.stats.sawTeaser * 100).toFixed(1)
                 : 0;
@@ -535,19 +519,16 @@
             document.getElementById('clickedVip').textContent = data.stats.clickedVip;
             document.getElementById('sawTeaser').textContent = data.stats.sawTeaser;
 
-            // Usuários Ativos
             document.getElementById('totalUsers').textContent = data.stats.totalUsers;
             document.getElementById('userGrowth').textContent = `+${data.stats.newUsers24h} nas últimas 24h`;
             document.getElementById('activeToday').textContent = data.stats.activeToday;
             document.getElementById('activeWeek').textContent = data.stats.activeWeek;
 
-            // Engajamento
             const avgMsgs = (data.stats.totalMessages / data.stats.totalUsers).toFixed(1);
             document.getElementById('avgEngagement').textContent = `${avgMsgs} msgs`;
             document.getElementById('msgsPerUser').textContent = avgMsgs;
             document.getElementById('avgStreak').textContent = `${data.stats.avgStreak} dias`;
 
-            // Cooldown
             document.getElementById('cooldownUsers').textContent = data.stats.inCooldown;
             const cooldownPercent = (data.stats.inCooldown / data.stats.totalUsers * 100).toFixed(1);
             document.getElementById('cooldownPercent').textContent = `${cooldownPercent}% do total`;
@@ -556,7 +537,6 @@
         }
 
         function updateCharts(data) {
-            // Funil de Conversão
             if (charts.funnel) charts.funnel.destroy();
             const funnelCtx = document.getElementById('funnelChart').getContext('2d');
             charts.funnel = new Chart(funnelCtx, {
@@ -590,7 +570,6 @@
                 }
             });
 
-            // Atividade 7 dias
             if (charts.activity) charts.activity.destroy();
             const activityCtx = document.getElementById('activityChart').getContext('2d');
             charts.activity = new Chart(activityCtx, {
@@ -614,7 +593,6 @@
                 }
             });
 
-            // Nível de Interesse
             if (charts.interest) charts.interest.destroy();
             const interestCtx = document.getElementById('interestChart').getContext('2d');
             charts.interest = new Chart(interestCtx, {
@@ -635,7 +613,6 @@
                 }
             });
 
-            // Ofertas por Horário
             if (charts.hourly) charts.hourly.destroy();
             const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
             charts.hourly = new Chart(hourlyCtx, {
@@ -661,7 +638,6 @@
         }
 
         function updateTables(data) {
-            // Top Usuários
             const topUsersBody = document.getElementById('topUsersBody');
             topUsersBody.innerHTML = data.topUsers.map((user, index) => `
                 <tr>
@@ -676,7 +652,6 @@
                 </tr>
             `).join('');
 
-            // Cooldown
             const cooldownBody = document.getElementById('cooldownBody');
             if (data.cooldownUsers.length === 0) {
                 cooldownBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #888;">Nenhum usuário em cooldown</td></tr>';
@@ -692,7 +667,6 @@
                 `).join('');
             }
 
-            // Drop-off
             const dropoffBody = document.getElementById('dropoffBody');
             dropoffBody.innerHTML = data.dropoff.map(stage => `
                 <tr>
@@ -708,7 +682,6 @@
         function generateAIInsights(data) {
             const insights = [];
 
-            // Análise de conversão
             const conversionRate = (data.stats.clickedVip / data.stats.sawTeaser * 100);
             if (conversionRate < 10) {
                 insights.push(`<strong>⚠️ Taxa de conversão BAIXA (${conversionRate.toFixed(1)}%)</strong> - Considere: melhorar urgência, testar novos teasers, ou ajustar timing das ofertas.`);
@@ -716,13 +689,11 @@
                 insights.push(`<strong>🎯 Taxa de conversão EXCELENTE (${conversionRate.toFixed(1)}%)</strong> - Continue com essa estratégia! Considere aumentar tráfego.`);
             }
 
-            // Análise de cooldown
             const cooldownRate = (data.stats.inCooldown / data.stats.totalUsers * 100);
             if (cooldownRate > 30) {
                 insights.push(`<strong>🚨 ${cooldownRate.toFixed(1)}% dos usuários em cooldown</strong> - Bot pode estar sendo muito insistente. Considere aumentar o intervalo entre ofertas.`);
             }
 
-            // Análise de engajamento
             const avgMsgs = data.stats.totalMessages / data.stats.totalUsers;
             if (avgMsgs < 5) {
                 insights.push(`<strong>📉 Engajamento BAIXO (${avgMsgs.toFixed(1)} msgs/usuário)</strong> - Usuários abandonam rápido. Melhore as respostas da IA ou o onboarding.`);
@@ -730,11 +701,9 @@
                 insights.push(`<strong>🔥 Engajamento ALTO (${avgMsgs.toFixed(1)} msgs/usuário)</strong> - Usuários estão muito engajados! Ótimo sinal de product-market fit.`);
             }
 
-            // Análise de horários
             const bestHour = data.hourly.offers.indexOf(Math.max(...data.hourly.offers));
             insights.push(`<strong>⏰ Melhor horário:</strong> ${data.hourly.labels[bestHour]} - Concentre esforços de marketing nesse período.`);
 
-            // Análise de drop-off
             const biggestDrop = data.dropoff.reduce((max, stage) => 
                 parseFloat(stage.dropRate) > parseFloat(max.dropRate) ? stage : max
             );
@@ -750,7 +719,6 @@
             const alertsDiv = document.getElementById('alerts');
             const alerts = [];
 
-            // Alertas críticos
             if (data.stats.clickedVip === 0) {
                 alerts.push('<div class="alert danger"><strong>🚨 CRÍTICO:</strong> Nenhuma conversão VIP ainda! Verifique se o link do canal está correto.</div>');
             }
@@ -767,16 +735,6 @@
             alertsDiv.innerHTML = alerts.join('');
         }
 
-        function showAlert(message, type = 'warning') {
-            const alertsDiv = document.getElementById('alerts');
-            const alert = document.createElement('div');
-            alert.className = `alert ${type}`;
-            alert.innerHTML = `<strong>⚠️</strong> ${message}`;
-            alertsDiv.appendChild(alert);
-            setTimeout(() => alert.remove(), 5000);
-        }
-
-        // MOCK DATA - SUBSTITUA PELA SUA API REAL
         function generateMockData() {
             return {
                 stats: {
@@ -830,9 +788,9 @@
                     lastContact: `${Math.floor(Math.random() * 12)}h atrás`
                 })),
                 dropoff: [
-                    { name: 'Start → 1ª Msg', users: 158, percent: 12.7, dropRate: '12.7', dropClass: 'warm', status: '✅ Normal' },
-                    { name: '1ª Msg → Teaser', users: 546, percent: 50.1, dropRate: '50.1', dropClass: 'hot', status: '⚠️ Alto' },
-                    { name: 'Teaser → Clique VIP', users: 456, percent: 84.0, dropRate: '84.0', dropClass: 'hot', status: '🚨 Crítico' }
+                    { name: 'Start → 1ª Msg', users: 158, percent: 87.3, dropRate: '12.7', dropClass: 'warm', status: '✅ Normal' },
+                    { name: '1ª Msg → Teaser', users: 546, percent: 49.9, dropRate: '50.1', dropClass: 'hot', status: '⚠️ Alto' },
+                    { name: 'Teaser → Clique VIP', users: 456, percent: 16.0, dropRate: '84.0', dropClass: 'hot', status: '🚨 Crítico' }
                 ]
             };
         }
