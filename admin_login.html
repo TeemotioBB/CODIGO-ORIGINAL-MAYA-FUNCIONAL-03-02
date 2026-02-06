@@ -193,8 +193,8 @@
         // Verifica se já está logado
         const savedToken = localStorage.getItem('adminToken');
         if (savedToken) {
-            // Tenta validar o token
-            validateAndRedirect(savedToken);
+            // Redireciona IMEDIATAMENTE sem validar
+            window.location.href = '/admin/dashboard';
         }
 
         form.addEventListener('submit', async (e) => {
@@ -207,63 +207,22 @@
                 return;
             }
 
-            // Disable button
+            // LOGIN INSTANTÂNEO - sem validação
             loginBtn.disabled = true;
             btnText.innerHTML = '<span class="loader"></span>';
 
-            try {
-                // Valida o token tentando acessar a API
-                const response = await fetch('/admin/stats', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+            // Pequeno delay apenas pra dar feedback visual
+            await new Promise(resolve => setTimeout(resolve, 300));
 
-                if (response.ok) {
-                    // Token válido!
-                    localStorage.setItem('adminToken', token);
-                    
-                    // Sucesso
-                    btnText.textContent = '✓ Acesso autorizado!';
-                    setTimeout(() => {
-                        window.location.href = '/admin/dashboard';
-                    }, 500);
-                } else if (response.status === 401) {
-                    showError('Token inválido. Verifique e tente novamente.');
-                    loginBtn.disabled = false;
-                    btnText.textContent = 'Acessar Dashboard';
-                } else {
-                    showError('Erro ao conectar com o servidor. Tente novamente.');
-                    loginBtn.disabled = false;
-                    btnText.textContent = 'Acessar Dashboard';
-                }
-            } catch (error) {
-                console.error('Erro:', error);
-                showError('Erro de conexão. Verifique sua internet e tente novamente.');
-                loginBtn.disabled = false;
-                btnText.textContent = 'Acessar Dashboard';
-            }
+            // Salva o token e redireciona
+            localStorage.setItem('adminToken', token);
+            btnText.textContent = '✓ Acesso autorizado!';
+            
+            // Redireciona IMEDIATAMENTE
+            setTimeout(() => {
+                window.location.href = '/admin/dashboard';
+            }, 200);
         });
-
-        async function validateAndRedirect(token) {
-            try {
-                const response = await fetch('/admin/stats', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (response.ok) {
-                    // Token ainda é válido, redireciona
-                    window.location.href = '/admin/dashboard';
-                } else {
-                    // Token expirou ou é inválido
-                    localStorage.removeItem('adminToken');
-                }
-            } catch (error) {
-                console.error('Erro ao validar token:', error);
-            }
-        }
 
         function showError(message) {
             errorDiv.textContent = message;
