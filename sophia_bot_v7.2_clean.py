@@ -2070,39 +2070,48 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
-    
+
     users = get_all_active_users()
     total = len(users)
-    
+
     # Conta usuários por fase
     phase_counts = {i: 0 for i in range(6)}
     for uid in users:
         phase = get_current_phase(uid)
         phase_counts[phase] += 1
-    
+
     # Outras métricas
     saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
     clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
     in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
-    
-    ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0
-    
-    await update.message.reply_text(
-    f"""📊 **STATS v8.3**
-👥 Total: {total}
+
+    # Evita divisão por zero
+    ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0.0
+
+    # Mensagem formatada (f-string multilinha)
+    stats_text = f"""\
+📊 **STATS v8.3**
+
+👥 Total de usuários: {total}
+
 📊 **Distribuição por Fases:**
-0️⃣ Onboarding: {phase_counts[0]}
-1️⃣ Engagement: {phase_counts[1]}
-2️⃣ Provocation: {phase_counts[2]}
-3️⃣ VIP Pitch: {phase_counts[3]}
-4️⃣ Post-Rejection: {phase_counts[4]}
-5️⃣ Relationship: {phase_counts[5]}
+• 0️⃣ Onboarding: {phase_counts[0]}
+• 1️⃣ Engagement: {phase_counts[1]}
+• 2️⃣ Provocation: {phase_counts[2]}
+• 3️⃣ VIP Pitch: {phase_counts[3]}
+• 4️⃣ Post-Rejection: {phase_counts[4]}
+• 5️⃣ Relationship: {phase_counts[5]}
+
+📈 **Outras métricas:**
 👀 Viram teaser: {saw_teaser_count}
-💎 Clicaram VIP: {clicked_vip_count}
+💎 Clicaram no VIP: {clicked_vip_count}
 🚫 Em cooldown: {in_cooldown_count}
-📈 **Taxa conversão:** {ctr:.1f}%""",
-    parse_mode="Markdown"
-)
+📊 Taxa de conversão (cliques/teaser): {ctr:.1f}%"""
+
+    await update.message.reply_text(
+        stats_text,
+        parse_mode="Markdown"
+    )
 
 async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
