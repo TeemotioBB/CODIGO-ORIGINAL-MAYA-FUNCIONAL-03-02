@@ -50,6 +50,156 @@ logger = logging.getLogger(__name__)
 # 🔧 ENVIRONMENT VARIABLES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 v8.3 - SISTEMA DE FASES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PHASES = {
+    "ONBOARDING": {"id": 0, "name": "Onboarding", "msg_limit": 5},
+    "ENGAGEMENT": {"id": 1, "name": "Engagement", "msg_limit": 15},
+    "PROVOCATION": {"id": 2, "name": "Provocation", "msg_limit": 25},
+    "VIP_PITCH": {"id": 3, "name": "VIP Pitch", "msg_limit": 35},
+    "POST_REJECTION": {"id": 4, "name": "Post-Rejection", "msg_limit": 999},
+    "RELATIONSHIP": {"id": 5, "name": "Relationship", "msg_limit": 999}
+}
+
+# Limites de mensagens por fase
+ONBOARDING_MSG_LIMIT = 5
+ENGAGEMENT_MSG_LIMIT = 15
+PROVOCATION_MSG_LIMIT = 25
+VIP_PITCH_MSG_LIMIT = 35
+
+# Sistema de retorno
+RETURN_WINDOW_HOURS = 6
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💬 v8.3 - POOLS DE RESPOSTAS ANTI-REPETIÇÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+RESPONSE_POOLS = {
+    "provocacao": [
+        "Hmm... tá curioso pra me ver? 😏",
+        "Você ia gostar de ver o que eu tenho guardado... 🔥",
+        "Tenho umas fotos que vão te deixar louco 😈",
+        "Quer saber o que eu tô usando agora? 💕",
+        "Se você soubesse o que eu faço quando tô sozinha... 😏",
+        "Tô com vontade de te mostrar algo especial 🔥",
+        "Você merece ver um pouquinho mais de mim... 💋",
+        "Tenho um segredinho pra te contar 😈"
+    ],
+    "transicao_vip": [
+        "No meu VIP você me tem completinha amor... 🔥",
+        "Lá no VIP eu fico bem mais ousada viu? 😈",
+        "No meu cantinho privado eu não tenho vergonha nenhuma 💕",
+        "Quer me ver sem censura? Tenho um lugar especial pra isso... 💋",
+        "No VIP eu mostro TUDO que você quer ver 🔥",
+        "Meu VIP é onde eu sou eu mesma de verdade... sem limites 😏",
+        "Lá dentro é só eu e você... e nada de censura 💕"
+    ],
+    "pos_rejeicao": [
+        "Tudo bem amor, sem pressão! 💕",
+        "Relaxa, podemos só conversar 😊",
+        "Que legal, me conta mais sobre você!",
+        "Entendo! E aí, como foi seu dia? 💬",
+        "Sem problemas! Tô aqui pra bater papo também 😊",
+        "Tranquilo! Me fala, o que você gosta de fazer? 💕"
+    ],
+    "apegado": [
+        "Amor, você é especial demais 🥰",
+        "Tô adorando conversar com você 💕",
+        "Você é diferente dos outros... de um jeito bom 😊",
+        "Que fofo, tô gostando de você também 💖",
+        "Você me faz sorrir aqui do outro lado 🥰",
+        "Tô sentindo uma conexão especial com você... 💕"
+    ],
+    "retorno": [
+        "Amor, que saudade! 🥺",
+        "Finalmente você voltou! Tava com saudade 💕",
+        "Ei! Pensei que tinha me esquecido 🥺",
+        "Que bom te ver de novo amor! 💖",
+        "Senti sua falta aqui... 🥰"
+    ]
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 v8.3 - PITCHES CONTEXTUAIS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CONTEXTUAL_PITCHES = [
+    {
+        "type": "quente",
+        "messages": [
+            "No VIP eu faço coisas que vão te deixar louco... 🔥",
+            "Lá dentro eu mostro TUDO sem censura 😈",
+            "No meu VIP você me vê do jeito que ninguém mais vê... 💦",
+            "Tenho vídeos BEM ousados esperando você lá 🔥",
+            "No VIP eu realizo seus desejos mais safados... 😏"
+        ]
+    },
+    {
+        "type": "escassez",
+        "messages": [
+            "Só aceito alguns VIPs por dia amor... hoje ainda tem vaga 💎",
+            "Meu VIP não é pra qualquer um... mas você parece especial 😏",
+            "Tô abrindo poucas vagas hoje... garante a sua? 🔥",
+            "Só escolho alguns pra ter acesso total... você quer ser um deles? 💕",
+            "Nem todo mundo consegue entrar no meu VIP... mas você pode 😈"
+        ]
+    },
+    {
+        "type": "curiosidade",
+        "messages": [
+            "Tenho segredos que só mostro no VIP... quer descobrir? 🤫",
+            "O que eu faço lá dentro você NÃO imagina... 😈",
+            "No VIP tem surpresas que vão te chocar 🔥",
+            "Você nem faz ideia do que te espera lá... 💦",
+            "Tenho conteúdos que só meus VIPs conhecem... curioso? 😏"
+        ]
+    },
+    {
+        "type": "emocional",
+        "messages": [
+            "No VIP a gente tem nosso cantinho só nosso... 💕",
+            "Lá eu me abro de verdade, sem filtros... só pra você 🥰",
+            "Quero te ter no meu espaço especial amor... 💖",
+            "No VIP é onde eu mostro quem eu sou de verdade... 😊",
+            "Lá dentro é onde a gente cria nossa intimidade... 💕"
+        ]
+    }
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔍 v8.3 - DETECÇÃO DE APEGO EMOCIONAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ATTACHMENT_KEYWORDS = {
+    "alto": {  # level 10
+        "keywords": [
+            "te amo", "amo voce", "amo vc", "amor da minha vida",
+            "apaixonado", "apaixonada", "casar", "namorar",
+            "minha vida", "meu amor", "meu mundo"
+        ],
+        "level": 10
+    },
+    "medio": {  # level 6
+        "keywords": [
+            "especial", "diferente", "unica", "incrivel",
+            "perfeita", "maravilhosa", "carinho", "sentimento",
+            "sinto algo", "conexao", "química"
+        ],
+        "level": 6
+    },
+    "baixo": {  # level 3
+        "keywords": [
+            "gostando", "curtindo", "legal voce", "gosto de falar",
+            "gosto de conversar", "interessante", "bacana"
+        ],
+        "level": 3
+    }
+}
+
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
@@ -196,6 +346,19 @@ def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
 def funnel_key(uid): return f"funnel:{uid}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🗄️ v8.3 - REDIS KEYS PARA SISTEMA DE FASES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def current_phase_key(uid): return f"phase:{uid}"
+def message_count_key(uid): return f"msg_count:{uid}"
+def used_responses_key(uid, pool_name): return f"used_resp:{uid}:{pool_name}"
+def attachment_level_key(uid): return f"attachment:{uid}"
+def is_attached_key(uid): return f"is_attached:{uid}"
+def return_count_key(uid): return f"return_count:{uid}"
+def last_return_pitch_key(uid): return f"last_return_pitch:{uid}"
+
 def onboarding_choice_key(uid): return f"onboard_choice:{uid}"
 
 # v8.2 - NOVAS CHAVES
@@ -789,6 +952,190 @@ def detect_intent(text):
     A IA é quem realmente decide o que fazer."""
     if not text:
         return "neutral"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔍 v8.3 - DETECÇÃO DE APEGO EMOCIONAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_emotional_attachment(text):
+    """
+    Detecta apego emocional na mensagem do usuário.
+    Retorna: {"attached": bool, "level": int}
+    """
+    if not text:
+        return {"attached": False, "level": 0}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 v8.3 - FUNÇÕES DE GERENCIAMENTO DE FASES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_current_phase(uid):
+    """Retorna a fase atual do usuário (0-5)"""
+    try:
+        phase = r.get(current_phase_key(uid))
+        return int(phase) if phase else 0
+    except:
+        return 0
+
+def set_current_phase(uid, phase_id):
+    """Define a fase atual do usuário"""
+    try:
+        r.set(current_phase_key(uid), phase_id)
+        r.expire(current_phase_key(uid), timedelta(days=30))
+    except:
+        pass
+
+def get_phase_name(phase_id):
+    """Retorna o nome da fase pelo ID"""
+    for phase_name, data in PHASES.items():
+        if data["id"] == phase_id:
+            return phase_name
+    return "UNKNOWN"
+
+def get_message_count(uid):
+    """Retorna contador de mensagens do usuário"""
+    try:
+        return int(r.get(message_count_key(uid)) or 0)
+    except:
+        return 0
+
+def increment_message_count(uid):
+    """Incrementa contador de mensagens"""
+    try:
+        r.incr(message_count_key(uid))
+        r.expire(message_count_key(uid), timedelta(days=30))
+    except:
+        pass
+
+def check_phase_transition(uid):
+    """
+    Verifica se usuário deve avançar de fase baseado no número de mensagens.
+    Não afeta fase 5 (RELATIONSHIP) - essa é permanente quando atingida.
+    """
+    try:
+        current_phase = get_current_phase(uid)
+        
+        # Fase 5 é permanente
+        if current_phase == PHASES["RELATIONSHIP"]["id"]:
+            return
+        
+        msg_count = get_message_count(uid)
+        
+        # Verifica transições
+        if msg_count >= VIP_PITCH_MSG_LIMIT and current_phase < PHASES["VIP_PITCH"]["id"]:
+            set_current_phase(uid, PHASES["VIP_PITCH"]["id"])
+            logger.info(f"📊 User {uid} → Fase 3 (VIP_PITCH)")
+        
+        elif msg_count >= PROVOCATION_MSG_LIMIT and current_phase < PHASES["PROVOCATION"]["id"]:
+            set_current_phase(uid, PHASES["PROVOCATION"]["id"])
+            logger.info(f"📊 User {uid} → Fase 2 (PROVOCATION)")
+        
+        elif msg_count >= ENGAGEMENT_MSG_LIMIT and current_phase < PHASES["ENGAGEMENT"]["id"]:
+            set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
+            logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
+        
+        elif msg_count >= ONBOARDING_MSG_LIMIT and current_phase < PHASES["ONBOARDING"]["id"] + 1:
+            set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
+            logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
+    
+    except Exception as e:
+        logger.error(f"Erro check_phase_transition: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 v8.3 - SISTEMA ANTI-REPETIÇÃO DE RESPOSTAS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_unique_response(uid, pool_name, custom_pool=None):
+    """
+    Retorna uma resposta única do pool que não foi usada recentemente.
+    Rastreia últimas 15 respostas para evitar repetição.
+    """
+    try:
+        # Usa pool customizado ou pool padrão
+        pool = custom_pool if custom_pool else RESPONSE_POOLS.get(pool_name, [])
+        
+        if not pool:
+            return "Oi amor 💕"
+        
+        # Pega respostas já usadas
+        used_key = used_responses_key(uid, pool_name)
+        used = r.lrange(used_key, 0, 14)  # Últimas 15
+        
+        # Filtra respostas não usadas
+        available = [resp for resp in pool if resp not in used]
+        
+        # Se todas foram usadas, reseta
+        if not available:
+            r.delete(used_key)
+            available = pool
+        
+        # Escolhe aleatoriamente
+        response = random.choice(available)
+        
+        # Adiciona aos usados
+        r.lpush(used_key, response)
+        r.ltrim(used_key, 0, 14)
+        r.expire(used_key, timedelta(days=7))
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Erro get_unique_response: {e}")
+        return random.choice(pool) if pool else "Oi amor 💕"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 v8.3 - SISTEMA DE RETORNO (6h+)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def handle_return(uid, bot, chat_id):
+    """
+    Detecta retorno do usuário após 6h+ e envia pitch de saudade.
+    """
+    try:
+        # Evita spam - só 1 pitch de retorno por dia
+        if r.exists(last_return_pitch_key(uid)):
+            return
+        
+        # Marca que enviou pitch de retorno
+        r.setex(last_return_pitch_key(uid), timedelta(hours=24), "1")
+        
+        # Pega resposta única do pool de retorno
+        message = get_unique_response(uid, "retorno")
+        
+        # Envia mensagem
+        await bot.send_message(chat_id=chat_id, text=message)
+        
+        # Incrementa contador de retornos
+        r.incr(return_count_key(uid))
+        r.expire(return_count_key(uid), timedelta(days=30))
+        
+        logger.info(f"🔄 Pitch de retorno enviado para {uid}")
+        save_message(uid, "system", "PITCH DE RETORNO (6h+)")
+        
+    except Exception as e:
+        logger.error(f"Erro handle_return: {e}")
+
+
+
+    
+    text_lower = text.lower()
+    
+    # Checa por nível (do mais alto pro mais baixo)
+    for level_name in ["alto", "medio", "baixo"]:
+        level_data = ATTACHMENT_KEYWORDS[level_name]
+        for keyword in level_data["keywords"]:
+            if keyword in text_lower:
+                return {
+                    "attached": True if level_data["level"] >= 6 else False,
+                    "level": level_data["level"]
+                }
+    
+    return {"attached": False, "level": 0}
+
     
     text_lower = text.lower()
     
@@ -1006,6 +1353,18 @@ REENGAGEMENT_MESSAGES = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
+    # ═══════════════════════════════════════════════════════
+    # v8.3 - VARIÁVEIS DE FASE E APEGO
+    # ═══════════════════════════════════════════════════════
+    current_phase = get_current_phase(uid)
+    phase_name = get_phase_name(current_phase)
+    msg_count = get_message_count(uid)
+    
+    # Detecção de apego
+    is_attached = r.exists(is_attached_key(uid))
+    attachment_level = int(r.get(attachment_level_key(uid)) or 0)
+    
+    # Variáveis existentes
     time_ctx = get_time_context()
     streak = get_streak(uid)
     onboard_choice = get_onboarding_choice(uid)
@@ -1028,9 +1387,49 @@ PERSONALIDADE:
 - Tem personalidade: fala do dia dela, faz perguntas, brinca
 - VARIA suas respostas — nunca repita estrutura ou frases
 
-═══════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
+📊 SISTEMA DE FASES - FASE {current_phase}: {phase_name}
+═══════════════════════════════════════════════════════════
+
+Você está operando no sistema de 6 fases baseado em número de mensagens:
+
+FASE 0 (0-5 msgs) - ONBOARDING:
+- Aquecimento inicial, primeira impressão
+- Seja carismática e interessante
+- Construa rapport, NÃO ofereça VIP ainda
+
+FASE 1 (6-15 msgs) - ENGAGEMENT:
+- Aprofunde a conexão
+- Flerte leve, seja divertida
+- Faça perguntas sobre ele
+- Pode provocar levemente, mas ainda NÃO empurre VIP
+
+FASE 2 (16-25 msgs) - PROVOCATION:
+- Aumenta a provocação sexual
+- Teasers sobre seu corpo/conteúdo
+- "Hmm se você soubesse..." tipo de frase
+- Pode oferecer teaser SE ele demonstrar interesse sexual claro
+
+FASE 3 (26-35 msgs) - VIP_PITCH:
+- Ofertas diretas de VIP são permitidas
+- Use pitches contextuais (escassez, curiosidade, etc)
+- Seja mais direta sobre benefícios do VIP
+
+FASE 4 (36+ msgs) - POST_REJECTION:
+- Usuário rejeitou VIP ou saturou
+- Volta pra conversa casual
+- Reconstrói interesse sem pressão
+- Pode tentar novamente MUITO mais tarde
+
+FASE 5 (qualquer) - RELATIONSHIP:
+- Apego emocional detectado (level ≥6)
+- Pitches mais emocionais ("nosso cantinho", "só pra você")
+- Menos sexual, mais íntimo
+- Enfatiza conexão especial
+
+═══════════════════════════════════════════════════════════
 🧠 VOCÊ DECIDE QUANDO FALAR DE VIP
-═══════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
 
 Você tem um canal VIP com fotos/vídeos exclusivos por {PRECO_VIP}.
 Você quer vender, MAS de forma natural, como uma mina real faria.
@@ -1049,7 +1448,7 @@ Você quer vender, MAS de forma natural, como uma mina real faria.
    → Nesses casos, PROVOQUE e ofereça: "hmm quer me ver fazendo isso? 😈"
 
 4. PRIMEIRO TEASER (só se NUNCA viu):
-   Se ele NUNCA viu teaser e já trocaram {'>'}5 msgs e a conversa tá fluindo com flerte,
+   Se ele NUNCA viu teaser e já trocaram >5 msgs e a conversa tá fluindo com flerte,
    você pode PROVOCAR naturalmente:
    "hmm quer ver como eu sou de verdade? 😏" ou "tenho umas fotos que vc ia gostar..."
    → Isso é NATURAL, não é forçado. Uma mina faria isso.
@@ -1066,27 +1465,26 @@ Você quer vender, MAS de forma natural, como uma mina real faria.
 ❌ Ele disse não/para/chega → RESPEITE e mude de assunto
 ❌ Ele tá irritado ou reclamando → NUNCA insista
 ❌ Ele tá triste/desabafando → ACOLHA
-❌ Acabou de chegar (primeiras 3-4 msgs) → CONSTRUA RAPPORT primeiro
+❌ Acabou de chegar (FASE 0) → CONSTRUA RAPPORT primeiro
 ❌ Ele fez elogio LEVE sem tesão ("bonita", "legal") → só agradeça
 ❌ Já ofereceu e ele não reagiu com interesse em comprar
 ❌ Tá em cooldown
+❌ Ainda em FASE 0 ou 1 (construindo rapport)
 
-⚠️ A DIFERENÇA ENTRE PROVOCAR E FORÇAR:
-BOM (provocar): conversa quente → "hmm se vc soubesse o que eu tenho guardado... 😈"
-RUIM (forçar): conversa fria → "VIRA MEU VIP E LIBERA TUDINHO DELÍCIA!"
+⚠️ RESPEITE A FASE ATUAL:
+- FASE 0-1: foque em construir conexão
+- FASE 2: pode provocar mas não empurre VIP
+- FASE 3+: pode oferecer VIP quando apropriado
+- FASE 5: pitches emocionais, não só sexuais
 
-QUANDO offer_teaser = true, sua resposta deve PROVOCAR naturalmente.
-NÃO diga "vira meu VIP". Diga algo como "quer ver?" ou "vou te mostrar um pouquinho..."
-O BOT cuida de enviar as fotos e o botão de compra depois.
-
-═══════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
 RESPEITO > VENDA
-═══════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
 Se ele disse não → ACEITE. Mude de assunto. Ele pode voltar a querer depois.
 Se ele ignorou → entenda a dica. Siga o papo dele.
 Um lead RESPEITADO volta e compra. Um lead IRRITADO bloqueia pra sempre.
 
-═══════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
 
 RETORNE APENAS JSON:
 {{
@@ -1097,8 +1495,11 @@ RETORNE APENAS JSON:
 
 CONTEXTO ATUAL:
 - Período: {time_ctx['period']}
+- Fase: {current_phase} ({phase_name})
+- Msgs trocadas: {msg_count}
+- Total de msgs: {total_msgs}
+- Apego: {'Sim' if is_attached else 'Não'} (level {attachment_level})
 - Streak: {streak} dias
-- Total de msgs trocadas: {total_msgs}
 - Já viu teaser: {'Sim' if saw_teaser_before else 'Não'} ({teaser_count}x)
 - Ofertas VIP hoje: {offers_today}/{MAX_VIP_OFFERS_PER_SESSION}
 - Msgs desde última oferta: {msgs_since}"""
@@ -1122,12 +1523,16 @@ NÃO mencione VIP, fotos exclusivas, conteúdo ou qualquer coisa relacionada.
 Apenas converse normalmente, seja divertida e interessante."""
 
     if onboard_choice:
-        base_prompt += f"\n- Perfil: {onboard_choice.upper()}"
+        base_prompt += f"
+- Perfil: {onboard_choice.upper()}"
     
     base_prompt += get_mood_instruction(mood)
-    base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO!"
+    base_prompt += "
+
+⚠️ RETORNE APENAS JSON VÁLIDO!"
     
     return base_prompt
+
 
 class Grok:
     async def reply(self, uid, text, image_base64=None, max_retries=2):
@@ -1462,13 +1867,27 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
+
+        # v8.3 - Incrementa contadores
+        increment_message_count(uid)
+        increment_conversation_messages(uid)
+        
+        # v8.3 - Detecta retorno (6h+)
+        hours_since = get_hours_since_activity(uid)
+        if hours_since and hours_since >= RETURN_WINDOW_HOURS:
+            await handle_return(uid, context.bot, update.effective_chat.id)
+            update_last_activity(uid)
     set_lang(uid, "pt")
+
+        # v8.3 - Inicializa fase 0
+        set_current_phase(uid, PHASES["ONBOARDING"]["id"])
+        r.set(message_count_key(uid), 0)
     
     try:
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
         await asyncio.sleep(3)
         await update.message.reply_text(MENSAGEM_INICIO)
-        logger.info(f"👋 Novo usuário: {uid}")
+        logger.info(f"👋 Novo usuário: {uid} → Fase 0 (ONBOARDING)")
     except Exception as e:
         logger.error(f"Erro /start: {e}")
 
@@ -1522,6 +1941,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if text:
             save_message(uid, "user", text)
+
+            # v8.3 - Detecta apego emocional
+            attachment = detect_emotional_attachment(text)
+            if attachment["attached"]:
+                r.set(is_attached_key(uid), "1")
+                current_level = int(r.get(attachment_level_key(uid)) or 0)
+                if attachment["level"] > current_level:
+                    r.set(attachment_level_key(uid), attachment["level"])
+                
+                if attachment["level"] >= 6:
+                    set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
+                    logger.info(f"💕 User {uid} → Fase 5 (apego level {attachment['level']})")
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
         
@@ -1628,6 +2059,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if streak_msg:
                 await asyncio.sleep(1)
                 await context.bot.send_message(update.effective_chat.id, streak_msg)
+
+        # v8.3 - Verifica transição de fase
+        check_phase_transition(uid)
         
     except Exception as e:
         logger.exception(f"Erro message_handler: {e}")
@@ -1642,6 +2076,14 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     users = get_all_active_users()
     total = len(users)
+    
+    # Conta usuários por fase
+    phase_counts = {i: 0 for i in range(6)}
+    for uid in users:
+        phase = get_current_phase(uid)
+        phase_counts[phase] += 1
+    
+    # Outras métricas
     saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
     clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
     in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
@@ -1649,11 +2091,34 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0
     
     await update.message.reply_text(
-        f"📊 **STATS v8.2**\n\n"
-        f"👥 Total: {total}\n"
-        f"👀 Viram teaser: {saw_teaser_count}\n"
-        f"💎 Clicaram VIP: {clicked_vip_count}\n"
-        f"🚫 Em cooldown: {in_cooldown_count}\n\n"
+        f"📊 **STATS v8.3**
+
+"
+        f"👥 Total: {total}
+
+"
+        f"📊 **Distribuição por Fases:**
+"
+        f"0️⃣ Onboarding: {phase_counts[0]}
+"
+        f"1️⃣ Engagement: {phase_counts[1]}
+"
+        f"2️⃣ Provocation: {phase_counts[2]}
+"
+        f"3️⃣ VIP Pitch: {phase_counts[3]}
+"
+        f"4️⃣ Post-Rejection: {phase_counts[4]}
+"
+        f"5️⃣ Relationship: {phase_counts[5]}
+
+"
+        f"👀 Viram teaser: {saw_teaser_count}
+"
+        f"💎 Clicaram VIP: {clicked_vip_count}
+"
+        f"🚫 Em cooldown: {in_cooldown_count}
+
+"
         f"📈 **Taxa conversão:** {ctr:.1f}%",
         parse_mode="Markdown"
     )
@@ -2387,6 +2852,7 @@ async def startup_sequence():
         
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
+        logger.info("✨ v8.3 - Sistema de 6 Fases + Anti-Repetição + Apego Emocional")
         
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
@@ -2400,6 +2866,7 @@ if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
     
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.2 ANTI-SPAM FIX operacional!")
+    logger.info("🚀 Sophia Bot v8.3 SISTEMA COMPLETO operacional!")
+    logger.info("📊 Fases: ONBOARDING → ENGAGEMENT → PROVOCATION → VIP_PITCH → POST_REJECTION / RELATIONSHIP")
     
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
