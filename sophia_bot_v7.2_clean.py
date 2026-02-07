@@ -1941,8 +1941,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if current_count >= total:
             keyboard = [[
-                InlineKeyboardButton("💎 QUERO VIP AGORA", callback_data="goto_vip")
+                InlineKeyboardButton(
+                    "🔥 QUERO VIP AGORA 🔥",
+                    url="https://t.me/Mayaoficial_bot"
+                )
             ]]
+
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=FOTO_LIMITE_ATINGIDO,
