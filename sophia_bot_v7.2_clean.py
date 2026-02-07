@@ -1940,20 +1940,26 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = LIMITE_DIARIO + bonus
         
         if current_count >= total:
-            keyboard = [[
+        # Definindo o botão com um parâmetro de start para garantir que o Telegram reconheça como ação
+        keyboard = [
+            [
                 InlineKeyboardButton(
-                    "🔥 QUERO VIP AGORA 🔥",
-                    url="https://t.me/Mayaoficial_bot"
+                    text="🔥 QUERO VIP AGORA 🔥",
+                    url="https://t.me/Mayaoficial_bot?start=vip"
                 )
-            ]]
+            ]
+        ]
 
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=FOTO_LIMITE_ATINGIDO,
-                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return
+        # Criando explicitamente o markup
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=FOTO_LIMITE_ATINGIDO,
+            caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+            reply_markup=reply_markup
+        )
+        return
         
         if bonus > 0:
             use_bonus_msg(uid)
