@@ -2088,37 +2088,21 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0
     
     await update.message.reply_text(
-        f"📊 **STATS v8.3**
-
-"
-        f"👥 Total: {total}
-
-"
-        f"📊 **Distribuição por Fases:**
-"
-        f"0️⃣ Onboarding: {phase_counts[0]}
-"
-        f"1️⃣ Engagement: {phase_counts[1]}
-"
-        f"2️⃣ Provocation: {phase_counts[2]}
-"
-        f"3️⃣ VIP Pitch: {phase_counts[3]}
-"
-        f"4️⃣ Post-Rejection: {phase_counts[4]}
-"
-        f"5️⃣ Relationship: {phase_counts[5]}
-
-"
-        f"👀 Viram teaser: {saw_teaser_count}
-"
-        f"💎 Clicaram VIP: {clicked_vip_count}
-"
-        f"🚫 Em cooldown: {in_cooldown_count}
-
-"
-        f"📈 **Taxa conversão:** {ctr:.1f}%",
-        parse_mode="Markdown"
-    )
+    f"""📊 **STATS v8.3**
+👥 Total: {total}
+📊 **Distribuição por Fases:**
+0️⃣ Onboarding: {phase_counts[0]}
+1️⃣ Engagement: {phase_counts[1]}
+2️⃣ Provocation: {phase_counts[2]}
+3️⃣ VIP Pitch: {phase_counts[3]}
+4️⃣ Post-Rejection: {phase_counts[4]}
+5️⃣ Relationship: {phase_counts[5]}
+👀 Viram teaser: {saw_teaser_count}
+💎 Clicaram VIP: {clicked_vip_count}
+🚫 Em cooldown: {in_cooldown_count}
+📈 **Taxa conversão:** {ctr:.1f}%""",
+    parse_mode="Markdown"
+)
 
 async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
