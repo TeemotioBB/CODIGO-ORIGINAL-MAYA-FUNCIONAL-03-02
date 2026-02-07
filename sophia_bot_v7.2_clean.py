@@ -1523,13 +1523,10 @@ NÃO mencione VIP, fotos exclusivas, conteúdo ou qualquer coisa relacionada.
 Apenas converse normalmente, seja divertida e interessante."""
 
     if onboard_choice:
-        base_prompt += f"
-- Perfil: {onboard_choice.upper()}"
+        base_prompt += f"\n- Perfil: {onboard_choice.upper()}"
     
     base_prompt += get_mood_instruction(mood)
-    base_prompt += "
-
-⚠️ RETORNE APENAS JSON VÁLIDO!"
+    base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO!"
     
     return base_prompt
 
