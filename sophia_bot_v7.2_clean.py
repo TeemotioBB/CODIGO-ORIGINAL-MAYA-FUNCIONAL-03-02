@@ -961,10 +961,27 @@ def detect_intent(text):
 def detect_emotional_attachment(text):
     """
     Detecta apego emocional na mensagem do usuário.
-    Retorna: {"attached": bool, "level": int}
+    Retorna SEMPRE: {"attached": bool, "level": int}
     """
     if not text:
         return {"attached": False, "level": 0}
+
+    text_lower = text.lower()
+
+    # Ordem: do apego mais forte para o mais fraco
+    for level_name in ["alto", "medio", "baixo"]:
+        level_data = ATTACHMENT_KEYWORDS[level_name]
+        for keyword in level_data["keywords"]:
+            if keyword in text_lower:
+                level = level_data["level"]
+                return {
+                    "attached": level >= 6,
+                    "level": level
+                }
+
+    # <<<< ESSA LINHA É OBRIGATÓRIA >>>>
+    # Se nenhuma palavra-chave foi encontrada → retorna o padrão
+    return {"attached": False, "level": 0}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
