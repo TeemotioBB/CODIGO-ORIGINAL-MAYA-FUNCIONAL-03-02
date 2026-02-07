@@ -1864,21 +1864,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
-
-        # v8.3 - Incrementa contadores
-        increment_message_count(uid)
-        increment_conversation_messages(uid)
-        
-        # v8.3 - Detecta retorno (6h+)
-        hours_since = get_hours_since_activity(uid)
-        if hours_since and hours_since >= RETURN_WINDOW_HOURS:
-            await handle_return(uid, context.bot, update.effective_chat.id)
-            update_last_activity(uid)
     set_lang(uid, "pt")
-
-        # v8.3 - Inicializa fase 0
-        set_current_phase(uid, PHASES["ONBOARDING"]["id"])
-        r.set(message_count_key(uid), 0)
+    
+    # v8.3 - Inicializa fase 0
+    set_current_phase(uid, PHASES["ONBOARDING"]["id"])
+    r.set(message_count_key(uid), 0)
     
     try:
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
@@ -1932,13 +1922,23 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     decrement_rejection_cooldown(uid)
     increment_msgs_since_offer(uid)
     
+    # v8.3 - Incrementa contadores
+    increment_message_count(uid)
+    increment_conversation_messages(uid)
+    
+    # v8.3 - Detecta retorno (6h+)
+    hours_since = get_hours_since_activity(uid)
+    if hours_since and hours_since >= RETURN_WINDOW_HOURS:
+        await handle_return(uid, context.bot, update.effective_chat.id)
+        update_last_activity(uid)
+    
     try:
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
         
         if text:
             save_message(uid, "user", text)
-
+            
             # v8.3 - Detecta apego emocional
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
@@ -1950,6 +1950,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
                     logger.info(f"💕 User {uid} → Fase 5 (apego level {attachment['level']})")
+        
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
         
@@ -2011,7 +2012,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             increment(uid)
         
-        increment_conversation_messages(uid)
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
         
         try:
@@ -2056,7 +2056,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if streak_msg:
                 await asyncio.sleep(1)
                 await context.bot.send_message(update.effective_chat.id, streak_msg)
-
+        
         # v8.3 - Verifica transição de fase
         check_phase_transition(uid)
         
