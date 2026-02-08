@@ -275,6 +275,7 @@ FOTOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+FOTO_BEM_VINDA = "https://i.postimg.cc/Ghvv4SFt/e1e897c5aa684a7c980485164ec779f4.jpg"
 
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
@@ -1815,10 +1816,23 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     r.set(message_count_key(uid), 0)
     
     try:
+        # 1. Envia a foto
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=FOTO_BEM_VINDA
+        )
+        
+        # 2. Pausa dramática
+        await asyncio.sleep(2)
+        
+        # 3. Mostra "digitando..."
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
+        
+        # 4. Envia a mensagem
         await update.message.reply_text(MENSAGEM_INICIO)
-        logger.info(f"👋 Novo usuário: {uid} → Fase 0 (ONBOARDING)")
+        
+        logger.info(f"👋 Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+TEXTO]")
     except Exception as e:
         logger.error(f"Erro /start: {e}")
 
