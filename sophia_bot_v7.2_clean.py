@@ -277,6 +277,8 @@ FOTOS_TEASER = [
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 FOTO_BEM_VINDA = "https://i.postimg.cc/Ghvv4SFt/e1e897c5aa684a7c980485164ec779f4.jpg"
 
+VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"  # Coloque a URL do vídeo hospedado
+
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
@@ -1913,26 +1915,70 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     r.set(message_count_key(uid), 0)
     
     try:
-        # 1. Envia a foto
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
-            photo=FOTO_BEM_VINDA
-        )
+        # 1. Envia a FOTO de boas-vindas
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
+            await asyncio.sleep(0.5)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=FOTO_BEM_VINDA,
+                connect_timeout=10,
+                read_timeout=10,
+                write_timeout=10
+            )
+            logger.info(f"✅ Foto enviada para {uid}")
+            await asyncio.sleep(2)
+        except Exception as photo_error:
+            logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
         
-        # 2. Pausa dramática
-        await asyncio.sleep(2)
+        # 2. Envia o VÍDEO de boas-vindas
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
+            await asyncio.sleep(1)
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=VIDEO_BEM_VINDO,
+                caption="Vem conhecer a Maya... 😈",
+                connect_timeout=15,
+                read_timeout=15,
+                write_timeout=15
+            )
+            logger.info(f"✅ Vídeo enviado para {uid}")
+            await asyncio.sleep(3)
+        except Exception as video_error:
+            logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
         
         # 3. Mostra "digitando..."
-        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-        await asyncio.sleep(2)
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+            await asyncio.sleep(2)
+        except:
+            pass
         
         # 4. Envia a mensagem
-        await update.message.reply_text(MENSAGEM_INICIO)
+        try:
+            await update.message.reply_text(MENSAGEM_INICIO)
+            logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+VÍDEO+TEXTO]")
+        except Exception as msg_error:
+            logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=MENSAGEM_INICIO
+                )
+                logger.info(f"✅ Recuperado - msg enviada via send_message para {uid}")
+            except Exception as final_error:
+                logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
         
-        logger.info(f"👋 Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+TEXTO]")
     except Exception as e:
-        logger.error(f"Erro /start: {e}")
-
+        logger.exception(f"💥 Erro geral /start para {uid}: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Oi amor! 💕 Me chama aqui que eu respondo 😊"
+            )
+        except:
+            pass
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
