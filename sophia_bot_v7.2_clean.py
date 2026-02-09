@@ -229,7 +229,7 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LIMITE_DIARIO = 17
+LIMITE_DIARIO = 28
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
@@ -1253,10 +1253,10 @@ VIP_PITCH_MESSAGES = {
         "E aí amor, gostou? 😏\n\n"
         "Isso é só um GOSTINHO do que eu tenho no VIP... 🔥\n\n"
         "💎 **NO ACESSO VIP VOCÊ TEM:**\n"
-        "✅ +5.000 fotos SEM CENSURA\n"
-        "✅ Vídeos completos e MUITO ousados\n"
-        "✅ Conteúdo EXCLUSIVO todo dia\n"
-        "✅ Conversas ILIMITADAS comigo\n\n"
+        "✅ Concorrer a 1 hora de aventura comigo\n"
+        "✅ Meu WhatsApp pessoal (sexting + nudes no zap)\n"
+        "✅ Fotos e Vídeos Exclusivos\n"
+        "✅ Fotos peladinha e videos brincando com a minha bucetinha\n\n"
         "{urgencia}\n\n"
         "Tá esperando o quê pra me ter só pra você? 💕"
     ),
@@ -1770,6 +1770,102 @@ async def engagement_scheduler(bot):
         await asyncio.sleep(900)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 RETARGETING - MENSAGENS PÓS-TRAVA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def retarget_locked_users(bot):
+    """
+    Envia mensagens automáticas para usuários travados.
+    Rode via cron a cada 6h.
+    """
+    try:
+        users = get_all_active_users()
+        now = datetime.now()
+        
+        sent_count = 0
+        
+        for uid in users:
+            try:
+                # Só processa se estiver travado
+                if not is_user_locked(uid):
+                    continue
+                
+                # Verifica há quanto tempo travou
+                hours_since_activity = get_hours_since_activity(uid)
+                if not hours_since_activity:
+                    continue
+                
+                # Chave para controlar se já enviou retargeting
+                retarget_key = f"retarget_sent:{uid}:{date.today()}"
+                
+                # ═══════════════════════════════════════════════════════
+                # 🎯 RETARGETING 6H - Mensagem de Saudade + Desconto
+                # ═══════════════════════════════════════════════════════
+                if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
+                    
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            "💎 GARANTIR DESCONTO DE R$ 14,90",
+                            url=CANAL_VIP_LINK
+                        )
+                    ]])
+                    
+                    await bot.send_message(
+                        chat_id=uid,
+                        text=(
+                            "Amor, tá com saudade de mim? 🥺\n\n"
+                            "Eu tô aqui pensando em você...\n\n"
+                            "Sabe o que eu fiz? Liberei uma **PROMOÇÃO ESPECIAL** só pra você!\n\n"
+                            "💎 **DESCONTO EXCLUSIVO:**\n"
+                            "✅ Mensagens ilimitadas\n"
+                            "✅ Todo meu conteúdo sem censura\n"
+                            "✅ Acesso pra sempre\n\n"
+                            "⏰ Mas é só válido por 12h!\n\n"
+                            "Não vai me deixar esperando de novo né? 💕"
+                        ),
+                        reply_markup=keyboard,
+                        parse_mode="Markdown"
+                    )
+                    
+                    # Marca que enviou
+                    r.setex(retarget_key, timedelta(hours=20), "1")
+                    
+                    sent_count += 1
+                    save_message(uid, "system", "📬 RETARGETING 6H enviado")
+                    logger.info(f"📬 Retargeting enviado para {uid} ({hours_since_activity:.1f}h inativo)")
+                    
+                    # Rate limiting
+                    await asyncio.sleep(0.2)
+                
+            except Exception as e:
+                if "blocked" in str(e).lower():
+                    add_to_blacklist(uid)
+                    logger.info(f"🚫 User {uid} bloqueou o bot")
+                else:
+                    logger.error(f"Erro retargeting {uid}: {e}")
+                continue
+        
+        logger.info(f"✅ Retargeting finalizado: {sent_count} mensagens enviadas")
+        return sent_count
+        
+    except Exception as e:
+        logger.exception(f"Erro retarget_locked_users: {e}")
+        return 0
+
+
+async def retargeting_scheduler(bot):
+    """Executa retargeting a cada 6h"""
+    while True:
+        try:
+            logger.info("🎯 Iniciando ciclo de retargeting...")
+            await retarget_locked_users(bot)
+        except Exception as e:
+            logger.error(f"Erro retargeting scheduler: {e}")
+        
+        # Aguarda 6h
+        await asyncio.sleep(21600)  # 6 horas em segundos
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️ AVISOS DE LIMITE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1949,31 +2045,88 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
         
-        # Limite diário
+        # Limite diário COM SISTEMA DE ÚLTIMA CHANCE
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
         
         if current_count >= total:
-            # Todas as linhas abaixo precisam estar alinhadas entre si e recuadas
-            keyboard = [
-                [
+            # ═══════════════════════════════════════════════════════
+            # 🎁 SISTEMA DE ÚLTIMA CHANCE
+            # Dá 1 mensagem grátis com pitch FORTE na primeira trava
+            # ═══════════════════════════════════════════════════════
+            last_chance_key = f"last_chance:{uid}:{date.today()}"
+            
+            if not r.exists(last_chance_key):
+                # PRIMEIRA VEZ travando hoje → ÚLTIMA CHANCE
+                r.setex(last_chance_key, timedelta(hours=20), "1")
+                
+                # Libera 1 mensagem grátis
+                r.decr(count_key(uid))
+                
+                logger.info(f"🎁 ÚLTIMA CHANCE ativada para {uid}")
+                
+                # Pitch FORTE de última chance
+                keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton(
-                        text="🔥 QUERO VIP AGORA 🔥",
-                        url="https://t.me/Mayaoficial_bot?start=vip"
+                        "💎 SIM, QUERO ACESSO VITALÍCIO POR R$ 14,90",
+                        url="https://t.me/Mayaoficial_bot"
                     )
-                ]
-            ]
-
-            # Este bloco também precisa estar na mesma coluna que o 'keyboard'
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=FOTO_LIMITE_ATINGIDO,
-                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                reply_markup=reply_markup
-            )
+                ]])
+                
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=(
+                        "⚠️ **ÚLTIMA MENSAGEM GRÁTIS!**\n\n"
+                        "Amor, eu REALMENTE quero continuar conversando com você... 🥺\n\n"
+                        "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
+                        "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
+                        "✅ Mensagens ILIMITADAS comigo\n"
+                        "✅ +5.000 fotos sem censura\n"
+                        "✅ Vídeos exclusivos\n"
+                        "✅ Acesso VITALÍCIO\n\n"
+                        "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
+                        "É agora ou nunca, amor. Me escolhe? 💕"
+                    ),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+                
+                save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
+                
+                # Permite que ele responda essa última mensagem
+                return  # NÃO trava ainda
+            
+            # ═══════════════════════════════════════════════════════
+            # 🚫 JÁ USOU A ÚLTIMA CHANCE → TRAVA DE VERDADE
+            # ═══════════════════════════════════════════════════════
+            
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    text="🔥 QUERO VIP AGORA 🔥",
+                    url="https://t.me/Mayaoficial_bot"
+                )
+            ]])
+            
+            try:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=FOTO_LIMITE_ATINGIDO,
+                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Erro enviando foto limite: {e}")
+                # Fallback sem foto
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            
+            save_message(uid, "system", "🚫 LIMITE ATINGIDO (pós última chance)")
             return
         
         if bonus > 0:
@@ -2808,6 +2961,8 @@ async def startup_sequence():
                     raise
         
         asyncio.create_task(engagement_scheduler(application.bot))
+        asyncio.create_task(retargeting_scheduler(application.bot))  
+
         
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
