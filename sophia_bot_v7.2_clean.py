@@ -229,7 +229,7 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LIMITE_DIARIO = 28
+LIMITE_DIARIO = 4
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
