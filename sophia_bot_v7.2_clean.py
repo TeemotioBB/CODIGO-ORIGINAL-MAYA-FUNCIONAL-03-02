@@ -208,7 +208,7 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.
 WEBHOOK_PATH = "/telegram"
 
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
-PRECO_VIP = os.getenv("PRECO_VIP", "R$ 9,99")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 14,90")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
@@ -229,7 +229,7 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LIMITE_DIARIO = 4
+LIMITE_DIARIO = 28
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
@@ -1338,7 +1338,7 @@ LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De ~~R$ 39,90~~ por apenas {preco} — ACESSO VITALÍCIO!\n"
+    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$14,90 — ACESSO VITALÍCIO!\n"
     "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
@@ -2069,7 +2069,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Pitch FORTE de última chance
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton(
-                        "💎 SIM, QUERO ACESSO VITALÍCIO POR R$ 14,90",
+                        "👉ACESSO VITALÍCIO POR R$ 14,90👈",
                         url="https://t.me/Mayaoficial_bot"
                     )
                 ]])
@@ -2082,8 +2082,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
                         "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
                         "✅ Mensagens ILIMITADAS comigo\n"
-                        "✅ +5.000 fotos sem censura\n"
-                        "✅ Vídeos exclusivos\n"
+                        "✅ Fotos e vídeos sem censura\n"
+                        "✅ Eu completamente sua\n"
                         "✅ Acesso VITALÍCIO\n\n"
                         "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
                         "É agora ou nunca, amor. Me escolhe? 💕"
