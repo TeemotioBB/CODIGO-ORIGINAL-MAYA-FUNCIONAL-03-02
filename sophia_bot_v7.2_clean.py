@@ -1938,7 +1938,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_video(
                 chat_id=update.effective_chat.id,
                 video=VIDEO_BEM_VINDO,
-                caption="Meus assinantes recebem isso e muito mais 😈",
+                caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
                 connect_timeout=15,
                 read_timeout=15,
                 write_timeout=15
