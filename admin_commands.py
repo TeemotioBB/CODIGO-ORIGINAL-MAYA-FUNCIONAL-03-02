@@ -358,7 +358,7 @@ async def broadcast_confirm_handler(update: Update, context: ContextTypes.DEFAUL
     keyboard = None
     if state["add_button"]:
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("💎 QUERO ACESSO VIP", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("CLICA AQUI: QUERO ACESSO VIP", url="https://t.me/Mayaoficial_bot")
         ]])
     
     # Envia
