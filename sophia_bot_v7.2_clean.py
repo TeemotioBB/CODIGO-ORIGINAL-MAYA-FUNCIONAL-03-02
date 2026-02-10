@@ -2463,97 +2463,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 👑 ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
+import admin_commands
 
-    users = get_all_active_users()
-    total = len(users)
-
-    # Conta usuários por fase
-    phase_counts = {i: 0 for i in range(6)}
-    for uid in users:
-        phase = get_current_phase(uid)
-        phase_counts[phase] += 1
-
-    # Outras métricas
-    saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
-    clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
-    in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
-
-    # Evita divisão por zero
-    ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0.0
-
-    # Mensagem formatada (f-string multilinha)
-    stats_text = f"""\
-📊 **STATS v8.3**
-
-👥 Total de usuários: {total}
-
-📊 **Distribuição por Fases:**
-• 0️⃣ Onboarding: {phase_counts[0]}
-• 1️⃣ Engagement: {phase_counts[1]}
-• 2️⃣ Provocation: {phase_counts[2]}
-• 3️⃣ VIP Pitch: {phase_counts[3]}
-• 4️⃣ Post-Rejection: {phase_counts[4]}
-• 5️⃣ Relationship: {phase_counts[5]}
-
-📈 **Outras métricas:**
-👀 Viram teaser: {saw_teaser_count}
-💎 Clicaram no VIP: {clicked_vip_count}
-🚫 Em cooldown: {in_cooldown_count}
-📊 Taxa de conversão (cliques/teaser): {ctr:.1f}%"""
-
-    await update.message.reply_text(
-        stats_text,
-        parse_mode="Markdown"
-    )
-
-async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    
-    stages = get_funnel_stats()
-    names = {0: "❓ Desconhecido", 1: "🚀 /start", 2: "💬 Primeira msg", 3: "👀 Viu teaser", 4: "💎 Clicou VIP"}
-    
-    msg = "📊 **FUNIL v8.2**\n\n"
-    for stage, count in sorted(stages.items()):
-        msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
-    
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    if not context.args:
-        await update.message.reply_text("Uso: /reset <user_id>")
-        return
-    uid = int(context.args[0])
-    reset_daily_count(uid)
-    await update.message.reply_text(f"✅ Limite resetado: {uid}")
-
-async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("Uso: /givebonus <uid> <qtd>")
-        return
-    uid = int(context.args[0])
-    amount = int(context.args[1])
-    add_bonus_msgs(uid, amount)
-    await update.message.reply_text(f"✅ +{amount} bônus: {uid}")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    await update.message.reply_text(
-        "🎮 **COMANDOS v8.2**\n\n"
-        "/stats - Estatísticas\n"
-        "/funnel - Funil\n"
-        "/reset <id> - Reset limite\n"
-        "/givebonus <id> <qtd> - Bônus",
-        parse_mode="Markdown"
-    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 SETUP
@@ -2562,13 +2473,61 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
+    # Dicionário de funções que os comandos admin precisam
+    admin_funcs = {
+        'get_all_active_users': get_all_active_users,
+        'get_current_phase': get_current_phase,
+        'saw_teaser': saw_teaser,
+        'clicked_vip': clicked_vip,
+        'is_in_rejection_cooldown': is_in_rejection_cooldown,
+        'get_funnel_stats': get_funnel_stats,
+        'reset_daily_count': reset_daily_count,
+        'add_bonus_msgs': add_bonus_msgs,
+        'get_hours_since_activity': get_hours_since_activity,
+        'add_to_blacklist': add_to_blacklist
+    }
+    
+    # Handlers principais
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("stats", stats_cmd))
-    application.add_handler(CommandHandler("funnel", funnel_cmd))
-    application.add_handler(CommandHandler("reset", reset_cmd))
-    application.add_handler(CommandHandler("givebonus", givebonus_cmd))
-    application.add_handler(CommandHandler("help", help_cmd))
+    
+    # Comandos admin (do arquivo separado)
+    application.add_handler(CommandHandler(
+        "stats",
+        lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)
+    ))
+    application.add_handler(CommandHandler(
+        "funnel",
+        lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)
+    ))
+    application.add_handler(CommandHandler(
+        "reset",
+        lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)
+    ))
+    application.add_handler(CommandHandler(
+        "givebonus",
+        lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)
+    ))
+    application.add_handler(CommandHandler(
+        "help",
+        lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)
+    ))
+    application.add_handler(CommandHandler(
+        "broadcast",
+        lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)
+    ))
+    
+    # Callbacks (ordem importa!)
+    application.add_handler(CallbackQueryHandler(
+        lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs),
+        pattern="^bc_(?!confirm)"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK),
+        pattern="^bc_confirm$"
+    ))
     application.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # Handler de mensagens normais
     application.add_handler(
         MessageHandler(
             (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
@@ -2576,8 +2535,14 @@ def setup_application():
         )
     )
     
-    logger.info("✅ Handlers registrados (v8.2)")
-    return application
+    # Handler de broadcast content (grupo separado)
+    application.add_handler(
+        MessageHandler(
+            (filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS),
+            lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)
+        ),
+        group=1
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🌐 FLASK
