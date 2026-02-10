@@ -1939,10 +1939,14 @@ async def retargeting_scheduler(bot):
 # 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
+# ═══════════════════════════════════════════════════════════════════════════════
+
 async def recover_silent_users(bot):
     """
     Recupera usuários que deram /start mas não responderam.
-    Roda a cada 5 minutos.
+    OTIMIZADO: Só verifica usuários dentro das janelas de tempo relevantes.
     """
     try:
         logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
@@ -1955,32 +1959,39 @@ async def recover_silent_users(bot):
         
         recovered_count = 0
         checked_count = 0
+        skipped_old = 0
+        skipped_active = 0
         
         for uid in users:
             try:
-                # Pula se usuário está em blacklist
+                # Pula se está em blacklist
                 if is_blacklisted(uid):
                     continue
                 
-                # Pega timestamp do primeiro contato
+                # Pula se já conversou
+                msg_count = get_conversation_messages_count(uid)
+                if msg_count > 0:
+                    skipped_active += 1
+                    continue
+                
+                # Pula se não tem first_contact
                 first_contact = r.get(first_contact_key(uid))
                 if not first_contact:
                     continue
                 
-                checked_count += 1
-                
                 first_contact_time = datetime.fromisoformat(first_contact)
                 hours_since_start = (now - first_contact_time).total_seconds() / 3600
                 
-                # Verifica se já enviou alguma mensagem
-                msg_count = get_conversation_messages_count(uid)
-                
-                # ← ADICIONE ESTE LOG AQUI:
-                logger.info(f"🔄 [RECOVERY] User {uid}: {hours_since_start:.2f}h desde /start, {msg_count} msgs trocadas")
-                
-                # Se já conversou → pula (não precisa recuperar)
-                if msg_count > 0:
+                # JANELA DE TEMPO - 48h MAX
+                if hours_since_start > 48:
+                    skipped_old += 1
                     continue
+                
+                # Pula se ainda não atingiu janela mínima (10 minutos)
+                if hours_since_start < 0.16:
+                    continue
+                
+                checked_count += 1
                 
                 # Chaves de controle de recovery
                 recovery_10min_key = f"recovery_10min:{uid}"
@@ -1988,26 +1999,20 @@ async def recover_silent_users(bot):
                 recovery_12h_key = f"recovery_12h:{uid}"
                 recovery_24h_key = f"recovery_24h:{uid}"
                 
-                # ═══════════════════════════════════════════════════════
-                # NÍVEL 1: 10 MINUTOS (Nudge leve)
-                # ═══════════════════════════════════════════════════════
+                # NÍVEL 1: 10 MINUTOS
                 if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
                     message = random.choice(RECOVERY_MESSAGES["10min"])
-
-                    logger.info(f"✅ [RECOVERY] Enviando 10min para {uid} (hora: {hours_since_start:.2f}h)")
                     
                     await bot.send_message(chat_id=uid, text=message)
                     
                     r.setex(recovery_10min_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 10min enviado")
-                    logger.info(f"🔄 Recovery 10min enviado para {uid}")
+                    logger.info(f"🔄 Recovery 10min → {uid} ({hours_since_start:.1f}h)")
                     
                     await asyncio.sleep(0.3)
                 
-                # ═══════════════════════════════════════════════════════
-                # NÍVEL 2: 2 HORAS (Provocação)
-                # ═══════════════════════════════════════════════════════
+                # NÍVEL 2: 2 HORAS
                 elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
                     message = random.choice(RECOVERY_MESSAGES["2h"])
                     
@@ -2016,13 +2021,11 @@ async def recover_silent_users(bot):
                     r.setex(recovery_2h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 2h enviado")
-                    logger.info(f"🔄 Recovery 2h enviado para {uid}")
+                    logger.info(f"🔄 Recovery 2h → {uid} ({hours_since_start:.1f}h)")
                     
                     await asyncio.sleep(0.3)
                 
-                # ═══════════════════════════════════════════════════════
-                # NÍVEL 3: 12 HORAS (Pitch de conteúdo)
-                # ═══════════════════════════════════════════════════════
+                # NÍVEL 3: 12 HORAS
                 elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
                     message = random.choice(RECOVERY_MESSAGES["12h"])
                     
@@ -2031,19 +2034,17 @@ async def recover_silent_users(bot):
                     r.setex(recovery_12h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 12h enviado")
-                    logger.info(f"🔄 Recovery 12h enviado para {uid}")
+                    logger.info(f"🔄 Recovery 12h → {uid} ({hours_since_start:.1f}h)")
                     
                     await asyncio.sleep(0.3)
                 
-                # ═══════════════════════════════════════════════════════
-                # NÍVEL 4: 24 HORAS (Última chance + VIP)
-                # ═══════════════════════════════════════════════════════
-                elif 24 <= hours_since_start < 48 and not r.exists(recovery_24h_key):
+                # NÍVEL 4: 24 HORAS
+                elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
-                            "💎 QUERO ACESSO POR R$ 9,99",
+                            "💎 QUERO ACESSO POR R$ 14,90",
                             url=CANAL_VIP_LINK
                         )
                     ]])
@@ -2058,7 +2059,7 @@ async def recover_silent_users(bot):
                     r.setex(recovery_24h_key, timedelta(hours=48), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
-                    logger.info(f"🔄 Recovery 24h enviado para {uid}")
+                    logger.info(f"🔄 Recovery 24h → {uid} ({hours_since_start:.1f}h)")
                     
                     await asyncio.sleep(0.3)
                 
@@ -2070,7 +2071,8 @@ async def recover_silent_users(bot):
                     logger.error(f"Erro recovery {uid}: {e}")
                 continue
         
-        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários")
+        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários (nas janelas relevantes)")
+        logger.info(f"🔄 [RECOVERY] Pulados: {skipped_active} ativos + {skipped_old} antigos (>48h)")
         logger.info(f"🔄 [RECOVERY] Enviados: {recovered_count} mensagens")
         logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
         
