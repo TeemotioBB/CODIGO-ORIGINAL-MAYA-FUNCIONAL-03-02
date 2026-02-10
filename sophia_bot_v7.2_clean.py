@@ -1945,10 +1945,16 @@ async def recover_silent_users(bot):
     Roda a cada 5 minutos.
     """
     try:
+        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
+        logger.info("🔄 [RECOVERY] Iniciando verificação de usuários silenciosos...")
+        
         now = datetime.now()
         users = get_all_active_users()
         
+        logger.info(f"🔄 [RECOVERY] Total de usuários ativos: {len(users)}")
+        
         recovered_count = 0
+        checked_count = 0
         
         for uid in users:
             try:
@@ -1961,11 +1967,16 @@ async def recover_silent_users(bot):
                 if not first_contact:
                     continue
                 
+                checked_count += 1
+                
                 first_contact_time = datetime.fromisoformat(first_contact)
                 hours_since_start = (now - first_contact_time).total_seconds() / 3600
                 
                 # Verifica se já enviou alguma mensagem
                 msg_count = get_conversation_messages_count(uid)
+                
+                # ← ADICIONE ESTE LOG AQUI:
+                logger.info(f"🔄 [RECOVERY] User {uid}: {hours_since_start:.2f}h desde /start, {msg_count} msgs trocadas")
                 
                 # Se já conversou → pula (não precisa recuperar)
                 if msg_count > 0:
@@ -1982,6 +1993,8 @@ async def recover_silent_users(bot):
                 # ═══════════════════════════════════════════════════════
                 if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
                     message = random.choice(RECOVERY_MESSAGES["10min"])
+
+                    logger.info(f"✅ [RECOVERY] Enviando 10min para {uid} (hora: {hours_since_start:.2f}h)")
                     
                     await bot.send_message(chat_id=uid, text=message)
                     
@@ -2057,8 +2070,9 @@ async def recover_silent_users(bot):
                     logger.error(f"Erro recovery {uid}: {e}")
                 continue
         
-        if recovered_count > 0:
-            logger.info(f"✅ Recovery finalizado: {recovered_count} mensagens enviadas")
+        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários")
+        logger.info(f"🔄 [RECOVERY] Enviados: {recovered_count} mensagens")
+        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
         
         return recovered_count
         
@@ -2123,6 +2137,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v8.3 - Inicializa fase 0
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
+
+    # ← ADICIONE ESTAS LINHAS AQUI:
+    mark_first_contact(uid)  # Salva timestamp do primeiro contato
+    logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
     
     try:
         # 1. Envia a FOTO de boas-vindas
@@ -3217,8 +3235,13 @@ async def startup_sequence():
                     raise
         
         asyncio.create_task(engagement_scheduler(application.bot))
-        asyncio.create_task(retargeting_scheduler(application.bot))  
-        asyncio.create_task(recovery_scheduler(application.bot))  
+        logger.info("✅ Scheduler de engagement iniciado")
+        
+        asyncio.create_task(retargeting_scheduler(application.bot))
+        logger.info("✅ Scheduler de retargeting iniciado")
+        
+        asyncio.create_task(recovery_scheduler(application.bot))
+        logger.info("✅ Scheduler de recovery iniciado")
 
         
         me = await application.bot.get_me()
