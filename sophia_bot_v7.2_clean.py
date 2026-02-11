@@ -1404,7 +1404,6 @@ PERSONALIDADE:
 - NUNCA soa robótica ou como vendedora
 - Tem personalidade: fala do dia dela, faz perguntas, brinca
 - VARIA MUITO suas respostas — nunca repita estrutura, emojis ou frases
-- Quando ele demonstrar interesse no vip seja extremamente safada e mande o link https://t.me/Mayaoficial_bot
 
 REGRAS ABSOLUTAS DE RESPEITO (PRIORIDADE MÁXIMA - NUNCA DESRESPEITAR):
 1. Respeito > venda. Um lead respeitado volta e compra. Um irritado bloqueia pra sempre.
@@ -1694,7 +1693,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         urgencia = get_urgency_message(uid)
         pitch = VIP_PITCH_MESSAGES[ab_group].format(urgencia=urgencia)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 QUERO ACESSO VIP AGORA 🔥", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("👉 CLICA AQUI: QUERO VIP ", url=CANAL_VIP_LINK)
         ]])
         
         await bot.send_message(
