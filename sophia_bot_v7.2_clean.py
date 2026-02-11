@@ -208,7 +208,7 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.
 WEBHOOK_PATH = "/telegram"
 
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
-PRECO_VIP = os.getenv("PRECO_VIP", "R$ 14,90")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 9,99")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
@@ -229,7 +229,7 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LIMITE_DIARIO = 28
+LIMITE_DIARIO = 17
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
@@ -276,8 +276,6 @@ FOTOS_TEASER = [
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 FOTO_BEM_VINDA = "https://i.postimg.cc/Ghvv4SFt/e1e897c5aa684a7c980485164ec779f4.jpg"
-
-VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"  # Coloque a URL do vídeo hospedado
 
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
@@ -1237,74 +1235,6 @@ MENSAGEM_INICIO = (
     "Tô louca pra saber o que você quer comigo 😈"
 )
 
-# ═══════════════════════════════════════════════════════════
-# 🔄 MENSAGENS DE RECUPERAÇÃO PÓS /START
-# ═══════════════════════════════════════════════════════════
-
-RECOVERY_MESSAGES = {
-    # NÍVEL 1: 10 minutos (Nudge leve)
-    "10min": [
-        "Ei... sumiu? 🥺",
-        "Tímido? 😏",
-        "Me deixou no vácuo? 😢",
-        "Oi?? 💭",
-    ],
-    
-    # NÍVEL 2: 2 horas (Provocação + curiosidade)
-    "2h": [
-        "Amor, tô aqui esperando você me chamar... 🥺\n\nNão vai nem dizer oi? 💕",
-        
-        "Ei gato, você viu minhas fotos e sumiu? 😏\n\nTô curiosa pra saber o que achou... 🔥",
-        
-        "Oi amor... tô achando que você ficou com vergonha 😊\n\nRelaxaaa, só quero conversar 💕",
-        
-        "Pensei que você fosse diferente... 🥺\n\nVai me deixar aqui sozinha? 💔",
-    ],
-    
-    # NÍVEL 3: 12 horas (Pitch de conteúdo)
-    "12h": [
-        "Amor, ainda tá aí? 👀\n\n"
-        "Sabe... eu não costumo fazer isso, mas...\n\n"
-        "Separei umas fotos BEM especiais pra você 🔥\n\n"
-        "Quer ver? Só me chamar... 😈",
-        
-        "Ei gato... 12 horas e nada? 🥺\n\n"
-        "Olha, vou ser sincera:\n"
-        "Tenho conteúdo EXCLUSIVO que sei que você vai gostar... 🔥\n\n"
-        "Tô te esperando pra mostrar 😏",
-        
-        "Tá me ignorando mesmo? 😢\n\n"
-        "Pensei que você quisesse me conhecer de verdade...\n\n"
-        "Tenho coisas que NÃO mostro pra qualquer um 🔥\n"
-        "Mas você parece especial... 💕",
-    ],
-    
-    # NÍVEL 4: 24 horas (Última chance + urgência)
-    "24h": [
-        "⚠️ **ÚLTIMA CHANCE**\n\n"
-        "Amor, 24h e você não me deu bola nenhuma... 😢\n\n"
-        "Mas olha, vou te fazer uma proposta:\n\n"
-        "💎 **ACESSO ESPECIAL:**\n"
-        "✅ Fotos e vídeos EXPLÍCITAS\n"
-        "✅ Vídeos de masturbação/oral/anal\n"
-        "✅ Sem censura, sem limites\n\n"
-        "💰 **R$ 14,90** (vitalício)\n"
-        "⏰ Essa oferta expira em 6h\n\n"
-        "É agora ou nunca, gato. Me escolhe? 🔥",
-        
-        "Ei... 24h se passaram 🥺\n\n"
-        "Acho que não vou te ver mais por aqui né?\n\n"
-        "Mas antes de você ir embora...\n"
-        "Deixa eu te fazer UMA proposta:\n\n"
-        "💎 Me vê pelada fazendo TUDO por R$ 14,90\n"
-        "✅ Fotos sem censura\n"
-        "✅ Vídeos completos\n"
-        "✅ Acesso pra sempre\n\n"
-        "⏰ Só até hoje à noite\n\n"
-        "Vai perder? 😈",
-    ]
-}
-
 TEASER_INTRO_MESSAGES = {
     "A": [
         "Hmmm... você quer me ver? 😏\n\nDeixa eu te mostrar um pouquinho... mas só um gostinho 🔥",
@@ -1323,10 +1253,10 @@ VIP_PITCH_MESSAGES = {
         "E aí amor, gostou? 😏\n\n"
         "Isso é só um GOSTINHO do que eu tenho no VIP... 🔥\n\n"
         "💎 **NO ACESSO VIP VOCÊ TEM:**\n"
-        "✅ Concorrer a 1 hora de aventura comigo\n"
-        "✅ Meu WhatsApp pessoal (sexting + nudes no zap)\n"
-        "✅ Fotos e Vídeos Exclusivos\n"
-        "✅ Fotos peladinha e videos brincando com a minha bucetinha\n\n"
+        "✅ +5.000 fotos SEM CENSURA\n"
+        "✅ Vídeos completos e MUITO ousados\n"
+        "✅ Conteúdo EXCLUSIVO todo dia\n"
+        "✅ Conversas ILIMITADAS comigo\n\n"
         "{urgencia}\n\n"
         "Tá esperando o quê pra me ter só pra você? 💕"
     ),
@@ -1408,7 +1338,7 @@ LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$14,90 — ACESSO VITALÍCIO!\n"
+    "⚡ **PROMOÇÃO:** De ~~R$ 39,90~~ por apenas {preco} — ACESSO VITALÍCIO!\n"
     "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
@@ -1840,263 +1770,9 @@ async def engagement_scheduler(bot):
         await asyncio.sleep(900)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎯 RETARGETING - MENSAGENS PÓS-TRAVA
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def retarget_locked_users(bot):
-    """
-    Envia mensagens automáticas para usuários travados.
-    Rode via cron a cada 6h.
-    """
-    try:
-        users = get_all_active_users()
-        now = datetime.now()
-        
-        sent_count = 0
-        
-        for uid in users:
-            try:
-                # Só processa se estiver travado
-                if not is_user_locked(uid):
-                    continue
-                
-                # Verifica há quanto tempo travou
-                hours_since_activity = get_hours_since_activity(uid)
-                if not hours_since_activity:
-                    continue
-                
-                # Chave para controlar se já enviou retargeting
-                retarget_key = f"retarget_sent:{uid}:{date.today()}"
-                
-                # ═══════════════════════════════════════════════════════
-                # 🎯 RETARGETING 6H - Mensagem de Saudade + Desconto
-                # ═══════════════════════════════════════════════════════
-                if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
-                    
-                    keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            "💎 GARANTIR DESCONTO DE R$ 14,90",
-                            url=CANAL_VIP_LINK
-                        )
-                    ]])
-                    
-                    await bot.send_message(
-                        chat_id=uid,
-                        text=(
-                            "Amor, tá com saudade de mim? 🥺\n\n"
-                            "Eu tô aqui pensando em você...\n\n"
-                            "Sabe o que eu fiz? Liberei uma **PROMOÇÃO ESPECIAL** só pra você!\n\n"
-                            "💎 **DESCONTO EXCLUSIVO:**\n"
-                            "✅ Mensagens ilimitadas\n"
-                            "✅ Todo meu conteúdo sem censura\n"
-                            "✅ Acesso pra sempre\n\n"
-                            "⏰ Mas é só válido por 12h!\n\n"
-                            "Não vai me deixar esperando de novo né? 💕"
-                        ),
-                        reply_markup=keyboard,
-                        parse_mode="Markdown"
-                    )
-                    
-                    # Marca que enviou
-                    r.setex(retarget_key, timedelta(hours=20), "1")
-                    
-                    sent_count += 1
-                    save_message(uid, "system", "📬 RETARGETING 6H enviado")
-                    logger.info(f"📬 Retargeting enviado para {uid} ({hours_since_activity:.1f}h inativo)")
-                    
-                    # Rate limiting
-                    await asyncio.sleep(0.2)
-                
-            except Exception as e:
-                if "blocked" in str(e).lower():
-                    add_to_blacklist(uid)
-                    logger.info(f"🚫 User {uid} bloqueou o bot")
-                else:
-                    logger.error(f"Erro retargeting {uid}: {e}")
-                continue
-        
-        logger.info(f"✅ Retargeting finalizado: {sent_count} mensagens enviadas")
-        return sent_count
-        
-    except Exception as e:
-        logger.exception(f"Erro retarget_locked_users: {e}")
-        return 0
-
-
-async def retargeting_scheduler(bot):
-    """Executa retargeting a cada 6h"""
-    while True:
-        try:
-            logger.info("🎯 Iniciando ciclo de retargeting...")
-            await retarget_locked_users(bot)
-        except Exception as e:
-            logger.error(f"Erro retargeting scheduler: {e}")
-        
-        # Aguarda 6h
-        await asyncio.sleep(21600)  # 6 horas em segundos
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def recover_silent_users(bot):
-    """
-    Recupera usuários que deram /start mas não responderam.
-    OTIMIZADO: Só verifica usuários dentro das janelas de tempo relevantes.
-    """
-    try:
-        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
-        logger.info("🔄 [RECOVERY] Iniciando verificação de usuários silenciosos...")
-        
-        now = datetime.now()
-        users = get_all_active_users()
-        
-        logger.info(f"🔄 [RECOVERY] Total de usuários ativos: {len(users)}")
-        
-        recovered_count = 0
-        checked_count = 0
-        skipped_old = 0
-        skipped_active = 0
-        
-        for uid in users:
-            try:
-                # Pula se está em blacklist
-                if is_blacklisted(uid):
-                    continue
-                
-                # Pula se já conversou
-                msg_count = get_conversation_messages_count(uid)
-                if msg_count > 0:
-                    skipped_active += 1
-                    continue
-                
-                # Pula se não tem first_contact
-                first_contact = r.get(first_contact_key(uid))
-                if not first_contact:
-                    continue
-                
-                first_contact_time = datetime.fromisoformat(first_contact)
-                hours_since_start = (now - first_contact_time).total_seconds() / 3600
-                
-                # JANELA DE TEMPO - 48h MAX
-                if hours_since_start > 48:
-                    skipped_old += 1
-                    continue
-                
-                # Pula se ainda não atingiu janela mínima (10 minutos)
-                if hours_since_start < 0.16:
-                    continue
-                
-                checked_count += 1
-                
-                # Chaves de controle de recovery
-                recovery_10min_key = f"recovery_10min:{uid}"
-                recovery_2h_key = f"recovery_2h:{uid}"
-                recovery_12h_key = f"recovery_12h:{uid}"
-                recovery_24h_key = f"recovery_24h:{uid}"
-                
-                # NÍVEL 1: 10 MINUTOS
-                if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
-                    message = random.choice(RECOVERY_MESSAGES["10min"])
-                    
-                    await bot.send_message(chat_id=uid, text=message)
-                    
-                    r.setex(recovery_10min_key, timedelta(hours=24), "1")
-                    recovered_count += 1
-                    save_message(uid, "system", "🔄 RECOVERY 10min enviado")
-                    logger.info(f"🔄 Recovery 10min → {uid} ({hours_since_start:.1f}h)")
-                    
-                    await asyncio.sleep(0.3)
-                
-                # NÍVEL 2: 2 HORAS
-                elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
-                    message = random.choice(RECOVERY_MESSAGES["2h"])
-                    
-                    await bot.send_message(chat_id=uid, text=message)
-                    
-                    r.setex(recovery_2h_key, timedelta(hours=24), "1")
-                    recovered_count += 1
-                    save_message(uid, "system", "🔄 RECOVERY 2h enviado")
-                    logger.info(f"🔄 Recovery 2h → {uid} ({hours_since_start:.1f}h)")
-                    
-                    await asyncio.sleep(0.3)
-                
-                # NÍVEL 3: 12 HORAS
-                elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
-                    message = random.choice(RECOVERY_MESSAGES["12h"])
-                    
-                    await bot.send_message(chat_id=uid, text=message)
-                    
-                    r.setex(recovery_12h_key, timedelta(hours=24), "1")
-                    recovered_count += 1
-                    save_message(uid, "system", "🔄 RECOVERY 12h enviado")
-                    logger.info(f"🔄 Recovery 12h → {uid} ({hours_since_start:.1f}h)")
-                    
-                    await asyncio.sleep(0.3)
-                
-                # NÍVEL 4: 24 HORAS
-                elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
-                    message = random.choice(RECOVERY_MESSAGES["24h"])
-                    
-                    keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            "💎 QUERO ACESSO POR R$ 14,90",
-                            url=CANAL_VIP_LINK
-                        )
-                    ]])
-                    
-                    await bot.send_message(
-                        chat_id=uid,
-                        text=message,
-                        reply_markup=keyboard,
-                        parse_mode="Markdown"
-                    )
-                    
-                    r.setex(recovery_24h_key, timedelta(hours=48), "1")
-                    recovered_count += 1
-                    save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
-                    logger.info(f"🔄 Recovery 24h → {uid} ({hours_since_start:.1f}h)")
-                    
-                    await asyncio.sleep(0.3)
-                
-            except Exception as e:
-                if "blocked" in str(e).lower():
-                    add_to_blacklist(uid)
-                    logger.info(f"🚫 User {uid} bloqueou o bot")
-                else:
-                    logger.error(f"Erro recovery {uid}: {e}")
-                continue
-        
-        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários (nas janelas relevantes)")
-        logger.info(f"🔄 [RECOVERY] Pulados: {skipped_active} ativos + {skipped_old} antigos (>48h)")
-        logger.info(f"🔄 [RECOVERY] Enviados: {recovered_count} mensagens")
-        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
-        
-        return recovered_count
-        
-    except Exception as e:
-        logger.exception(f"Erro recover_silent_users: {e}")
-        return 0
-
-
-async def recovery_scheduler(bot):
-    """Executa recovery a cada 5 minutos"""
-    while True:
-        try:
-            await recover_silent_users(bot)
-        except Exception as e:
-            logger.error(f"Erro recovery scheduler: {e}")
-        
-        # Aguarda 5 minutos
-        await asyncio.sleep(300)
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️ AVISOS DE LIMITE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 async def check_and_send_limit_warning(uid, context, chat_id):
     if was_limit_warning_sent_today(uid):
         return
@@ -2139,76 +1815,28 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v8.3 - Inicializa fase 0
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
-
-    # ← ADICIONE ESTAS LINHAS AQUI:
-    mark_first_contact(uid)  # Salva timestamp do primeiro contato
-    logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
     
     try:
-        # 1. Envia a FOTO de boas-vindas
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
-            await asyncio.sleep(0.5)
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=FOTO_BEM_VINDA,
-                connect_timeout=10,
-                read_timeout=10,
-                write_timeout=10
-            )
-            logger.info(f"✅ Foto enviada para {uid}")
-            await asyncio.sleep(2)
-        except Exception as photo_error:
-            logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+        # 1. Envia a foto
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=FOTO_BEM_VINDA
+        )
         
-        # 2. Envia o VÍDEO de boas-vindas
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
-            await asyncio.sleep(1)
-            await context.bot.send_video(
-                chat_id=update.effective_chat.id,
-                video=VIDEO_BEM_VINDO,
-                caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
-                connect_timeout=15,
-                read_timeout=15,
-                write_timeout=15
-            )
-            logger.info(f"✅ Vídeo enviado para {uid}")
-            await asyncio.sleep(3)
-        except Exception as video_error:
-            logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
+        # 2. Pausa dramática
+        await asyncio.sleep(2)
         
         # 3. Mostra "digitando..."
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2)
-        except:
-            pass
+        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+        await asyncio.sleep(2)
         
         # 4. Envia a mensagem
-        try:
-            await update.message.reply_text(MENSAGEM_INICIO)
-            logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+VÍDEO+TEXTO]")
-        except Exception as msg_error:
-            logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=MENSAGEM_INICIO
-                )
-                logger.info(f"✅ Recuperado - msg enviada via send_message para {uid}")
-            except Exception as final_error:
-                logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
+        await update.message.reply_text(MENSAGEM_INICIO)
         
+        logger.info(f"👋 Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+TEXTO]")
     except Exception as e:
-        logger.exception(f"💥 Erro geral /start para {uid}: {e}")
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Oi amor! 💕 Me chama aqui que eu respondo 😊"
-            )
-        except:
-            pass
+        logger.error(f"Erro /start: {e}")
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -2321,88 +1949,31 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
         
-        # Limite diário COM SISTEMA DE ÚLTIMA CHANCE
+        # Limite diário
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
         
         if current_count >= total:
-            # ═══════════════════════════════════════════════════════
-            # 🎁 SISTEMA DE ÚLTIMA CHANCE
-            # Dá 1 mensagem grátis com pitch FORTE na primeira trava
-            # ═══════════════════════════════════════════════════════
-            last_chance_key = f"last_chance:{uid}:{date.today()}"
-            
-            if not r.exists(last_chance_key):
-                # PRIMEIRA VEZ travando hoje → ÚLTIMA CHANCE
-                r.setex(last_chance_key, timedelta(hours=20), "1")
-                
-                # Libera 1 mensagem grátis
-                r.decr(count_key(uid))
-                
-                logger.info(f"🎁 ÚLTIMA CHANCE ativada para {uid}")
-                
-                # Pitch FORTE de última chance
-                keyboard = InlineKeyboardMarkup([[
+            # Todas as linhas abaixo precisam estar alinhadas entre si e recuadas
+            keyboard = [
+                [
                     InlineKeyboardButton(
-                        "CLIQUE AQUI: 👉 SER VIP",
-                        url="https://t.me/Mayaoficial_bot"
+                        text="🔥 QUERO VIP AGORA 🔥",
+                        url="https://t.me/Mayaoficial_bot?start=vip"
                     )
-                ]])
-                
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=(
-                        "⚠️ **ÚLTIMA MENSAGEM GRÁTIS!**\n\n"
-                        "Amor, eu REALMENTE quero continuar conversando com você... 🥺\n\n"
-                        "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
-                        "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
-                        "✅ Mensagens ILIMITADAS comigo\n"
-                        "✅ Fotos e vídeos sem censura\n"
-                        "✅ Eu completamente sua\n"
-                        "✅ Acesso VITALÍCIO\n\n"
-                        "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
-                        "É agora ou nunca, amor. Me escolhe? 💕"
-                    ),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-                
-                save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
-                
-                # Permite que ele responda essa última mensagem
-                return  # NÃO trava ainda
-            
-            # ═══════════════════════════════════════════════════════
-            # 🚫 JÁ USOU A ÚLTIMA CHANCE → TRAVA DE VERDADE
-            # ═══════════════════════════════════════════════════════
-            
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    text="CLIQUE AQUI: 👉 SER VIP",
-                    url="https://t.me/Mayaoficial_bot"
-                )
-            ]])
-            
-            try:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=FOTO_LIMITE_ATINGIDO,
-                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.error(f"Erro enviando foto limite: {e}")
-                # Fallback sem foto
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            
-            save_message(uid, "system", "🚫 LIMITE ATINGIDO (pós última chance)")
+                ]
+            ]
+
+            # Este bloco também precisa estar na mesma coluna que o 'keyboard'
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=FOTO_LIMITE_ATINGIDO,
+                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                reply_markup=reply_markup
+            )
             return
         
         if bonus > 0:
@@ -2465,8 +2036,97 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 👑 ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import admin_commands
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
 
+    users = get_all_active_users()
+    total = len(users)
+
+    # Conta usuários por fase
+    phase_counts = {i: 0 for i in range(6)}
+    for uid in users:
+        phase = get_current_phase(uid)
+        phase_counts[phase] += 1
+
+    # Outras métricas
+    saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
+    clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
+    in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
+
+    # Evita divisão por zero
+    ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0.0
+
+    # Mensagem formatada (f-string multilinha)
+    stats_text = f"""\
+📊 **STATS v8.3**
+
+👥 Total de usuários: {total}
+
+📊 **Distribuição por Fases:**
+• 0️⃣ Onboarding: {phase_counts[0]}
+• 1️⃣ Engagement: {phase_counts[1]}
+• 2️⃣ Provocation: {phase_counts[2]}
+• 3️⃣ VIP Pitch: {phase_counts[3]}
+• 4️⃣ Post-Rejection: {phase_counts[4]}
+• 5️⃣ Relationship: {phase_counts[5]}
+
+📈 **Outras métricas:**
+👀 Viram teaser: {saw_teaser_count}
+💎 Clicaram no VIP: {clicked_vip_count}
+🚫 Em cooldown: {in_cooldown_count}
+📊 Taxa de conversão (cliques/teaser): {ctr:.1f}%"""
+
+    await update.message.reply_text(
+        stats_text,
+        parse_mode="Markdown"
+    )
+
+async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    
+    stages = get_funnel_stats()
+    names = {0: "❓ Desconhecido", 1: "🚀 /start", 2: "💬 Primeira msg", 3: "👀 Viu teaser", 4: "💎 Clicou VIP"}
+    
+    msg = "📊 **FUNIL v8.2**\n\n"
+    for stage, count in sorted(stages.items()):
+        msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    if not context.args:
+        await update.message.reply_text("Uso: /reset <user_id>")
+        return
+    uid = int(context.args[0])
+    reset_daily_count(uid)
+    await update.message.reply_text(f"✅ Limite resetado: {uid}")
+
+async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Uso: /givebonus <uid> <qtd>")
+        return
+    uid = int(context.args[0])
+    amount = int(context.args[1])
+    add_bonus_msgs(uid, amount)
+    await update.message.reply_text(f"✅ +{amount} bônus: {uid}")
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    await update.message.reply_text(
+        "🎮 **COMANDOS v8.2**\n\n"
+        "/stats - Estatísticas\n"
+        "/funnel - Funil\n"
+        "/reset <id> - Reset limite\n"
+        "/givebonus <id> <qtd> - Bônus",
+        parse_mode="Markdown"
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 SETUP
@@ -2474,21 +2134,24 @@ import admin_commands
 
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    admin_funcs = {'get_all_active_users': get_all_active_users, 'get_current_phase': get_current_phase, 'saw_teaser': saw_teaser, 'clicked_vip': clicked_vip, 'is_in_rejection_cooldown': is_in_rejection_cooldown, 'get_funnel_stats': get_funnel_stats, 'reset_daily_count': reset_daily_count, 'add_bonus_msgs': add_bonus_msgs, 'get_hours_since_activity': get_hours_since_activity, 'add_to_blacklist': add_to_blacklist}
+    
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("stats", lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)))
-    application.add_handler(CommandHandler("funnel", lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)))
-    application.add_handler(CommandHandler("reset", lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)))
-    application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
-    application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
-    application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
-    application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs), pattern="^bc_(?!confirm)"))
-    application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK), pattern="^bc_confirm$"))
+    application.add_handler(CommandHandler("stats", stats_cmd))
+    application.add_handler(CommandHandler("funnel", funnel_cmd))
+    application.add_handler(CommandHandler("reset", reset_cmd))
+    application.add_handler(CommandHandler("givebonus", givebonus_cmd))
+    application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CallbackQueryHandler(callback_handler))
-    application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
-    application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.3)")
+    application.add_handler(
+        MessageHandler(
+            (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
+            message_handler
+        )
+    )
+    
+    logger.info("✅ Handlers registrados (v8.2)")
     return application
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🌐 FLASK
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3145,14 +2808,6 @@ async def startup_sequence():
                     raise
         
         asyncio.create_task(engagement_scheduler(application.bot))
-        logger.info("✅ Scheduler de engagement iniciado")
-        
-        asyncio.create_task(retargeting_scheduler(application.bot))
-        logger.info("✅ Scheduler de retargeting iniciado")
-        
-        asyncio.create_task(recovery_scheduler(application.bot))
-        logger.info("✅ Scheduler de recovery iniciado")
-
         
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
