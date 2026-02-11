@@ -37,6 +37,16 @@ from telegram.ext import (
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📦 IMPORTS DE COMANDOS ADMIN
+# ═══════════════════════════════════════════════════════════════════════════════
+from admin_commands import (
+    stats_cmd, funnel_cmd, reset_cmd, givebonus_cmd, 
+    help_cmd, broadcast_cmd, broadcast_callback_handler,
+    broadcast_content_handler, broadcast_confirm_handler,
+    broadcast_state
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2030,101 +2040,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception(f"Erro message_handler: {e}")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 👑 ADMIN
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-
-    users = get_all_active_users()
-    total = len(users)
-
-    # Conta usuários por fase
-    phase_counts = {i: 0 for i in range(6)}
-    for uid in users:
-        phase = get_current_phase(uid)
-        phase_counts[phase] += 1
-
-    # Outras métricas
-    saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
-    clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
-    in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
-
-    # Evita divisão por zero
-    ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0.0
-
-    # Mensagem formatada (f-string multilinha)
-    stats_text = f"""\
-📊 **STATS v8.3**
-
-👥 Total de usuários: {total}
-
-📊 **Distribuição por Fases:**
-• 0️⃣ Onboarding: {phase_counts[0]}
-• 1️⃣ Engagement: {phase_counts[1]}
-• 2️⃣ Provocation: {phase_counts[2]}
-• 3️⃣ VIP Pitch: {phase_counts[3]}
-• 4️⃣ Post-Rejection: {phase_counts[4]}
-• 5️⃣ Relationship: {phase_counts[5]}
-
-📈 **Outras métricas:**
-👀 Viram teaser: {saw_teaser_count}
-💎 Clicaram no VIP: {clicked_vip_count}
-🚫 Em cooldown: {in_cooldown_count}
-📊 Taxa de conversão (cliques/teaser): {ctr:.1f}%"""
-
-    await update.message.reply_text(
-        stats_text,
-        parse_mode="Markdown"
-    )
-
-async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    
-    stages = get_funnel_stats()
-    names = {0: "❓ Desconhecido", 1: "🚀 /start", 2: "💬 Primeira msg", 3: "👀 Viu teaser", 4: "💎 Clicou VIP"}
-    
-    msg = "📊 **FUNIL v8.2**\n\n"
-    for stage, count in sorted(stages.items()):
-        msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
-    
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    if not context.args:
-        await update.message.reply_text("Uso: /reset <user_id>")
-        return
-    uid = int(context.args[0])
-    reset_daily_count(uid)
-    await update.message.reply_text(f"✅ Limite resetado: {uid}")
-
-async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    if len(context.args) < 2:
-        await update.message.reply_text("Uso: /givebonus <uid> <qtd>")
-        return
-    uid = int(context.args[0])
-    amount = int(context.args[1])
-    add_bonus_msgs(uid, amount)
-    await update.message.reply_text(f"✅ +{amount} bônus: {uid}")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    await update.message.reply_text(
-        "🎮 **COMANDOS v8.2**\n\n"
-        "/stats - Estatísticas\n"
-        "/funnel - Funil\n"
-        "/reset <id> - Reset limite\n"
-        "/givebonus <id> <qtd> - Bônus",
-        parse_mode="Markdown"
-    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 SETUP
@@ -2133,21 +2048,89 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
+    # ═══════════════════════════════════════════════════════════
+    # 📦 PREPARA FUNÇÕES PARA OS COMANDOS ADMIN
+    # ═══════════════════════════════════════════════════════════
+    funcs = {
+        'get_all_active_users': get_all_active_users,
+        'get_current_phase': get_current_phase,
+        'saw_teaser': saw_teaser,
+        'clicked_vip': clicked_vip,
+        'is_in_rejection_cooldown': is_in_rejection_cooldown,
+        'get_funnel_stats': get_funnel_stats,
+        'reset_daily_count': reset_daily_count,
+        'add_bonus_msgs': add_bonus_msgs,
+        'get_hours_since_activity': get_hours_since_activity,
+        'add_to_blacklist': add_to_blacklist
+    }
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🎮 HANDLERS DE COMANDOS ADMIN
+    # ═══════════════════════════════════════════════════════════
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("stats", stats_cmd))
-    application.add_handler(CommandHandler("funnel", funnel_cmd))
-    application.add_handler(CommandHandler("reset", reset_cmd))
-    application.add_handler(CommandHandler("givebonus", givebonus_cmd))
-    application.add_handler(CommandHandler("help", help_cmd))
-    application.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # Comandos admin com closure para passar ADMIN_IDS e funcs
+    application.add_handler(CommandHandler("stats", 
+        lambda u, c: stats_cmd(u, c, ADMIN_IDS, funcs)))
+    
+    application.add_handler(CommandHandler("funnel", 
+        lambda u, c: funnel_cmd(u, c, ADMIN_IDS, funcs)))
+    
+    application.add_handler(CommandHandler("reset", 
+        lambda u, c: reset_cmd(u, c, ADMIN_IDS, funcs)))
+    
+    application.add_handler(CommandHandler("givebonus", 
+        lambda u, c: givebonus_cmd(u, c, ADMIN_IDS, funcs)))
+    
+    application.add_handler(CommandHandler("help", 
+        lambda u, c: help_cmd(u, c, ADMIN_IDS)))
+    
+    application.add_handler(CommandHandler("broadcast", 
+        lambda u, c: broadcast_cmd(u, c, ADMIN_IDS)))
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🔘 CALLBACK HANDLERS
+    # ═══════════════════════════════════════════════════════════
+    
+    # Handler para callbacks do broadcast
+    async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        
+        # Callbacks do broadcast
+        if query.data.startswith("bc_"):
+            if query.data == "bc_confirm":
+                await broadcast_confirm_handler(update, context, ADMIN_IDS, funcs, CANAL_VIP_LINK)
+            else:
+                await broadcast_callback_handler(update, context, ADMIN_IDS, funcs)
+        # Callbacks normais do bot (VIP, etc)
+        else:
+            await callback_handler(update, context)
+    
+    application.add_handler(CallbackQueryHandler(unified_callback_handler))
+    
+    # ═══════════════════════════════════════════════════════════
+    # 💬 MESSAGE HANDLERS
+    # ═══════════════════════════════════════════════════════════
+    
+    # Handler para conteúdo do broadcast (admin)
+    async def unified_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        uid = update.effective_user.id
+        
+        # Se é admin E está no processo de broadcast
+        if uid in ADMIN_IDS and uid in broadcast_state and broadcast_state[uid].get("step") == "waiting_content":
+            await broadcast_content_handler(update, context, ADMIN_IDS, funcs)
+        # Senão, handler normal
+        else:
+            await message_handler(update, context)
+    
     application.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.PHOTO) & ~filters.COMMAND,
-            message_handler
+            (filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND,
+            unified_message_handler
         )
     )
     
-    logger.info("✅ Handlers registrados (v8.2)")
+    logger.info("✅ Handlers registrados (v8.3 + Admin)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
