@@ -1279,6 +1279,74 @@ VIP_PITCH_MESSAGES = {
     )
 }
 
+# ═══════════════════════════════════════════════════════════
+# 🔄 MENSAGENS DE RECUPERAÇÃO PÓS /START
+# ═══════════════════════════════════════════════════════════
+
+RECOVERY_MESSAGES = {
+    # NÍVEL 1: 10 minutos (Nudge leve)
+    "10min": [
+        "Ei... sumiu? 🥺",
+        "Tímido? 😏",
+        "Me deixou no vácuo? 😢",
+        "Oi?? 💭",
+    ],
+    
+    # NÍVEL 2: 2 horas (Provocação + curiosidade)
+    "2h": [
+        "Amor, tô aqui esperando você me chamar... 🥺\n\nNão vai nem dizer oi? 💕",
+        
+        "Ei gato, você viu minhas fotos e sumiu? 😏\n\nTô curiosa pra saber o que achou... 🔥",
+        
+        "Oi amor... tô achando que você ficou com vergonha 😊\n\nRelaxaaa, só quero conversar 💕",
+        
+        "Pensei que você fosse diferente... 🥺\n\nVai me deixar aqui sozinha? 💔",
+    ],
+    
+    # NÍVEL 3: 12 horas (Pitch de conteúdo)
+    "12h": [
+        "Amor, ainda tá aí? 👀\n\n"
+        "Sabe... eu não costumo fazer isso, mas...\n\n"
+        "Separei umas fotos BEM especiais pra você 🔥\n\n"
+        "Quer ver? Só me chamar... 😈",
+        
+        "Ei gato... 12 horas e nada? 🥺\n\n"
+        "Olha, vou ser sincera:\n"
+        "Tenho conteúdo EXCLUSIVO que sei que você vai gostar... 🔥\n\n"
+        "Tô te esperando pra mostrar 😏",
+        
+        "Tá me ignorando mesmo? 😢\n\n"
+        "Pensei que você quisesse me conhecer de verdade...\n\n"
+        "Tenho coisas que NÃO mostro pra qualquer um 🔥\n"
+        "Mas você parece especial... 💕",
+    ],
+    
+    # NÍVEL 4: 24 horas (Última chance + urgência)
+    "24h": [
+        "⚠️ **ÚLTIMA CHANCE**\n\n"
+        "Amor, 24h e você não me deu bola nenhuma... 😢\n\n"
+        "Mas olha, vou te fazer uma proposta:\n\n"
+        "💎 **ACESSO ESPECIAL:**\n"
+        "✅ Fotos e vídeos EXPLÍCITAS\n"
+        "✅ Vídeos de masturbação/oral/anal\n"
+        "✅ Sem censura, sem limites\n\n"
+        "💰 **R$ 9,99** (vitalício)\n"
+        "⏰ Essa oferta expira em 6h\n\n"
+        "É agora ou nunca, gato. Me escolhe? 🔥",
+        
+        "Ei... 24h se passaram 🥺\n\n"
+        "Acho que não vou te ver mais por aqui né?\n\n"
+        "Mas antes de você ir embora...\n"
+        "Deixa eu te fazer UMA proposta:\n\n"
+        "💎 Me vê pelada fazendo TUDO por R$ 14,90\n"
+        "✅ Fotos sem censura\n"
+        "✅ Vídeos completos\n"
+        "✅ Acesso pra sempre\n\n"
+        "⏰ Só até hoje à noite\n\n"
+        "Vai perder? 😈",
+    ]
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⏰ SISTEMA DE URGÊNCIA DINÂMICA
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1778,6 +1846,161 @@ async def engagement_scheduler(bot):
         await asyncio.sleep(900)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def recover_silent_users(bot):
+    """
+    Recupera usuários que deram /start mas não responderam.
+    OTIMIZADO: Só verifica usuários dentro das janelas de tempo relevantes.
+    """
+    try:
+        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
+        logger.info("🔄 [RECOVERY] Iniciando verificação de usuários silenciosos...")
+        
+        now = datetime.now()
+        users = get_all_active_users()
+        
+        logger.info(f"🔄 [RECOVERY] Total de usuários ativos: {len(users)}")
+        
+        recovered_count = 0
+        checked_count = 0
+        skipped_old = 0
+        skipped_active = 0
+        
+        for uid in users:
+            try:
+                # Pula se está em blacklist
+                if is_blacklisted(uid):
+                    continue
+                
+                # Pula se já conversou
+                msg_count = get_conversation_messages_count(uid)
+                if msg_count > 0:
+                    skipped_active += 1
+                    continue
+                
+                # Pula se não tem first_contact
+                first_contact = r.get(first_contact_key(uid))
+                if not first_contact:
+                    continue
+                
+                first_contact_time = datetime.fromisoformat(first_contact)
+                hours_since_start = (now - first_contact_time).total_seconds() / 3600
+                
+                # JANELA DE TEMPO - 48h MAX
+                if hours_since_start > 48:
+                    skipped_old += 1
+                    continue
+                
+                # Pula se ainda não atingiu janela mínima (10 minutos)
+                if hours_since_start < 0.16:
+                    continue
+                
+                checked_count += 1
+                
+                # Chaves de controle de recovery
+                recovery_10min_key = f"recovery_10min:{uid}"
+                recovery_2h_key = f"recovery_2h:{uid}"
+                recovery_12h_key = f"recovery_12h:{uid}"
+                recovery_24h_key = f"recovery_24h:{uid}"
+                
+                # NÍVEL 1: 10 MINUTOS
+                if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
+                    message = random.choice(RECOVERY_MESSAGES["10min"])
+                    
+                    await bot.send_message(chat_id=uid, text=message)
+                    
+                    r.setex(recovery_10min_key, timedelta(hours=24), "1")
+                    recovered_count += 1
+                    save_message(uid, "system", "🔄 RECOVERY 10min enviado")
+                    logger.info(f"🔄 Recovery 10min → {uid} ({hours_since_start:.1f}h)")
+                    
+                    await asyncio.sleep(0.3)
+                
+                # NÍVEL 2: 2 HORAS
+                elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
+                    message = random.choice(RECOVERY_MESSAGES["2h"])
+                    
+                    await bot.send_message(chat_id=uid, text=message)
+                    
+                    r.setex(recovery_2h_key, timedelta(hours=24), "1")
+                    recovered_count += 1
+                    save_message(uid, "system", "🔄 RECOVERY 2h enviado")
+                    logger.info(f"🔄 Recovery 2h → {uid} ({hours_since_start:.1f}h)")
+                    
+                    await asyncio.sleep(0.3)
+                
+                # NÍVEL 3: 12 HORAS
+                elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
+                    message = random.choice(RECOVERY_MESSAGES["12h"])
+                    
+                    await bot.send_message(chat_id=uid, text=message)
+                    
+                    r.setex(recovery_12h_key, timedelta(hours=24), "1")
+                    recovered_count += 1
+                    save_message(uid, "system", "🔄 RECOVERY 12h enviado")
+                    logger.info(f"🔄 Recovery 12h → {uid} ({hours_since_start:.1f}h)")
+                    
+                    await asyncio.sleep(0.3)
+                
+                # NÍVEL 4: 24 HORAS
+                elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
+                    message = random.choice(RECOVERY_MESSAGES["24h"])
+                    
+                    keyboard = InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            "💎 QUERO ACESSO POR R$ 14,90",
+                            url=CANAL_VIP_LINK
+                        )
+                    ]])
+                    
+                    await bot.send_message(
+                        chat_id=uid,
+                        text=message,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown"
+                    )
+                    
+                    r.setex(recovery_24h_key, timedelta(hours=48), "1")
+                    recovered_count += 1
+                    save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
+                    logger.info(f"🔄 Recovery 24h → {uid} ({hours_since_start:.1f}h)")
+                    
+                    await asyncio.sleep(0.3)
+                
+            except Exception as e:
+                if "blocked" in str(e).lower():
+                    add_to_blacklist(uid)
+                    logger.info(f"🚫 User {uid} bloqueou o bot")
+                else:
+                    logger.error(f"Erro recovery {uid}: {e}")
+                continue
+        
+        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários (nas janelas relevantes)")
+        logger.info(f"🔄 [RECOVERY] Pulados: {skipped_active} ativos + {skipped_old} antigos (>48h)")
+        logger.info(f"🔄 [RECOVERY] Enviados: {recovered_count} mensagens")
+        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
+        
+        return recovered_count
+        
+    except Exception as e:
+        logger.exception(f"Erro recover_silent_users: {e}")
+        return 0
+
+
+async def recovery_scheduler(bot):
+    """Executa recovery a cada 5 minutos"""
+    while True:
+        try:
+            await recover_silent_users(bot)
+        except Exception as e:
+            logger.error(f"Erro recovery scheduler: {e}")
+        
+        # Aguarda 5 minutos
+        await asyncio.sleep(300)
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️ AVISOS DE LIMITE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1823,6 +2046,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # v8.3 - Inicializa fase 0
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
+
+    # 🔄 MARCA FIRST CONTACT PARA O SISTEMA DE RECOVERY
+    mark_first_contact(uid)
+    logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
     
     try:
         # 1. Envia a foto
@@ -2789,6 +3016,10 @@ async def startup_sequence():
                     raise
         
         asyncio.create_task(engagement_scheduler(application.bot))
+
+        # 🔄 ADICIONE ESTA LINHA:
+        asyncio.create_task(recovery_scheduler(application.bot))
+        logger.info("✅ Scheduler de recovery iniciado")
         
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
