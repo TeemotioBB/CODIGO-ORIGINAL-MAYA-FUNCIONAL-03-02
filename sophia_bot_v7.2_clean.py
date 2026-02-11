@@ -2345,7 +2345,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Pitch FORTE de última chance
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton(
-                        "👉ACESSO VITALÍCIO POR R$ 14,90👈",
+                        "CLIQUE AQUI: 👉 SER VIP",
                         url="https://t.me/Mayaoficial_bot"
                     )
                 ]])
@@ -2379,7 +2379,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
-                    text="🔥 QUERO VIP AGORA 🔥",
+                    text="CLIQUE AQUI: 👉 SER VIP",
                     url="https://t.me/Mayaoficial_bot"
                 )
             ]])
