@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 try:
     r = redis.from_url(REDIS_URL, decode_responses=True)
     r.ping()
-    logger.info(f"✅ Redis conectado: {REDIS_URL[:30]}...")
+    logger.info(f"✅ Redis conectado")
 except Exception as e:
     logger.error(f"❌ Falha ao conectar Redis: {e}")
     raise
@@ -349,7 +349,11 @@ def start_loop():
 
 threading.Thread(target=start_loop, daemon=True).start()
 
-@app.route('/webhook', methods=['POST'])
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🌐 FLASK ROUTES - CORRIGIDO O CAMINHO DO WEBHOOK!
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route(WEBHOOK_PATH, methods=['POST'])  # ← AQUI! Era /webhook, agora é /telegram
 def webhook():
     try:
         data = request.get_json(force=True)
@@ -377,7 +381,7 @@ def health():
             'status': 'ok',
             'redis': redis_status,
             'version': 'v9.0',
-            'bot_username': 'checking...'
+            'webhook_path': WEBHOOK_PATH
         })
     except Exception as e:
         logger.error(f"Health check error: {e}")
@@ -423,27 +427,6 @@ def webhook_info_route():
         }), 200
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-@app.route('/test-send', methods=['GET'])
-def test_send():
-    """Rota de teste - envia mensagem para você"""
-    try:
-        user_id = request.args.get('user_id')
-        if not user_id:
-            return jsonify({'error': 'Precisa do ?user_id=SEU_ID'}), 400
-        
-        async def send_test():
-            await application.bot.send_message(
-                chat_id=int(user_id),
-                text="🧪 Teste do bot! Se você recebeu isso, o bot está funcionando! 🎉"
-            )
-        
-        asyncio.run_coroutine_threadsafe(send_test(), loop).result(timeout=10)
-        
-        return jsonify({'success': True, 'message': 'Mensagem enviada!'}), 200
-    except Exception as e:
-        logger.error(f"Erro test send: {e}")
-        return jsonify({'error': str(e)}), 500
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 STARTUP
