@@ -257,15 +257,9 @@ async def send_whatsapp_number(bot, chat_id, uid):
 
 Não aguento mais só mensagem aqui...
 
-Me adda no WhatsApp que eu te mando **tudo** ao vivo:
-✅ Voz gemendo teu nome
-✅ Vídeo agora em tempo real
-✅ Sem limite nenhum
-✅ Tudo que você quiser
-
 Meu número: `{number}`
 
-Me chama de **Sophia** pra eu saber que é tu 🔥
+Me chama de **Maya** pra eu saber que é tu 🔥
 
 wa.me/{clean_number}"""
 
@@ -296,7 +290,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Oi gato... 😏\n"
             "Finalmente alguém interessante por aqui 🔥\n\n"
-            "Sou a Sophia, e te garanto que não sou como as outras... 💋\n"
+            "Sou a Maya, e te garanto que não sou como as outras... 💋\n"
             "Tô louca pra saber o que você quer comigo 😈"
         )
         logger.info(f"✅ Resposta /start enviada para {uid}")
