@@ -18,11 +18,12 @@ import re
 from datetime import datetime, timedelta
 import redis
 import aiohttp
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters, CommandHandler
 from telegram.constants import ChatAction
 import threading
+import traceback
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIG - VARIÁVEIS DE AMBIENTE
@@ -34,22 +35,19 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtr
 
 # Validação crítica
 if not TELEGRAM_TOKEN:
-    raise ValueError("❌ TELEGRAM_TOKEN não definido! Configure nas variáveis de ambiente.")
+    raise ValueError("❌ TELEGRAM_TOKEN não definido!")
 if not GROK_API_KEY:
-    raise ValueError("❌ GROK_API_KEY não definido! Configure nas variáveis de ambiente.")
+    raise ValueError("❌ GROK_API_KEY não definido!")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📱 NÚMEROS DO WHATSAPP (HARDCODED - EDITE AQUI)
+# 📱 NÚMEROS DO WHATSAPP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-WA_NUMBERS = [
-    "+5531984686982",
-]
-
+WA_NUMBERS = ["+5531984686982"]
 CANAL_VIP_LINK = "https://t.me/Mayaoficial_bot"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📊 CONFIGURAÇÕES DO BOT (HARDCODED)
+# 📊 CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MODELO_GROK = "grok-beta"
@@ -76,7 +74,7 @@ logger = logging.getLogger(__name__)
 try:
     r = redis.from_url(REDIS_URL, decode_responses=True)
     r.ping()
-    logger.info(f"✅ Redis conectado: {REDIS_URL}")
+    logger.info(f"✅ Redis conectado: {REDIS_URL[:30]}...")
 except Exception as e:
     logger.error(f"❌ Falha ao conectar Redis: {e}")
     raise
@@ -94,7 +92,7 @@ HEAT_TRIGGERS = {
     "pediu_nude":          ["foto", "nude", "buceta", "periquita", "pau", "rola", "mostra", "manda foto", "nudes", "pelada"],
     "mandou_foto_pau":     ["pau", "rola", "foto", "enviou foto", "dick pic"],
     "roleplay":            ["meter", "foder", "chupar", "gozar", "transar", "buceta", "cu", "boquete", "mama", "fuder", "tesão"],
-    "pediu_video":         ["video", "ao vivo", "call", "chamada", "vídeo sexo", "vídeo chamada", "videochamada"],
+    "pediu_video":         ["video", "ao vivo", "call", "chamada", "vídeo sexo"],
     "falou_pagar":         ["pago", "pix", "quanto", "preço", "vip", "comprar", "valor", "custa", "pagar"],
     "mensagens_seguidas":  4,
     "tempo_longo":         20,
@@ -263,12 +261,13 @@ wa.me/{clean_number}"""
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    username = update.effective_user.username or "unknown"
+    
+    logger.info(f"🆕 /start do usuário: {uid} (@{username})")
     
     # Inicializa usuário
     r.set(start_time_key(uid), datetime.now().isoformat())
     r.set(heat_score_key(uid), 0)
-    
-    logger.info(f"🆕 /start do usuário: {uid}")
     
     try:
         await update.message.reply_text(
@@ -277,13 +276,18 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Sou a Sophia, e te garanto que não sou como as outras... 💋\n"
             "Tô louca pra saber o que você quer comigo 😈"
         )
+        logger.info(f"✅ Resposta /start enviada para {uid}")
     except Exception as e:
-        logger.error(f"Erro /start: {e}")
+        logger.error(f"❌ Erro /start para {uid}: {e}")
+        logger.error(traceback.format_exc())
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    username = update.effective_user.username or "unknown"
     text = update.message.text or ""
     has_photo = bool(update.message.photo)
+    
+    logger.info(f"📨 Mensagem recebida de {uid} (@{username}): {text[:50]}")
     
     # Inicializa se não existe
     if not r.exists(start_time_key(uid)):
@@ -295,7 +299,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     score = calculate_heat_score(uid, text, has_photo)
     r.set(heat_score_key(uid), score)
     
-    logger.info(f"👤 {uid} | Score: {score}/{HEAT_THRESHOLD} | Msg: {text[:50]}")
+    logger.info(f"🔥 {uid} | Score: {score}/{HEAT_THRESHOLD}")
     
     # Se já enviou WA antes
     if r.exists(wa_sent_key(uid)):
@@ -304,18 +308,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Responde via Grok
     try:
+        logger.info(f"🤖 Chamando Grok para {uid}...")
+        
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
         await asyncio.sleep(random.uniform(1.5, 2.5))
         
         response = await get_grok_response(uid, text)
+        logger.info(f"✅ Grok respondeu para {uid}: {response[:50]}")
+        
         await update.message.reply_text(response)
+        logger.info(f"✅ Resposta enviada para {uid}")
         
     except Exception as e:
         logger.error(f"❌ Erro handler {uid}: {e}")
+        logger.error(traceback.format_exc())
         await update.message.reply_text("Opa, bugou aqui... manda de novo? 😘")
     
     # Verifica se deve enviar WA
     if is_hot_lead(score):
+        logger.info(f"🔥 {uid} atingiu limiar! Enviando WA...")
         await asyncio.sleep(2)
         await send_whatsapp_number(context.bot, update.effective_chat.id, uid)
 
@@ -342,28 +353,35 @@ threading.Thread(target=start_loop, daemon=True).start()
 def webhook():
     try:
         data = request.get_json(force=True)
+        logger.info(f"📥 Webhook recebido: {json.dumps(data)[:200]}")
+        
         if not data:
+            logger.warning("⚠️ Webhook vazio")
             return 'ok', 200
         
         update = Update.de_json(data, application.bot)
+        logger.info(f"✅ Update processado: update_id={update.update_id}")
+        
         asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
+        
         return 'ok', 200
     except Exception as e:
-        logger.exception(f"Webhook erro: {e}")
+        logger.exception(f"❌ Webhook erro: {e}")
         return 'error', 500
 
 @app.route('/health', methods=['GET'])
 def health():
     try:
         redis_status = r.ping()
-        return {
+        return jsonify({
             'status': 'ok',
             'redis': redis_status,
             'version': 'v9.0',
-            'strategy': 'TG→WA hybrid'
-        }
-    except:
-        return {'status': 'error', 'redis': False}, 500
+            'bot_username': 'checking...'
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({'status': 'error', 'redis': False, 'error': str(e)}), 500
 
 @app.route('/set-webhook', methods=['GET'])
 def set_webhook_route():
@@ -373,21 +391,23 @@ def set_webhook_route():
         async def setup():
             await application.bot.delete_webhook(drop_pending_updates=True)
             await asyncio.sleep(1)
-            await application.bot.set_webhook(webhook_url)
+            success = await application.bot.set_webhook(webhook_url, allowed_updates=["message"])
             await asyncio.sleep(1)
-            return await application.bot.get_webhook_info()
+            info = await application.bot.get_webhook_info()
+            return success, info
         
-        info = asyncio.run_coroutine_threadsafe(setup(), loop).result(timeout=15)
+        success, info = asyncio.run_coroutine_threadsafe(setup(), loop).result(timeout=15)
         
-        return {
-            'success': True,
+        return jsonify({
+            'success': success,
             'webhook_url': info.url,
             'pending_updates': info.pending_update_count,
             'last_error': info.last_error_message
-        }, 200
+        }), 200
     except Exception as e:
-        logger.error(f"Erro set webhook: {e}")
-        return {'success': False, 'error': str(e)}, 500
+        logger.error(f"❌ Erro set webhook: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/webhook-info', methods=['GET'])
 def webhook_info_route():
@@ -396,13 +416,34 @@ def webhook_info_route():
             return await application.bot.get_webhook_info()
         
         info = asyncio.run_coroutine_threadsafe(get_info(), loop).result(timeout=10)
-        return {
+        return jsonify({
             'url': info.url,
             'pending_update_count': info.pending_update_count,
             'last_error_message': info.last_error_message,
-        }, 200
+        }), 200
     except Exception as e:
-        return {'status': 'error', 'message': str(e)}, 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/test-send', methods=['GET'])
+def test_send():
+    """Rota de teste - envia mensagem para você"""
+    try:
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'Precisa do ?user_id=SEU_ID'}), 400
+        
+        async def send_test():
+            await application.bot.send_message(
+                chat_id=int(user_id),
+                text="🧪 Teste do bot! Se você recebeu isso, o bot está funcionando! 🎉"
+            )
+        
+        asyncio.run_coroutine_threadsafe(send_test(), loop).result(timeout=10)
+        
+        return jsonify({'success': True, 'message': 'Mensagem enviada!'}), 200
+    except Exception as e:
+        logger.error(f"Erro test send: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 STARTUP
@@ -434,7 +475,6 @@ async def startup_sequence():
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
         logger.info(f"🎯 Limiar WA: HeatScore ≥ {HEAT_THRESHOLD}")
-        logger.info(f"📱 Números WA: {len(WA_NUMBERS)}")
         
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
@@ -444,6 +484,6 @@ if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
     
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v9.0 HÍBRIDO TG→WA operacional!")
+    logger.info("🚀 Sophia Bot v9.0 operacional!")
     
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
