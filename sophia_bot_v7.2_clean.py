@@ -50,7 +50,7 @@ CANAL_VIP_LINK = "https://t.me/Mayaoficial_bot"
 # 📊 CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-MODELO_GROK = "grok-beta"
+MODELO_GROK = "grok-3"  # ← CORRIGIDO DO SEU CÓDIGO ORIGINAL
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 
@@ -139,7 +139,7 @@ def is_hot_lead(score: int) -> bool:
     return score >= HEAT_THRESHOLD
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK
+# 🤖 GROK (COM LOGS DETALHADOS)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid):
@@ -184,6 +184,10 @@ async def get_grok_response(uid: int, user_message: str) -> str:
         {"role": "user", "content": user_message}
     ]
     
+    logger.info(f"🤖 Chamando Grok API para {uid}...")
+    logger.info(f"📝 Modelo: {MODELO_GROK}")
+    logger.info(f"💬 Mensagens na memória: {len(memory)}")
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -200,13 +204,25 @@ async def get_grok_response(uid: int, user_message: str) -> str:
                 },
                 timeout=15
             ) as resp:
+                logger.info(f"📡 Grok status: {resp.status}")
+                
                 if resp.status != 200:
                     error_text = await resp.text()
-                    logger.error(f"Grok error {resp.status}: {error_text}")
+                    logger.error(f"❌ Grok error {resp.status}: {error_text}")
+                    
+                    # Tenta identificar o erro específico
+                    if "model" in error_text.lower():
+                        logger.error("⚠️ ERRO DE MODELO! Verifique se 'grok-3' está correto")
+                    elif "auth" in error_text.lower() or "key" in error_text.lower():
+                        logger.error("⚠️ ERRO DE AUTENTICAÇÃO! Verifique GROK_API_KEY")
+                    
                     return "Caiu a ligação amor, repete? 😅"
                 
                 data = await resp.json()
+                logger.info(f"✅ Grok respondeu com sucesso")
+                
                 response = data['choices'][0]['message']['content'].strip()
+                logger.info(f"💬 Resposta: {response[:100]}")
                 
                 memory.append({"role": "user", "content": user_message})
                 memory.append({"role": "assistant", "content": response})
@@ -214,8 +230,15 @@ async def get_grok_response(uid: int, user_message: str) -> str:
                 
                 return response
     
+    except asyncio.TimeoutError:
+        logger.error(f"⏱️ Timeout na chamada do Grok")
+        return "Demorou demais amor... tenta de novo? 🥺"
+    except aiohttp.ClientError as e:
+        logger.error(f"🌐 Erro de conexão com Grok: {e}")
+        return "Deu ruim na conexão... manda de novo? 🥺"
     except Exception as e:
-        logger.error(f"Grok exception: {e}")
+        logger.error(f"❌ Grok exception: {e}")
+        logger.error(traceback.format_exc())
         return "Deu ruim aqui... manda de novo? 🥺"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -350,22 +373,20 @@ def start_loop():
 threading.Thread(target=start_loop, daemon=True).start()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🌐 FLASK ROUTES - CORRIGIDO O CAMINHO DO WEBHOOK!
+# 🌐 FLASK ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.route(WEBHOOK_PATH, methods=['POST'])  # ← AQUI! Era /webhook, agora é /telegram
+@app.route(WEBHOOK_PATH, methods=['POST'])
 def webhook():
     try:
         data = request.get_json(force=True)
-        logger.info(f"📥 Webhook recebido: {json.dumps(data)[:200]}")
+        logger.info(f"📥 Webhook recebido: update_id={data.get('update_id', 'N/A')}")
         
         if not data:
             logger.warning("⚠️ Webhook vazio")
             return 'ok', 200
         
         update = Update.de_json(data, application.bot)
-        logger.info(f"✅ Update processado: update_id={update.update_id}")
-        
         asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
         
         return 'ok', 200
@@ -381,7 +402,8 @@ def health():
             'status': 'ok',
             'redis': redis_status,
             'version': 'v9.0',
-            'webhook_path': WEBHOOK_PATH
+            'webhook_path': WEBHOOK_PATH,
+            'modelo_grok': MODELO_GROK
         })
     except Exception as e:
         logger.error(f"Health check error: {e}")
@@ -458,6 +480,7 @@ async def startup_sequence():
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
         logger.info(f"🎯 Limiar WA: HeatScore ≥ {HEAT_THRESHOLD}")
+        logger.info(f"🧠 Modelo Grok: {MODELO_GROK}")
         
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
