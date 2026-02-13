@@ -20,8 +20,9 @@ import redis
 import aiohttp
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, MessageHandler, ContextTypes, filters, CommandHandler
 from telegram.constants import ChatAction
+import threading
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIG - VARIÁVEIS DE AMBIENTE
@@ -30,11 +31,6 @@ from telegram.constants import ChatAction
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
-
-# ⚠️ IMPORTANTE: Adicione estas variáveis no Railway/Render:
-# TELEGRAM_TOKEN=seu_token_aqui
-# GROK_API_KEY=sua_chave_grok_aqui
-# REDIS_URL=redis://... (já tem fallback hardcoded acima)
 
 # Validação crítica
 if not TELEGRAM_TOKEN:
@@ -46,26 +42,20 @@ if not GROK_API_KEY:
 # 📱 NÚMEROS DO WHATSAPP (HARDCODED - EDITE AQUI)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ⚠️ SUBSTITUA PELOS SEUS NÚMEROS REAIS:
 WA_NUMBERS = [
-    "+5531984686982",   # Número 1 (EDITE)
-    # "+5511987654321", # Número 2 (descomente se tiver mais)
-    # "+5521912345678", # Número 3 (descomente se tiver mais)
+    "+5531984686982",
 ]
 
-# Link de fallback (caso queira ainda oferecer algo no Telegram)
-CANAL_VIP_LINK = "https://t.me/Mayaoficial_bot"  # EDITE se necessário
+CANAL_VIP_LINK = "https://t.me/Mayaoficial_bot"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📊 CONFIGURAÇÕES DO BOT (HARDCODED)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-MODELO_GROK = "grok-beta"  # ou "grok-3" dependendo do seu acesso
+MODELO_GROK = "grok-beta"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+MAX_MEMORIA = 12
 
-MAX_MEMORIA = 12  # Últimas N mensagens que a IA lembra
-
-# Webhook (configure no Railway/Render)
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 PORT = int(os.getenv("PORT", 8080))
@@ -73,11 +63,14 @@ PORT = int(os.getenv("PORT", 8080))
 if not WEBHOOK_BASE_URL.startswith("http"):
     WEBHOOK_BASE_URL = f"https://{WEBHOOK_BASE_URL}"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🗄️ REDIS COM TRATAMENTO DE ERRO
+# 🗄️ REDIS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 try:
@@ -94,7 +87,7 @@ def start_time_key(uid): return f"start_time:{uid}"
 def wa_sent_key(uid): return f"wa_sent:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 HEATSCORE SYSTEM (v9.0) - TRIGGERS HARDCODED
+# 🔥 HEATSCORE SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 
 HEAT_TRIGGERS = {
@@ -107,56 +100,48 @@ HEAT_TRIGGERS = {
     "tempo_longo":         20,
 }
 
-# Pontuações (quanto vale cada trigger)
 HEAT_POINTS = {
     "pediu_nude": 4,
     "mandou_foto_pau": 5,
     "roleplay": 6,
     "pediu_video": 5,
     "falou_pagar": 7,
-    "mensagens_seguidas": 3,  # 4+ msgs seguidas
-    "tempo_longo": 3,          # 20+ minutos conversando
+    "mensagens_seguidas": 3,
+    "tempo_longo": 3,
 }
 
-# ⚠️ LIMIAR CRÍTICO: Score necessário para enviar WhatsApp
-HEAT_THRESHOLD = 14  # ≥ 14 = envia WA automaticamente
+HEAT_THRESHOLD = 14
 
 def calculate_heat_score(uid: int, text: str, has_photo: bool = False) -> int:
-    """Calcula score acumulado do usuário"""
-    score = int(r.get(heat_score_key(uid)) or 0)  # Pega score anterior
+    score = int(r.get(heat_score_key(uid)) or 0)
     text_lower = text.lower()
     
-    # Triggers de texto
     for key, triggers in HEAT_TRIGGERS.items():
         if isinstance(triggers, list):
             if any(t in text_lower for t in triggers):
                 score += HEAT_POINTS.get(key, 0)
     
-    # Foto de pau dele
     if has_photo:
         score += 5
     
-    # Mensagens seguidas
     msg_count = r.incr(f"msg_streak:{uid}")
-    r.expire(f"msg_streak:{uid}", 300)  # 5 min
+    r.expire(f"msg_streak:{uid}", 300)
     if msg_count >= HEAT_TRIGGERS["mensagens_seguidas"]:
         score += HEAT_POINTS["mensagens_seguidas"]
     
-    # Tempo de conversa
     start_time = r.get(start_time_key(uid))
     if start_time:
         minutes = (datetime.now() - datetime.fromisoformat(start_time)).total_seconds() / 60
         if minutes > HEAT_TRIGGERS["tempo_longo"]:
             score += HEAT_POINTS["tempo_longo"]
     
-    return min(score, 30)  # cap em 30
+    return min(score, 30)
 
 def is_hot_lead(score: int) -> bool:
-    """Verifica se atingiu o limiar para enviar WA"""
     return score >= HEAT_THRESHOLD
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK - PROMPT (v9.0)
+# 🤖 GROK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid):
@@ -189,60 +174,15 @@ IMPORTANTE:
 
 Responda direto (sem JSON, só texto natural, CURTO)."""
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 📨 ENVIO DO WA (v9.0)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def send_whatsapp_number(bot, chat_id, uid):
-    """Envia número do WhatsApp quando atinge o limiar"""
-    if r.exists(wa_sent_key(uid)):
-        logger.info(f"⚠️ WA já enviado antes para {uid}")
-        return False
-    
-    number = random.choice(WA_NUMBERS)
-    clean_number = number.replace('+', '').replace(' ', '')
-    
-    # Mensagem HARDCODED (edite aqui se quiser personalizar)
-    msg = f"""Olha amor... tô ficando molhada pra caralho conversando contigo 😩💦
-
-Não aguento mais só mensagem aqui...
-
-Me adda no WhatsApp que eu te mando **tudo** ao vivo:
-✅ Voz gemendo teu nome
-✅ Vídeo agora em tempo real
-✅ Sem limite nenhum
-✅ Tudo que você quiser
-
-Meu número: `{number}`
-
-Me chama de **Sophia** pra eu saber que é tu 🔥
-
-wa.me/{clean_number}"""
-
-    try:
-        await bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown')
-        r.setex(wa_sent_key(uid), 86400 * 30, "1")  # 30 dias
-        logger.info(f"🚀 WA ENVIADO → {uid} | Score: {r.get(heat_score_key(uid))} | Número: {number}")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Erro ao enviar WA para {uid}: {e}")
-        return False
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK API CALL
-# ═══════════════════════════════════════════════════════════════════════════════
-
 async def get_grok_response(uid: int, user_message: str) -> str:
-    """Chama Grok API"""
     prompt = build_prompt(uid)
     
-    # Pega memória (últimas N mensagens)
     memory_raw = r.get(memory_key(uid))
     memory = json.loads(memory_raw) if memory_raw else []
     
     messages = [
         {"role": "system", "content": prompt},
-        *memory[-MAX_MEMORIA:],  # Últimas N mensagens
+        *memory[-MAX_MEMORIA:],
         {"role": "user", "content": user_message}
     ]
     
@@ -270,10 +210,9 @@ async def get_grok_response(uid: int, user_message: str) -> str:
                 data = await resp.json()
                 response = data['choices'][0]['message']['content'].strip()
                 
-                # Salva na memória
                 memory.append({"role": "user", "content": user_message})
                 memory.append({"role": "assistant", "content": response})
-                r.setex(memory_key(uid), 86400 * 7, json.dumps(memory[-MAX_MEMORIA:]))  # 7 dias
+                r.setex(memory_key(uid), 86400 * 7, json.dumps(memory[-MAX_MEMORIA:]))
                 
                 return response
     
@@ -282,34 +221,91 @@ async def get_grok_response(uid: int, user_message: str) -> str:
         return "Deu ruim aqui... manda de novo? 🥺"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 💬 MESSAGE HANDLER (o coração do bot)
+# 📨 ENVIO DO WA
 # ═══════════════════════════════════════════════════════════════════════════════
+
+async def send_whatsapp_number(bot, chat_id, uid):
+    if r.exists(wa_sent_key(uid)):
+        logger.info(f"⚠️ WA já enviado antes para {uid}")
+        return False
+    
+    number = random.choice(WA_NUMBERS)
+    clean_number = number.replace('+', '').replace(' ', '')
+    
+    msg = f"""Olha amor... tô ficando molhada pra caralho conversando contigo 😩💦
+
+Não aguento mais só mensagem aqui...
+
+Me adda no WhatsApp que eu te mando **tudo** ao vivo:
+✅ Voz gemendo teu nome
+✅ Vídeo agora em tempo real
+✅ Sem limite nenhum
+✅ Tudo que você quiser
+
+Meu número: `{number}`
+
+Me chama de **Sophia** pra eu saber que é tu 🔥
+
+wa.me/{clean_number}"""
+
+    try:
+        await bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown')
+        r.setex(wa_sent_key(uid), 86400 * 30, "1")
+        logger.info(f"🚀 WA ENVIADO → {uid} | Score: {r.get(heat_score_key(uid))} | Número: {number}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar WA para {uid}: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💬 HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    
+    # Inicializa usuário
+    r.set(start_time_key(uid), datetime.now().isoformat())
+    r.set(heat_score_key(uid), 0)
+    
+    logger.info(f"🆕 /start do usuário: {uid}")
+    
+    try:
+        await update.message.reply_text(
+            "Oi gato... 😏\n"
+            "Finalmente alguém interessante por aqui 🔥\n\n"
+            "Sou a Sophia, e te garanto que não sou como as outras... 💋\n"
+            "Tô louca pra saber o que você quer comigo 😈"
+        )
+    except Exception as e:
+        logger.error(f"Erro /start: {e}")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     text = update.message.text or ""
     has_photo = bool(update.message.photo)
     
-    # Inicializa usuário
+    # Inicializa se não existe
     if not r.exists(start_time_key(uid)):
         r.set(start_time_key(uid), datetime.now().isoformat())
-        logger.info(f"🆕 Novo usuário: {uid}")
+        r.set(heat_score_key(uid), 0)
+        logger.info(f"🆕 Novo usuário (sem /start): {uid}")
     
     # Calcula score
     score = calculate_heat_score(uid, text, has_photo)
     r.set(heat_score_key(uid), score)
     
-    logger.info(f"👤 {uid} | Score: {score}/{HEAT_THRESHOLD} | Msg: {text[:30]}")
+    logger.info(f"👤 {uid} | Score: {score}/{HEAT_THRESHOLD} | Msg: {text[:50]}")
     
-    # Se já enviou WA antes, só responde leve
+    # Se já enviou WA antes
     if r.exists(wa_sent_key(uid)):
         await update.message.reply_text("Tô te esperando no WA amor... vem logo 🔥")
         return
     
-    # Responde via Grok ANTES de verificar score
+    # Responde via Grok
     try:
         await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        await asyncio.sleep(random.uniform(1.5, 2.5))
         
         response = await get_grok_response(uid, text)
         await update.message.reply_text(response)
@@ -318,25 +314,43 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Erro handler {uid}: {e}")
         await update.message.reply_text("Opa, bugou aqui... manda de novo? 😘")
     
-    # DEPOIS da resposta, verifica se deve enviar WA
+    # Verifica se deve enviar WA
     if is_hot_lead(score):
         await asyncio.sleep(2)
         await send_whatsapp_number(context.bot, update.effective_chat.id, uid)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚀 SETUP
+# 🚀 SETUP COM EVENT LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 application = Application.builder().token(TELEGRAM_TOKEN).build()
+application.add_handler(CommandHandler("start", start_handler))
 application.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, message_handler))
 
 app = Flask(__name__)
 
+# Event loop global
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+def start_loop():
+    loop.run_forever()
+
+threading.Thread(target=start_loop, daemon=True).start()
+
 @app.route('/webhook', methods=['POST'])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
-    return 'ok'
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return 'ok', 200
+        
+        update = Update.de_json(data, application.bot)
+        asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
+        return 'ok', 200
+    except Exception as e:
+        logger.exception(f"Webhook erro: {e}")
+        return 'error', 500
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -352,25 +366,84 @@ def health():
         return {'status': 'error', 'redis': False}, 500
 
 @app.route('/set-webhook', methods=['GET'])
-async def set_webhook():
+def set_webhook_route():
     try:
         webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        await asyncio.sleep(1)
-        await application.bot.set_webhook(webhook_url)
-        info = await application.bot.get_webhook_info()
+        
+        async def setup():
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            await asyncio.sleep(1)
+            await application.bot.set_webhook(webhook_url)
+            await asyncio.sleep(1)
+            return await application.bot.get_webhook_info()
+        
+        info = asyncio.run_coroutine_threadsafe(setup(), loop).result(timeout=15)
+        
         return {
             'success': True,
             'webhook_url': info.url,
-            'pending_updates': info.pending_update_count
-        }
+            'pending_updates': info.pending_update_count,
+            'last_error': info.last_error_message
+        }, 200
     except Exception as e:
+        logger.error(f"Erro set webhook: {e}")
         return {'success': False, 'error': str(e)}, 500
 
+@app.route('/webhook-info', methods=['GET'])
+def webhook_info_route():
+    try:
+        async def get_info():
+            return await application.bot.get_webhook_info()
+        
+        info = asyncio.run_coroutine_threadsafe(get_info(), loop).result(timeout=10)
+        return {
+            'url': info.url,
+            'pending_update_count': info.pending_update_count,
+            'last_error_message': info.last_error_message,
+        }, 200
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}, 500
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎬 STARTUP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def startup_sequence():
+    try:
+        logger.info("🚀 Iniciando Sophia Bot v9.0...")
+        
+        await application.initialize()
+        await application.start()
+        await asyncio.sleep(2)
+        
+        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+        
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        await asyncio.sleep(1)
+        
+        success = await application.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message"]
+        )
+        
+        if success:
+            info = await application.bot.get_webhook_info()
+            logger.info(f"✅ Webhook configurado: {info.url}")
+            logger.info(f"📊 Pending updates: {info.pending_update_count}")
+        
+        me = await application.bot.get_me()
+        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
+        logger.info(f"🎯 Limiar WA: HeatScore ≥ {HEAT_THRESHOLD}")
+        logger.info(f"📱 Números WA: {len(WA_NUMBERS)}")
+        
+    except Exception as e:
+        logger.exception(f"💥 ERRO CRÍTICO: {e}")
+        raise
+
 if __name__ == "__main__":
-    logger.info("🚀 Sophia Bot v9.0 HÍBRIDO TG→WA iniciado!")
-    logger.info(f"🎯 Limiar WA: HeatScore ≥ {HEAT_THRESHOLD}")
-    logger.info(f"📱 Números WA configurados: {len(WA_NUMBERS)}")
-    logger.info(f"🌐 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
+    asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
     
-    app.run(host="0.0.0.0", port=PORT)
+    logger.info(f"🌐 Flask rodando na porta {PORT}")
+    logger.info("🚀 Sophia Bot v9.0 HÍBRIDO TG→WA operacional!")
+    
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
