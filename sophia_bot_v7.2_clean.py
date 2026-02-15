@@ -498,7 +498,7 @@ async def send_pix_instructions(bot, chat_id, uid):
                 "📱 **Faz o PIX aqui:**\n\n"
                 f"💰 **Valor:** {VIP_PRICE}\n"
                 f"📧 **Chave PIX (email):** `{PIX_KEY}`\n\n"
-                "⚠️ Tá no nome do meu primo pq tô sem pix no momento, mas pode confiar amor 💕\n\n"
+                "⚠️ Tá no nome do meu primo pq tô sem pix no momento, mas pode mandar amor 💕\n\n"
                 "Depois de pagar, **me manda o comprovante aqui** (print ou foto) que eu libero na hora! 🔥\n\n"
                 "Te espero... 😈"
             ),
