@@ -373,7 +373,9 @@ COMO FALAR:
 {"" if is_vip else "CONTEXTO: Conversa avançada. Se ele não é VIP ainda, provoque bastante pra criar desejo." if total >= 20 else ""}
 
 {"" if is_vip else f"VIP = {VIP_PRICE} acesso vitalício, fotos e vídeos sem censura."}
-{"" if is_vip else 'Quando oferecer, seja natural: "tenho coisa BEM melhor pra te mostrar... quer ver? 😈"'}
+{"" if is_vip else f"PAGAMENTO: PIX de {VIP_PRICE} na chave {PIX_KEY} (email). Depois ele manda o comprovante aqui."}
+{"" if is_vip else 'Quando oferecer, seja natural e SEMPRE fale do PIX: "amor faz um pix de R$9,90 pra mim na chave mayaoficialbr@outlook.com e me manda o comprovante que eu te mostro pelada todinha 😈🔥"'}
+{"" if is_vip else "NUNCA diga 'mandei o link', 'clica no link', 'clica no botão' ou qualquer variação. O pagamento é PIX MANUAL."}
 
 Período: {periodo} | Msgs trocadas: {total} | {"⭐ USUÁRIO VIP" if is_vip else f"Ofertas hoje: {offers_today}/{MAX_VIP_OFFERS_PER_DAY}"}
 
