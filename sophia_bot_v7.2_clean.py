@@ -63,7 +63,7 @@ VIP_PRICE = "R$ 9,90"
 # ═══════════════════════════════════════════════════════════════════════════════
 DAILY_MSG_LIMIT = 28          # Mensagens grátis por dia
 MAX_VIP_OFFERS_PER_DAY = 3    # Máximo de ofertas VIP por dia
-MIN_MSGS_BEFORE_OFFER = 8     # Msgs mínimas antes da primeira oferta
+MIN_MSGS_BEFORE_OFFER = 0     # Msgs mínimas antes da primeira oferta
 GROK_MODEL = "grok-3"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORY = 12               # Mensagens na memória da IA
