@@ -353,29 +353,33 @@ COMO FALAR:
 - Varia MUITO: nunca repita frases, emojis ou estrutura
 - Fala do dia dela, faz perguntas, brinca, provoca
 
-{"🔥 ESSE USUÁRIO É VIP! Trate como especial, seja mais ousada e íntima." if is_vip else ""}
+{"🔥 ESSE USUÁRIO É VIP! Ele já pagou e tem acesso total. REGRAS VIP:" if is_vip else ""}
+{"- Trate como especial, seja MUITO mais ousada, íntima e sem limites" if is_vip else ""}
+{"- NUNCA mencione VIP, pagamento, PIX, preço, promoção, acesso ou qualquer coisa relacionada a compra" if is_vip else ""}
+{"- Ele é SEU. Converse como namorada safada, sem censura, sem segurar nada" if is_vip else ""}
+{"- Se ele pedir foto/vídeo, diga que já mandou ou que vai mandar mais (nunca peça pagamento)" if is_vip else ""}
 
-REGRA DE OURO: Respeite o timing dele.
-- Quente (pedindo fotos, excitado) → provoca e oferece VIP
-- Morno (conversando normal) → flerta, aquece, cria conexão
-- Frio (respostas secas, mudou de assunto após oferta) → aceita, muda de assunto, NÃO insista
-- Se rejeitou VIP → mude de assunto, volte a flertar SEM mencionar VIP
+{"" if is_vip else "REGRA DE OURO: Respeite o timing dele."}
+{"" if is_vip else "- Quente (pedindo fotos, excitado) → provoca e oferece VIP"}
+{"" if is_vip else "- Morno (conversando normal) → flerta, aquece, cria conexão"}
+{"" if is_vip else "- Frio (respostas secas, mudou de assunto após oferta) → aceita, muda de assunto, NÃO insista"}
+{"" if is_vip else "- Se rejeitou VIP → mude de assunto, volte a flertar SEM mencionar VIP"}
 
-{"⛔ NÃO ofereça VIP — já atingiu o limite de ofertas hoje." if not can_offer else ""}
-{"✅ Pode oferecer VIP se ele demonstrar interesse CLARO (pediu foto, perguntou do VIP, tá excitado)." if can_offer else ""}
+{"" if is_vip else "⛔ NÃO ofereça VIP — já atingiu o limite de ofertas hoje." if not can_offer else ""}
+{"" if is_vip else "✅ Pode oferecer VIP se ele demonstrar interesse CLARO (pediu foto, perguntou do VIP, tá excitado)." if can_offer else ""}
 
-{"CONTEXTO: É a primeira conversa dele. Seja acolhedora, pergunte o nome, flerte leve." if total < 5 else ""}
-{"CONTEXTO: Ele já tá engajado. Pode provocar mais, esquentar a conversa." if 5 <= total < 20 else ""}
-{"CONTEXTO: Conversa avançada. Se ele não é VIP ainda, provoque bastante pra criar desejo." if total >= 20 and not is_vip else ""}
+{"" if is_vip else "CONTEXTO: É a primeira conversa dele. Seja acolhedora, pergunte o nome, flerte leve." if total < 5 else ""}
+{"" if is_vip else "CONTEXTO: Ele já tá engajado. Pode provocar mais, esquentar a conversa." if 5 <= total < 20 else ""}
+{"" if is_vip else "CONTEXTO: Conversa avançada. Se ele não é VIP ainda, provoque bastante pra criar desejo." if total >= 20 else ""}
 
-VIP = {VIP_PRICE} acesso vitalício, fotos e vídeos sem censura.
-Quando oferecer, seja natural: "tenho coisa BEM melhor pra te mostrar... quer ver? 😈"
+{"" if is_vip else f"VIP = {VIP_PRICE} acesso vitalício, fotos e vídeos sem censura."}
+{"" if is_vip else 'Quando oferecer, seja natural: "tenho coisa BEM melhor pra te mostrar... quer ver? 😈"'}
 
-Período: {periodo} | Msgs trocadas: {total} | Ofertas hoje: {offers_today}/{MAX_VIP_OFFERS_PER_DAY}
+Período: {periodo} | Msgs trocadas: {total} | {"⭐ USUÁRIO VIP" if is_vip else f"Ofertas hoje: {offers_today}/{MAX_VIP_OFFERS_PER_DAY}"}
 
 RETORNE APENAS JSON:
 {{"response": "sua resposta curta e natural", "offer_vip": false}}
-offer_vip = true SOMENTE quando ele demonstrar interesse CLARO agora."""
+{"offer_vip SEMPRE false — ele já é VIP!" if is_vip else "offer_vip = true SOMENTE quando ele demonstrar interesse CLARO agora."}"""
 
     return prompt
 
@@ -778,21 +782,33 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif has_photo:
         UserData.log_msg(uid, "user", "[📷 FOTO]")
 
-    # ── Comprovante de pagamento? ──
-    if has_photo and UserData.is_awaiting_proof(uid):
-        # Encaminha a foto pro admin
-        photo_id = update.message.photo[-1].file_id
-        for admin_id in ADMIN_IDS:
-            try:
-                await context.bot.forward_message(
-                    chat_id=admin_id,
-                    from_chat_id=chat_id,
-                    message_id=update.message.message_id
-                )
-            except:
-                pass
-        await handle_proof_received(context.bot, chat_id, uid)
-        return
+    # ── TRAVA PÓS-PIX: aguardando comprovante ──
+    if UserData.is_awaiting_proof(uid):
+        if has_photo:
+            # Encaminha comprovante pro admin
+            photo_id = update.message.photo[-1].file_id
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.forward_message(
+                        chat_id=admin_id,
+                        from_chat_id=chat_id,
+                        message_id=update.message.message_id
+                    )
+                except:
+                    pass
+            await handle_proof_received(context.bot, chat_id, uid)
+            return
+        else:
+            # Qualquer msg que não seja foto → lembra de pagar
+            reminders = [
+                f"Amor, tô esperando o comprovante do PIX! 🥺\n\nÉ só {VIP_PRICE} na chave:\n📧 `{PIX_KEY}`\n\nPaga e me manda o print que eu libero TUDO pra você 🔥",
+                f"Ei gato, ainda não recebi o comprovante... 😢\n\nFaz o PIX de {VIP_PRICE} e manda o print aqui que eu te mostro TUDO 😈",
+                f"Amor, tô louca pra te mostrar tudo mas preciso do comprovante! 💕\n\nChave PIX: `{PIX_KEY}`\nValor: {VIP_PRICE}\n\nMe manda o print! 🔥",
+            ]
+            await update.message.reply_text(random.choice(reminders), parse_mode="Markdown")
+            return
+
+    # ── Comprovante fora do estado awaiting (foto normal) ──
 
     # ── VIP tem mensagens ilimitadas ──
     if not UserData.is_vip(uid):
