@@ -1101,6 +1101,40 @@ async def give_vip_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Uso: /givevip USER_ID")
 
 
+async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando admin: /reset USER_ID — apaga TUDO do usuário"""
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    try:
+        target_uid = int(context.args[0]) if context.args else update.effective_user.id
+
+        # Apaga todas as chaves do usuário
+        prefixes = [
+            "mem", "cnt", "total", "vip", "offers", "active", "first",
+            "teaser", "teaser_cnt", "clicked", "streak", "streak_day",
+            "log", "lim_notify", "last_chance", "await_proof"
+        ]
+        deleted = 0
+        for prefix in prefixes:
+            key = rkey(prefix, target_uid)
+            deleted += r.delete(key)
+
+        # Apaga chaves com data
+        today = str(date.today())
+        for prefix in ["cnt", "offers", "lim_notify", "last_chance"]:
+            key = rkey(prefix, target_uid, today)
+            deleted += r.delete(key)
+
+        # Remove do set de usuários
+        r.srem("all_users", str(target_uid))
+
+        await update.message.reply_text(f"🗑️ Reset completo para {target_uid}\n({deleted} chaves apagadas)\n\nEle pode dar /start de novo como se fosse novo.")
+        logger.info(f"🗑️ Admin resetou usuário {target_uid}")
+
+    except:
+        await update.message.reply_text("Uso: /reset USER_ID\nOu /reset (reseta você mesmo)")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🌐 FLASK + WEBHOOK KIWIFY
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1207,6 +1241,7 @@ def setup_handlers():
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("stats", stats_handler))
     application.add_handler(CommandHandler("givevip", give_vip_handler))
+    application.add_handler(CommandHandler("reset", reset_handler))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler(
         (filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler
