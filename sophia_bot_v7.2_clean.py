@@ -275,7 +275,7 @@ FOTOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
-FOTO_BEM_VINDA = "https://i.postimg.cc/Ghvv4SFt/e1e897c5aa684a7c980485164ec779f4.jpg"
+FOTO_BEM_VINDA = "https://i.postimg.cc/0NghLJD3/image.png"
 
 VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"  # Coloque a URL do vídeo hospedado
 
