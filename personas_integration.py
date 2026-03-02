@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # ⚙️ REDIS CONNECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://default:password@host:port")
+REDIS_URL = os.getenv("REDIS_URL", "redis://default@crossover.proxy.rlwy.net:48522")
 
 try:
     r = redis.from_url(REDIS_URL, decode_responses=True)
