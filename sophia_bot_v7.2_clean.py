@@ -2289,7 +2289,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ## ✅ COPIE E COLE ASSIM:
 
-```python
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
