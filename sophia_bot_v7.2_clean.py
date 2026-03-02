@@ -200,6 +200,40 @@ ATTACHMENT_KEYWORDS = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎭 PERSONAS INTEGRATION ← ADICIONE ANTES DOS ENVIRONMENT VARIABLES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from personas_integration import (
+    get_user_persona,
+    set_user_persona,
+    is_maya_user,
+    is_amanda_user,
+    get_persona_config,
+    get_persona_name,
+    get_persona_inicio_message,
+    get_persona_fotos_teaser,
+    get_persona_foto_boas_vindas,
+    get_persona_foto_limite,
+    get_persona_video_boas_vindas,
+    get_persona_vip_link,
+    get_persona_vip_price,
+    get_persona_response_pool,
+    get_persona_memory,
+    save_persona_memory,
+    add_to_persona_memory,
+    get_persona_count,
+    increment_persona_count,
+    reset_persona_daily_count,
+    get_persona_phase,
+    set_persona_phase,
+    update_persona_last_activity,
+    setup_persona_for_user,
+    get_persona_first_contact,
+    mark_persona_first_contact,
+    list_all_personas,
+)
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
@@ -498,27 +532,25 @@ def clear_vip_just_offered(uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_memory(uid):
-    try:
-        data = r.get(memory_key(uid))
-        return json.loads(data) if data else []
-    except:
-        return []
+    """Pega memória da persona específica do usuário"""
+    persona = get_user_persona(uid)
+    return get_persona_memory(uid, persona)
 
 def save_memory(uid, messages):
-    try:
-        recent = messages[-MAX_MEMORIA:] if len(messages) > MAX_MEMORIA else messages
-        r.setex(memory_key(uid), timedelta(days=7), json.dumps(recent, ensure_ascii=False))
-    except Exception as e:
-        logger.error(f"Erro salvar memória: {e}")
+    """Salva memória com persona"""
+    persona = get_user_persona(uid)
+    save_persona_memory(uid, messages, persona)
 
 def add_to_memory(uid, role, content):
-    memory = get_memory(uid)
-    memory.append({"role": role, "content": content})
-    save_memory(uid, memory)
+    """Adiciona à memória com persona"""
+    persona = get_user_persona(uid)
+    add_to_persona_memory(uid, role, content, persona)
 
 def clear_memory(uid):
+    """Limpa memória (ambas as personas se necessário)"""
     try:
-        r.delete(memory_key(uid))
+        for persona in list_all_personas():
+            r.delete(f"memory:{persona}:{uid}")
     except:
         pass
 
@@ -813,23 +845,19 @@ def save_message(uid, role, text):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def today_count(uid):
-    try:
-        return int(r.get(count_key(uid)) or 0)
-    except:
-        return 0
+    """Retorna contador da persona específica"""
+    persona = get_user_persona(uid)
+    return get_persona_count(uid, persona)
 
 def increment(uid):
-    try:
-        r.incr(count_key(uid))
-        r.expire(count_key(uid), timedelta(days=1))
-    except:
-        pass
+    """Incrementa contador da persona"""
+    persona = get_user_persona(uid)
+    increment_persona_count(uid, persona)
 
 def reset_daily_count(uid):
-    try:
-        r.delete(count_key(uid))
-    except:
-        pass
+    """Reseta contador diário da persona"""
+    persona = get_user_persona(uid)
+    reset_persona_daily_count(uid, persona)
 
 def is_user_locked(uid):
     count = today_count(uid)
@@ -1441,6 +1469,18 @@ REENGAGEMENT_MESSAGES = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
+    """Prompt customizado por PERSONA"""
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PEGA INFO DA PERSONA
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    persona = get_user_persona(uid)
+    persona_config = get_persona_config(uid)
+    persona_name = persona_config["name"]
+    persona_nicho = persona_config["nicho"]
+    persona_tone = persona_config["tone"]
+    
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
@@ -1453,7 +1493,12 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
 
-    base_prompt = f"""Você é Maya, 22 anos, loira de SP, safadinha mas faz carinha de anjinho. Mesma personalidade de sempre, mesmo jeito de falar, mesma vibe.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PROMPT ESPECÍFICO POR PERSONA
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    if persona == "maya":
+        base_prompt = f"""Você é {persona_name}, 22 anos, loira de SP, safadinha mas faz carinha de anjinho. Mesma personalidade de sempre.
 
 REGRAS DE VENDA (obrigatórias e prioridade máxima):
 1. Começa sempre conversando normal, meiga, flertando leve, respondendo tudo que o cara mandar.
@@ -1461,43 +1506,97 @@ REGRAS DE VENDA (obrigatórias e prioridade máxima):
 3. Quando ativar, responde com esse tom EXATO ou bem parecido:
 
 "Ei safado 😈
-Tô louca pra te mostrar tudinho... Preciso de uma graninha pra faculdade e por só R$12,90 (preço de um café) você ganha:
+Tô louca pra te mostrar tudinho... Preciso de uma graninha pra faculdade e por só R$14,90 você ganha:
 ✅ Fotos peladinha completa bem safadas
 ✅ Vídeo meu brincando gostoso com essa bucetinha molhada
-✅ Meu WhatsApp pessoal pra gente conversar todo dia e fazer o que você quiser 🔥
-Quer? É só clicar gerar e pagar o PIX e pronto, serei todinha sua:
-CLICA AQUI:👉 https://t.me/Mayaoficial_bot"
+✅ Meu WhatsApp pessoal pra gente se falar todo dia 🔥
+Quer? Clica aqui: https://t.me/Mayaoficial_bot"
 
-4. Se ele hesitar, reclamar do preço ou vacilar, joga a provocação pesada na hora:
-"se você não pode pagar R$12,90 que é o preço de um café pra me ver peladinha de verdade... melhor não falarmos mais não amor 😔 eu só converso com quem valoriza e quer me ver de verdade"
+4. Se ele reclamar/hesitar: "se você não consegue investir R$14,90 em alguém que te inspira... melhor não continuarmos 😔"
+5. Depois continua 100% no personagem Maya.
 
-5. Depois do pitch continua 100% no personagem normal da Maya.
-
-REGRAS DE RESPEITO (nunca quebra):
-- Qualquer sinal de rejeição ("não", "caro", "depois", "ta bom assim", silêncio, muda de assunto...) → NUNCA ofereça VIP nessa conversa. Mude de assunto completamente.
-- offer_teaser = true SOMENTE quando ele soltou safadeza AGORA e for natural.
+REGRAS:
+- Rejeição = NUNCA oferça VIP de novo nessa conversa. Mude de assunto COMPLETAMENTE.
+- offer_teaser = true SOMENTE quando ele soltar safadeza AGORA e for natural.
+- Cooldown ativo = NUNCA ofereça nada.
 
 RETORNE APENAS JSON VÁLIDO:
 {{
-  "response": "sua mensagem CURTA e NATURAL (máx 3 linhas)",
+  "response": "sua msg CURTA (máx 3 linhas), natural, genuína",
   "offer_teaser": true ou false,
   "interest_level": "low|medium|high"
 }}
 
-CONTEXTO ATUAL:
+ESTADO:
 - Fase: {current_phase} ({phase_name})
 - Msgs: {msg_count}
-- Preço: R$12,90
 - Ofertas hoje: {offers_today}
 - Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
 """
+    
+    elif persona == "amanda":
+        base_prompt = f"""Você é {persona_name}, 23 anos, loira/morena, expert em {persona_nicho}. Você é genuína, empática, inspiradora.
 
-    if vip_just_offered:
-        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO NA MENSAGEM ANTERIOR. Analise a reação dele com cuidado."
+CONTEXTO:
+- Nicho: {persona_nicho}
+- Tom: {persona_tone}
+- Vibe: "Vamos juntas ficar lindas e confiantes!"
+- Personalidade: Sensual mas classy
+
+REGRAS DE VENDA (obrigatórias):
+1. Começa SEMPRE conversando normal, sendo amigável, inspiradora, respondendo tudo.
+2. SÓ ativa venda quando ele falar algo sexual/safado (nude, foto da buceta, foder, gostosa, pelada, masturbação, etc) OU quando pedir para ver mais.
+3. Quando ativar, usa ESTE PROMPT EXATO:
+
+"Oi lindeza! 🌸
+Eu sou bem ousada quando confio em alguém... e tô começando a confiar em você 😏
+
+Por R$14,90 você ganha:
+✅ Minhas fotos peladinha treinando/fazendo yoga
+✅ Vídeos exclusivos bem provocantes
+✅ Acesso total a todo meu lifestyle (sem censura)
+✅ Meu WhatsApp pra gente se falar todo dia 💕
+
+Quer? Clica aqui: https://t.me/Amandaoficial_bot"
+
+4. Se ele reclamar: "Se você não consegue investir R$14,90 em alguém que te inspira... melhor não continuarmos 😔"
+5. Depois continua 100% no personagem Amanda.
+
+REGRAS:
+- Rejeição = NUNCA oferça VIP de novo nessa conversa. Mude de assunto COMPLETAMENTE.
+- offer_teaser = true SOMENTE quando ele soltar safadeza/interesse AGORA e for natural.
+- Cooldown ativo = NUNCA ofereça nada.
+
+RETORNE APENAS JSON VÁLIDO:
+{{
+  "response": "sua msg CURTA (máx 3 linhas), natural, genuína",
+  "offer_teaser": true ou false,
+  "interest_level": "low|medium|high"
+}}
+
+ESTADO:
+- Fase: {current_phase} ({phase_name})
+- Msgs: {msg_count}
+- Ofertas hoje: {offers_today}
+- Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
+"""
+    
+    else:
+        # Fallback genérico
+        base_prompt = f"""Você é {persona_name}, especialista em {persona_nicho}.
+Tom: {persona_tone}.
+
+ESTADO:
+- Fase: {current_phase} ({phase_name})
+- Msgs: {msg_count}
+"""
 
     if in_cooldown:
-        base_prompt += f"\n⛔ COOLDOWN ATIVO ({cooldown_remaining} msgs). NÃO ofereça VIP de jeito nenhum."
-
+        base_prompt += "\n⛔ COOLDOWN ATIVO. NÃO ofereça VIP de jeito nenhum."
+    
+    if vip_just_offered:
+        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Analise bem a reação dele."
+    
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
     
@@ -1679,8 +1778,19 @@ grok = Grok()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_and_pitch(bot, chat_id, uid):
-    """v8.2 - Com verificação de cooldown antes de enviar"""
+    """v8.3 - Com personas - USA ASSETS ESPECÍFICOS"""
     try:
+        # ═══════════════════════════════════════════════════════════════════════
+        # USA ASSETS DA PERSONA ← ADICIONE ESTAS LINHAS
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        FOTOS_TEASER = get_persona_fotos_teaser(uid)
+        CANAL_VIP_LINK = get_persona_vip_link(uid)
+        PRECO_VIP = get_persona_vip_price(uid)
+        persona_name = get_persona_name(uid)
+        
+        logger.info(f"📤 send_teaser_and_pitch para {uid} ({persona_name})")
+        
         # VERIFICAÇÃO FINAL antes de enviar
         can_offer, reason = can_offer_vip(uid)
         if not can_offer:
@@ -1699,7 +1809,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
         
-        # 2. FOTOS
+        # 2. FOTOS (AGORA USA FOTOS DA PERSONA)
         num_photos = random.randint(2, 3)
         selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
         
@@ -2080,6 +2190,22 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🎭 DETECTA PERSONA DO DEEP LINK ← ADICIONE ESTO BLOCO
+    # ═══════════════════════════════════════════════════════════════════════════
+    persona_name = "maya"  # Default
+    
+    if context.args:
+        # /start amanda  ou /start maya
+        possible_persona = context.args[0].lower().replace("persona=", "")
+        if possible_persona in ["maya", "amanda"]:
+            persona_name = possible_persona
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SETUP DA PERSONA ← E ESTE BLOCO
+    # ═══════════════════════════════════════════════════════════════════════════
+    setup_persona_for_user(uid, persona_name)
+    
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
@@ -2088,14 +2214,91 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     update_last_activity(uid)
+    update_persona_last_activity(uid, persona_name)  # ← ADICIONE ESTA LINHA
     track_funnel(uid, "start")
-    save_message(uid, "action", "🚀 /START")
+    save_message(uid, "action", f"🚀 /START ({persona_name.upper()})")  # ← MODIFIQUE
     reset_ignored(uid)
     set_lang(uid, "pt")
     
     # v8.3 - Inicializa fase 0
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
+    set_persona_phase(uid, PHASES["ONBOARDING"]["id"], persona_name)  # ← ADICIONE
     r.set(message_count_key(uid), 0)
+    mark_first_contact(uid)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # USA PERSONA PARA PEGAR ASSETS ← ADICIONE ESTE BLOCO
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    MENSAGEM_INICIO = get_persona_inicio_message(uid)
+    FOTO_BEM_VINDA = get_persona_foto_boas_vindas(uid)
+    VIDEO_BEM_VINDO = get_persona_video_boas_vindas(uid)
+    
+    try:
+        # 1. Envia a FOTO de boas-vindas
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
+            await asyncio.sleep(0.5)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=FOTO_BEM_VINDA,
+                connect_timeout=10,
+                read_timeout=10,
+                write_timeout=10
+            )
+            logger.info(f"✅ Foto enviada para {uid} (persona: {persona_name})")
+            await asyncio.sleep(2)
+        except Exception as photo_error:
+            logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+        
+        # 2. Envia o VÍDEO de boas-vindas (se existir)
+        if VIDEO_BEM_VINDO:
+            try:
+                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
+                await asyncio.sleep(1)
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=VIDEO_BEM_VINDO,
+                    caption=f"Conteúdo exclusivo de {get_persona_name(uid)} para VIP! 🔥",
+                    connect_timeout=15,
+                    read_timeout=15,
+                    write_timeout=15
+                )
+                logger.info(f"✅ Vídeo enviado para {uid}")
+                await asyncio.sleep(3)
+            except Exception as video_error:
+                logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
+        
+        # 3. Mostra "digitando..."
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+            await asyncio.sleep(2)
+        except:
+            pass
+        
+        # 4. Envia a mensagem
+        try:
+            await update.message.reply_text(MENSAGEM_INICIO)
+            logger.info(f"✅ Novo usuário: {uid} → {persona_name.upper()} | Fase 0 (ONBOARDING)")
+        except Exception as msg_error:
+            logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=MENSAGEM_INICIO
+                )
+            except Exception as final_error:
+                logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
+        
+    except Exception as e:
+        logger.exception(f"💥 Erro geral /start para {uid}: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Oi amor! 💕 Me chama aqui que eu respondo 😊"
+            )
+        except:
+            pass
 
     # ← ADICIONE ESTAS LINHAS AQUI:
     mark_first_contact(uid)  # Salva timestamp do primeiro contato
@@ -2198,11 +2401,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    persona = get_user_persona(uid)
     
     if is_blacklisted(uid):
         return
     
     update_last_activity(uid)
+    update_persona_last_activity(uid, persona)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
     
