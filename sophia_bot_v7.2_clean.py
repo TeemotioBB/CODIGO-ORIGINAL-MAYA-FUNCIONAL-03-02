@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                       🔥 SOPHIA BOT v8.2 - ANTI-SPAM FIX                    ║
+║                       🔥 MAYA BOT v8.2 - ANTI-SPAM FIX                    ║
 ║                                                                              ║
 ║  CORREÇÕES v8.2:                                                            ║
 ║  ✅ Detecção de REJEIÇÃO (não, para, chega, já falou)                      ║
@@ -1505,16 +1505,27 @@ CONTEXTO ATUAL:
 
 
 class Grok:
-    async def reply(self, uid, text, image_base64=None, max_retries=2):
-        mem = get_memory(uid)
-        lang = get_lang(uid)
-        mood = detect_mood(text) if text else "neutral"
-        intent = detect_intent(text) if text else "neutral"
+    async def reply(self, uid, text, image_base64=None, max_retries=2, is_amanda=False):
+        # ← ADICIONE is_amanda=False
         
-        if is_first_contact(uid):
-            mark_first_contact(uid)
-        
-        prompt = build_prompt(uid, lang, mood, intent)
+        # ← ADICIONE ISTO
+        if is_amanda:
+            mem = amanda.get_memory(uid)
+            prompt = amanda.get_amanda_system_prompt(uid)
+            lang = "pt"  # Amanda é PT
+            mood = "neutral"
+            intent = "neutral"
+        else:
+            mem = get_memory(uid)
+            lang = get_lang(uid)
+            mood = detect_mood(text) if text else "neutral"
+            intent = detect_intent(text) if text else "neutral"
+            
+            if is_first_contact(uid):
+                mark_first_contact(uid)
+            
+            prompt = build_prompt(uid, lang, mood, intent)
+        # ← FIM
         
         if image_base64:
             user_content = []
@@ -1585,6 +1596,8 @@ class Grok:
                             
                             result.setdefault("offer_teaser", False)
                             result.setdefault("interest_level", "medium")
+                            
+                            # ... resto do código continua igual ...
                             
                             # ═══════════════════════════════════════════════
                             # v8.3 - TRAVAS DE SEGURANÇA (código)
@@ -2080,6 +2093,14 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     
+    # ← ADICIONE ISTO
+    # Detecta se é Amanda ou Maya
+    origem = context.args[0] if context.args else "maya"
+    if origem == "amanda":
+        amanda.mark_as_amanda(uid)
+        logger.info(f"💎 /START Amanda detectado!")
+    # ← FIM
+    
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
@@ -2144,7 +2165,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 4. Envia a mensagem
         try:
-            await update.message.reply_text(MENSAGEM_INICIO)
+            # ← ADICIONE ISTO
+            # Detecta qual mensagem usar
+            if amanda.is_amanda_user(uid):
+                mensagem = amanda.MENSAGEM_INICIO_AMANDA
+            else:
+                mensagem = MENSAGEM_INICIO
+            # ← FIM
+            
+            await update.message.reply_text(mensagem)
             logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+VÍDEO+TEXTO]")
         except Exception as msg_error:
             logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
@@ -2202,6 +2231,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blacklisted(uid):
         return
     
+    # ← ADICIONE ISTO
+    # Detecta se é Amanda
+    is_amanda_lead = amanda.is_amanda_user(uid)
+    # ← FIM
+    
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
@@ -2248,9 +2282,30 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ═══════════════════════════════════════════════════════
         
         # Foto
+        # 🔧 FOTO COM AMANDA - IDENTADO IGUAL AO SEU
+
+## ✅ COPIE E COLE ASSIM:
+        # 🔧 FOTO COM AMANDA - IDENTADO IGUAL AO SEU
+
+## ✅ COPIE E COLE ASSIM:
+
+```python
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
+            
+            # ← ADICIONE ISTO
+            if is_amanda_lead:
+                # Amanda - resposta simples pra foto
+                resposta = amanda.get_response(uid, "provocacao")
+                amanda.save_message(uid, "user", "[FOTO]")
+                amanda.save_message(uid, "amanda", resposta)
+                amanda.increment_conversation(uid)
+                amanda.increment(uid)
+                amanda.update_last_activity(uid)
+                await update.message.reply_text(f"💎 Recebi sua foto, amor!\n\n{resposta}")
+                return
+            # ← FIM
             
             image_base64 = await download_photo_base64(context.bot, photo_file_id)
             if image_base64:
@@ -2375,7 +2430,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         
-        grok_response = await grok.reply(uid, text)
+        # ← ADICIONE ISTO
+        if is_amanda_lead:
+            # Amanda - usa Grok com prompt Amanda
+            prompt_amanda = amanda.get_amanda_system_prompt(uid)
+            memoria_amanda = amanda.get_memory(uid)
+            amanda.add_to_memory(uid, "user", text)
+            
+            # Chama Grok (próximo passo: modificar grok.reply para aceitar is_amanda)
+            grok_response = await grok.reply(uid, text)
+            
+            # Processa resposta Amanda
+            await amanda.handle_amanda_grok_response(uid, grok_response)
+        else:
+            # Maya - usa Grok normal
+            grok_response = await grok.reply(uid, text)
+            add_to_memory(uid, "user", text)
+            add_to_memory(uid, "assistant", grok_response["response"])
+            save_message(uid, "maya", grok_response["response"])
+        # ← FIM
         
         await update.message.reply_text(grok_response["response"])
         
@@ -2423,6 +2496,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import admin_commands
+import amanda_com_grok as amanda            
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
