@@ -236,7 +236,7 @@ from personas_integration import (
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
-REDIS_URL = os.getenv("REDIS_URL", "redis://default@crossover.proxy.rlwy.net:48522")
+REDIS_URL = "redis://:@crossover.proxy.rlwy.net:48522"
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 
