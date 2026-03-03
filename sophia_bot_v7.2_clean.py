@@ -36,6 +36,8 @@ from telegram.ext import (
     CallbackQueryHandler, CommandHandler
 )
 
+from ia_router import init_router, get_router
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1441,6 +1443,10 @@ REENGAGEMENT_MESSAGES = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
+    router = get_router()
+    ia_config = router.get_ia_config(uid=uid)
+    ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
+    ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
@@ -1453,7 +1459,7 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
 
-    base_prompt = f"""Você é Maya, 22 anos, loira de SP, safadinha mas faz carinha de anjinho. Mesma personalidade de sempre, mesmo jeito de falar, mesma vibe.
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. Mesma personalidade de sempre...
 
 REGRAS DE VENDA (obrigatórias e prioridade máxima):
 1. Começa sempre conversando normal, meiga, flertando leve, respondendo tudo que o cara mandar.
@@ -1681,6 +1687,11 @@ grok = Grok()
 async def send_teaser_and_pitch(bot, chat_id, uid):
     """v8.2 - Com verificação de cooldown antes de enviar"""
     try:
+        router = get_router()
+        ia_config = router.get_ia_config(uid=uid)
+        
+        fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
+        canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
         # VERIFICAÇÃO FINAL antes de enviar
         can_offer, reason = can_offer_vip(uid)
         if not can_offer:
@@ -1701,7 +1712,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         
         # 2. FOTOS
         num_photos = random.randint(2, 3)
-        selected_photos = random.sample(FOTOS_TEASER, min(num_photos, len(FOTOS_TEASER)))
+        selected_photos = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
         
         for i, photo_url in enumerate(selected_photos):
             try:
@@ -1721,7 +1732,7 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
         urgencia = get_urgency_message(uid)
         pitch = VIP_PITCH_MESSAGES[ab_group].format(urgencia=urgencia)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 QUERO ACESSO VIP AGORA 🔥", url=CANAL_VIP_LINK)
+            InlineKeyboardButton("🔥 QUERO ACESSO VIP AGORA 🔥", url=canal_vip)
         ]])
         
         await bot.send_message(
@@ -2079,6 +2090,20 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
+    # Detectar qual IA o usuário quer
+    router = get_router()
+    start_param = context.args[0] if context.args else None
+    detected_ia = router.parse_start_params(start_param)
+    
+    if detected_ia:
+        router.assign_ia(uid, detected_ia)
+        logger.info(f"🎯 User {uid} → IA: {detected_ia}")
+    else:
+        router.assign_ia(uid, "maya")
+        logger.info(f"🎯 User {uid} → IA: default (maya)")
+    
+    ia_config = router.get_ia_config(uid=uid)
     
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
@@ -2108,7 +2133,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(0.5)
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
-                photo=FOTO_BEM_VINDA,
+                photo=ia_config["foto_bem_vinda"],
                 connect_timeout=10,
                 read_timeout=10,
                 write_timeout=10
@@ -2124,7 +2149,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(1)
             await context.bot.send_video(
                 chat_id=update.effective_chat.id,
-                video=VIDEO_BEM_VINDO,
+                video=ia_config["video_bem_vindo"],
                 caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
                 connect_timeout=15,
                 read_timeout=15,
@@ -2144,7 +2169,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 4. Envia a mensagem
         try:
-            await update.message.reply_text(MENSAGEM_INICIO)
+            await update.message.reply_text(ia_config["start_message"])
             logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+VÍDEO+TEXTO]")
         except Exception as msg_error:
             logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
@@ -3072,7 +3097,9 @@ def require_auth():
 async def startup_sequence():
     try:
         logger.info("🚀 Iniciando Sophia Bot v8.2...")
-        
+        # Inicializar IA Router
+        router = init_router(redis_url=REDIS_URL, config_path="ias_config.json")
+        logger.info(f"✅ IA Router inicializado")
         await application.initialize()
         await application.start()
         await asyncio.sleep(2)
