@@ -244,7 +244,7 @@ FOLLOWUP_INTERVAL_HOURS = 12
 AB_TEST_ENABLED = True
 AB_TEST_RATIO = 0.5
 
-MODELO = "grok-3"
+MODELO = "grok-4-1-fast-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 
