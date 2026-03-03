@@ -1841,10 +1841,15 @@ async def retarget_locked_users(bot):
                 # ═══════════════════════════════════════════════════════
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     
+                    # Carregar config da IA
+                    router = get_router()
+                    ia_config = router.get_ia_config(uid=uid)
+                    canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+                    
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
                             "💎 GARANTIR DESCONTO DE R$ 14,90",
-                            url=CANAL_VIP_LINK
+                            url=canal_vip
                         )
                     ]])
                     
@@ -2010,10 +2015,15 @@ async def recover_silent_users(bot):
                 elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     
+                    # Carregar config da IA
+                    router = get_router()
+                    ia_config = router.get_ia_config(uid=uid)
+                    canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+                    
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
                             "💎 QUERO ACESSO POR R$ 14,90",
-                            url=CANAL_VIP_LINK
+                            url=canal_vip
                         )
                     ]])
                     
@@ -2208,12 +2218,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
             
+            router = get_router()
+            ia_config = router.get_ia_config(uid=uid)
+            canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+            
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
                     f"💎 **PERFEITO AMOR!**\n\n"
                     f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
-                    f"👉 {CANAL_VIP_LINK}\n\n"
+                    f"👉 {canal_vip}\n\n"
                     f"Te espero lá com MUITO conteúdo exclusivo! 🔥💕"
                 ),
                 parse_mode="Markdown"
@@ -2325,10 +2339,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"🎁 ÚLTIMA CHANCE ativada para {uid}")
                 
                 # Pitch FORTE de última chance
+                router = get_router()
+                ia_config = router.get_ia_config(uid=uid)
+                canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+                
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton(
                         "CLIQUE AQUI: 👉 SER VIP",
-                        url="https://t.me/Mayaoficial_bot"
+                        url=canal_vip
                     )
                 ]])
                 
@@ -2359,10 +2377,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 🚫 JÁ USOU A ÚLTIMA CHANCE → TRAVA DE VERDADE
             # ═══════════════════════════════════════════════════════
             
+            router = get_router()
+            ia_config = router.get_ia_config(uid=uid)
+            canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+            
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     text="CLIQUE AQUI: 👉 SER VIP",
-                    url="https://t.me/Mayaoficial_bot"
+                    url=canal_vip
                 )
             ]])
             
