@@ -1447,6 +1447,9 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
     ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
+    canal_vip = ia_config.get("vip_link", "https://t.me/Mayaoficial_bot") if ia_config else "https://t.me/Mayaoficial_bot"
+    preco = ia_config.get("preco", "R$12,90") if ia_config else "R$12,90"
+    
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
@@ -1458,7 +1461,7 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
-
+    
     base_prompt = f"""Você é {ia_name}, {ia_bio}. Mesma personalidade de sempre...
 
 REGRAS DE VENDA (obrigatórias e prioridade máxima):
@@ -1467,17 +1470,17 @@ REGRAS DE VENDA (obrigatórias e prioridade máxima):
 3. Quando ativar, responde com esse tom EXATO ou bem parecido:
 
 "Ei safado 😈
-Tô louca pra te mostrar tudinho... Preciso de uma graninha pra faculdade e por só R$12,90 (preço de um café) você ganha:
+Tô louca pra te mostrar tudinho... Preciso de uma graninha pra faculdade e por só {preco} (preço de um café) você ganha:
 ✅ Fotos peladinha completa bem safadas
 ✅ Vídeo meu brincando gostoso com essa bucetinha molhada
 ✅ Meu WhatsApp pessoal pra gente conversar todo dia e fazer o que você quiser 🔥
 Quer? É só clicar gerar e pagar o PIX e pronto, serei todinha sua:
-CLICA AQUI:👉 https://t.me/Mayaoficial_bot"
+CLICA AQUI:👉 {canal_vip}"
 
 4. Se ele hesitar, reclamar do preço ou vacilar, joga a provocação pesada na hora:
-"se você não pode pagar R$12,90 que é o preço de um café pra me ver peladinha de verdade... melhor não falarmos mais não amor 😔 eu só converso com quem valoriza e quer me ver de verdade"
+"se você não pode pagar {preco} que é o preço de um café pra me ver peladinha de verdade... melhor não falarmos mais não amor 😔 eu só converso com quem valoriza e quer me ver de verdade"
 
-5. Depois do pitch continua 100% no personagem normal da Maya.
+5. Depois do pitch continua 100% no personagem normal.
 
 REGRAS DE RESPEITO (nunca quebra):
 - Qualquer sinal de rejeição ("não", "caro", "depois", "ta bom assim", silêncio, muda de assunto...) → NUNCA ofereça VIP nessa conversa. Mude de assunto completamente.
@@ -1491,19 +1494,20 @@ RETORNE APENAS JSON VÁLIDO:
 }}
 
 CONTEXTO ATUAL:
+- IA: {ia_name}
 - Fase: {current_phase} ({phase_name})
 - Msgs: {msg_count}
-- Preço: R$12,90
+- Preço: {preco}
+- VIP Link: {canal_vip}
 - Ofertas hoje: {offers_today}
 - Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
 """
 
     if vip_just_offered:
         base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO NA MENSAGEM ANTERIOR. Analise a reação dele com cuidado."
-
     if in_cooldown:
         base_prompt += f"\n⛔ COOLDOWN ATIVO ({cooldown_remaining} msgs). NÃO ofereça VIP de jeito nenhum."
-
+    
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
     
