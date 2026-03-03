@@ -210,7 +210,7 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.
 WEBHOOK_PATH = "/telegram"
 
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
-PRECO_VIP = os.getenv("PRECO_VIP", "R$ 14,90")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 12,90")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
@@ -1290,7 +1290,7 @@ RECOVERY_MESSAGES = {
         "✅ Fotos e vídeos EXPLÍCITAS\n"
         "✅ Vídeos de masturbação/oral/anal\n"
         "✅ Sem censura, sem limites\n\n"
-        "💰 **R$ 14,90** (vitalício)\n"
+        "💰 **R$ 12,90** (vitalício)\n"
         "⏰ Essa oferta expira em 6h\n\n"
         "É agora ou nunca, gato. Me escolhe? 🔥",
         
@@ -1298,7 +1298,7 @@ RECOVERY_MESSAGES = {
         "Acho que não vou te ver mais por aqui né?\n\n"
         "Mas antes de você ir embora...\n"
         "Deixa eu te fazer UMA proposta:\n\n"
-        "💎 Me vê pelada fazendo TUDO por R$ 14,90\n"
+        "💎 Me vê pelada fazendo TUDO por R$ 12,90\n"
         "✅ Fotos sem censura\n"
         "✅ Vídeos completos\n"
         "✅ Acesso pra sempre\n\n"
@@ -1410,7 +1410,7 @@ LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$14,90 — ACESSO VITALÍCIO!\n"
+    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$12,90 — ACESSO VITALÍCIO!\n"
     "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
@@ -1852,7 +1852,7 @@ async def retarget_locked_users(bot):
                     
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
-                            "💎 GARANTIR DESCONTO DE R$ 14,90",
+                            "💎 GARANTIR DESCONTO DE R$ 12,90",
                             url=canal_vip
                         )
                     ]])
@@ -2026,7 +2026,7 @@ async def recover_silent_users(bot):
                     
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(
-                            "💎 QUERO ACESSO POR R$ 14,90",
+                            "💎 QUERO ACESSO POR R$ 12,90",
                             url=canal_vip
                         )
                     ]])
