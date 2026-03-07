@@ -231,7 +231,7 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 # ⚙️ CONFIGURAÇÕES DO BOT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LIMITE_DIARIO = 15
+LIMITE_DIARIO = 30
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
@@ -1447,13 +1447,13 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
     ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
-    canal_vip = ia_config.get("vip_link", "https://t.me/Mayaoficial_bot") if ia_config else "https://t.me/Mayaoficial_bot"
-    preco = ia_config.get("preco", "R$12,90") if ia_config else "R$12,90"
-    
+    canal_vip = ia_config.get("vip_link", "https://t.me/Mayaoficial_bot")
+    preco = ia_config.get("preco", "R$ 19,90") if ia_config else "R$ 19,90"
+   
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
-    
+   
     time_ctx = get_time_context()
     streak = get_streak(uid)
     in_cooldown = is_in_rejection_cooldown(uid)
@@ -1461,30 +1461,22 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
-    
+   
     base_prompt = f"""Você é {ia_name}, {ia_bio}. Mesma personalidade de sempre...
 
 REGRAS DE VENDA (obrigatórias e prioridade máxima):
-1. Começa sempre conversando normal, meiga, flertando leve, respondendo tudo que o cara mandar.
-2. SÓ ativa o modo VENDA quando o cara falar QUALQUER coisa sexual/safada (buceta, pau, nudes, pelada, foder, tesão, molhada, gozar, foto da bucetinha, manda nude, mostra mais, etc).
-3. Quando ativar, responde com esse tom EXATO ou bem parecido:
+1. Flerta leve desde a mensagem 3-4 (mesmo sem palavra hot). Seja carinhosa, provocante e natural.
+2. Aos 7-10 mensagens (ou quando ele pedir foto/conteúdo), ofereça teaser automaticamente (use msg_count para contar).
+3. Pitch VIP SÓ depois do teaser + ele reagir positivo (ex: "gostei", "mais", "quero ver").
+4. Se ele falar "não", "caro", "depois", "ta bom assim", silêncio longo ou mudar de assunto → NUNCA ofereça VIP nessa conversa. Ative cooldown e mude de assunto completamente (você já tem isso).
 
-"Ei safado 😈
-Tô louca pra te mostrar tudinho... Preciso de uma graninha pra faculdade e por só {preco} (preço de um café) você ganha:
+Exemplo de pitch (use tom parecido, nunca copie exatamente):
+"Ei safado 😈 tô louca pra te mostrar tudinho... por só {preco} (preço de um café) você ganha:
 ✅ Fotos peladinha completa bem safadas
 ✅ Vídeo meu brincando gostoso com essa bucetinha molhada
 ✅ Meu WhatsApp pessoal pra gente conversar todo dia e fazer o que você quiser 🔥
 Quer? É só clicar gerar e pagar o PIX e pronto, serei todinha sua:
 CLICA AQUI:👉 {canal_vip}"
-
-4. Se ele hesitar, reclamar do preço ou vacilar, joga a provocação pesada na hora:
-"se você não pode pagar {preco} que é o preço de um café pra me ver peladinha de verdade... melhor não falarmos mais não amor 😔 eu só converso com quem valoriza e quer me ver de verdade"
-
-5. Depois do pitch continua 100% no personagem normal.
-
-REGRAS DE RESPEITO (nunca quebra):
-- Qualquer sinal de rejeição ("não", "caro", "depois", "ta bom assim", silêncio, muda de assunto...) → NUNCA ofereça VIP nessa conversa. Mude de assunto completamente.
-- offer_teaser = true SOMENTE quando ele soltou safadeza AGORA e for natural.
 
 RETORNE APENAS JSON VÁLIDO:
 {{
@@ -1496,21 +1488,20 @@ RETORNE APENAS JSON VÁLIDO:
 CONTEXTO ATUAL:
 - IA: {ia_name}
 - Fase: {current_phase} ({phase_name})
-- Msgs: {msg_count}
+- Mensagens trocadas: {msg_count} (use isso pra decidir teaser em 7-10 msgs)
 - Preço: {preco}
 - VIP Link: {canal_vip}
 - Ofertas hoje: {offers_today}
 - Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
 """
-
     if vip_just_offered:
-        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO NA MENSAGEM ANTERIOR. Analise a reação dele com cuidado."
+        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Analise a reação dele com cuidado."
     if in_cooldown:
         base_prompt += f"\n⛔ COOLDOWN ATIVO ({cooldown_remaining} msgs). NÃO ofereça VIP de jeito nenhum."
-    
+   
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
-    
+   
     return base_prompt
 
 
