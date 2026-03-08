@@ -2441,7 +2441,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(grok_response["response"])
         
         # 📢 REDIRECIONAMENTO PRO CANAL FREE
-        if grok_response.get("redirect_to_free", False):
+        if grok_response.get("redirect_to_free", False) and not r.exists(f"saw_free_invite:{uid}"):
             _router = get_router()
             _ia_config = _router.get_ia_config(uid=uid)
             canal_free = _ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))
