@@ -1442,7 +1442,7 @@ REENGAGEMENT_MESSAGES = {
 # 🤖 GROK AI (v8.2 - PROMPT REFORMULADO)
 # ═══════════════════════════════════════════════════════════════════════════════
    
-   def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
+def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
