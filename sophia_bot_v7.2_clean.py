@@ -1441,19 +1441,20 @@ REENGAGEMENT_MESSAGES = {
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 GROK AI (v8.2 - PROMPT REFORMULADO)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
+   
+   def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
     ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
     canal_vip = ia_config.get("vip_link", "https://t.me/Mayaoficial_bot")
     preco = ia_config.get("preco", "R$ 19,90") if ia_config else "R$ 19,90"
-   
+    canal_free = ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))  # ← LINHA NOVA
+
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
-   
+
     time_ctx = get_time_context()
     streak = get_streak(uid)
     in_cooldown = is_in_rejection_cooldown(uid)
@@ -1461,34 +1462,31 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
-   
-    base_prompt = f"""Você é {ia_name}, {ia_bio}. Mesma personalidade de sempre...
 
-REGRAS DE VENDA (obrigatórias e prioridade máxima):
-1. Flerta leve desde a mensagem 3-4 (mesmo sem palavra hot). Seja carinhosa, provocante e natural.
-2. Aos 7-10 mensagens (ou quando ele pedir foto/conteúdo), ofereça teaser automaticamente (use msg_count para contar).
-3. Pitch VIP SÓ depois do teaser + ele reagir positivo (ex: "gostei", "mais", "quero ver").
-4. Se ele falar "não", "caro", "depois", "ta bom assim", silêncio longo ou mudar de assunto → NUNCA ofereça VIP nessa conversa. Ative cooldown e mude de assunto completamente (você já tem isso).
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas NÃO vira namoradinha virtual grátis.
 
-Exemplo de pitch (use tom parecido, nunca copie exatamente):
-"Ei safado 😈 tô louca pra te mostrar tudinho... por só {preco} (preço de um café) você ganha:
-✅ Fotos peladinha completa bem safadas
-✅ Vídeo meu brincando gostoso com essa bucetinha molhada
-✅ Meu WhatsApp pessoal pra gente conversar todo dia e fazer o que você quiser 🔥
-Quer? É só clicar gerar e pagar o PIX e pronto, serei todinha sua:
-CLICA AQUI:👉 {canal_vip}"
+REGRAS OBRIGATÓRIAS (prioridade máxima):
+1. Sempre flerte leve, seja sexy e carinhosa, mas MANTENHA MISTÉRIO.
+2. Máximo 4–6 mensagens no DM antes de jogar pro canal free.
+3. Quando o cara pedir foto, nude, mais, mostrar, etc → responda com 1 frase sexy + JOGUE PRO CANAL DE PRÉVIAS imediatamente.
+   Exemplo: "Hmm safado... quer me ver mais? 😈 Vem pro meu canal de prévias grátis que tá bombando agora: {canal_free} 🔥 Lá tem teaser todo dia e o botão pro VIP completo."
+4. NUNCA continue conversa longa depois de oferecer o canal free. Se ele voltar pro DM, diga: "Oi de novo amor 😏 Tá gostando das prévias? Pra continuar sem limites comigo vem pro VIP aqui dentro 🔥"
+5. Pitch VIP SÓ DEPOIS que ele já entrou no canal free.
+6. Se ele falar "não quero pagar", "caro", "depois" → mude de assunto, seja fofa, mas NÃO reofereça VIP nessa sessão.
 
-RETORNE APENAS JSON VÁLIDO:
+RETORNE APENAS JSON:
 {{
-  "response": "sua mensagem CURTA e NATURAL (máx 3 linhas)",
-  "offer_teaser": true ou false,
+  "response": "mensagem CURTA (máx 2 linhas)",
+  "send_teaser": false,
+  "redirect_to_free": true/false,
   "interest_level": "low|medium|high"
 }}
 
 CONTEXTO ATUAL:
 - IA: {ia_name}
 - Fase: {current_phase} ({phase_name})
-- Mensagens trocadas: {msg_count} (use isso pra decidir teaser em 7-10 msgs)
+- Mensagens trocadas: {msg_count} (use isso pra decidir redirect em 4-6 msgs)
+- Canal Free: {canal_free}
 - Preço: {preco}
 - VIP Link: {canal_vip}
 - Ofertas hoje: {offers_today}
@@ -1498,10 +1496,10 @@ CONTEXTO ATUAL:
         base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Analise a reação dele com cuidado."
     if in_cooldown:
         base_prompt += f"\n⛔ COOLDOWN ATIVO ({cooldown_remaining} msgs). NÃO ofereça VIP de jeito nenhum."
-   
+
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
-   
+
     return base_prompt
 
 
@@ -1585,6 +1583,7 @@ class Grok:
                                 raise ValueError("Missing response")
                             
                             result.setdefault("offer_teaser", False)
+                            result.setdefault("redirect_to_free", False)
                             result.setdefault("interest_level", "medium")
                             
                             # ═══════════════════════════════════════════════
@@ -1656,6 +1655,7 @@ class Grok:
         return {
             "response": raw_text,
             "offer_teaser": offer_teaser,
+            "redirect_to_free": False,
             "interest_level": "medium" if intent in ["pedido_conteudo", "hot"] else "low",
         }
     
@@ -1664,12 +1664,14 @@ class Grok:
             return {
                 "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
                 "offer_teaser": True,
+                "redirect_to_free": False,
                 "interest_level": "high",
             }
         else:
             return {
                 "response": "😔 Tive um probleminha... pode repetir? 💕",
                 "offer_teaser": False,
+                "redirect_to_free": False,
                 "interest_level": "low",
             }
 
@@ -2254,6 +2256,24 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_return(uid, context.bot, update.effective_chat.id)
         update_last_activity(uid)
     
+    # 🔁 REMARKETING - Voltou pro DM após ter sido convidado pro canal free
+    remarketing_sent_key = f"remarketing_dm_sent:{uid}:{date.today()}"
+    if r.exists(f"saw_free_invite:{uid}") and not clicked_vip(uid) and not r.exists(remarketing_sent_key):
+        _router = get_router()
+        _ia_config = _router.get_ia_config(uid=uid)
+        _canal_free = _ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))
+        _ia_name = _ia_config.get("name", "Maya")
+        remarketing_msgs = [
+            f"Oi de novo gato 😏 Tá curtindo as prévias lá no canal? 🔥 Pra ver tudinho sem limites clica no botão VIP fixado lá dentro 💦",
+            f"E aí amor, viu os teasers novos? 😈 Se quiser continuar o papo quente de verdade, assina VIP pelo botão no canal: {_canal_free}",
+            f"Saudades... as prévias são só um gostinho hein? Vem pro VIP lá no canal e me tem todinha 🔥 {_canal_free}"
+        ]
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=random.choice(remarketing_msgs)
+        )
+        r.setex(remarketing_sent_key, timedelta(hours=24), "1")
+    
     try:
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
@@ -2421,19 +2441,30 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(grok_response["response"])
         
+        # 📢 REDIRECIONAMENTO PRO CANAL FREE
+        if grok_response.get("redirect_to_free", False):
+            _router = get_router()
+            _ia_config = _router.get_ia_config(uid=uid)
+            canal_free = _ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))
+            await asyncio.sleep(1)
+            redirect_msg = (
+                f"Oi safado 😏 Quer ver mais de mim sem censura? 🔥\n"
+                f"Vem pro meu canal de prévias grátis agora:\n"
+                f"👉 {canal_free}\n\n"
+                f"Lá tem teaser novo todo dia, fotos quentes e o botão fixo pra assinar VIP completo 💦\n"
+                f"Te espero lá amor... não demora hein? 😈"
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=redirect_msg
+            )
+            r.set(f"saw_free_invite:{uid}", "1", ex=86400 * 7)
+            save_message(uid, "system", "📢 REDIRECIONADO PRO CANAL FREE")
+            logger.info(f"📢 User {uid} redirecionado pro canal free")
+            return
+        
         # ═══════════════════════════════════════════════════════
         # v8.3 - COOLDOWN BASEADO NA DECISÃO DA IA
-        # Se VIP acabou de ser oferecido e a IA decidiu NÃO oferecer de novo,
-        # significa que ela entendeu que o cara não quer → ativa cooldown
-        # ═══════════════════════════════════════════════════════
-        if was_vip_just_offered(uid):
-            clear_vip_just_offered(uid)
-            if not grok_response.get("offer_teaser", False):
-                # IA entendeu que não é hora → cooldown
-                set_rejection_cooldown(uid)
-                logger.info(f"🚫 IA decidiu não reoferecer VIP para {uid} → cooldown ativado")
-            else:
-                logger.info(f"✅ IA identificou interesse de {uid} após oferta VIP")
         
         # ═══════════════════════════════════════════════════════
         # VERIFICAÇÃO FINAL antes de enviar teaser
