@@ -2504,11 +2504,12 @@ import admin_commands
 
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    admin_funcs = {'get_all_active_users': get_all_active_users, 'get_current_phase': get_current_phase, 'saw_teaser': saw_teaser, 'clicked_vip': clicked_vip, 'is_in_rejection_cooldown': is_in_rejection_cooldown, 'get_funnel_stats': get_funnel_stats, 'reset_daily_count': reset_daily_count, 'add_bonus_msgs': add_bonus_msgs, 'get_hours_since_activity': get_hours_since_activity, 'add_to_blacklist': add_to_blacklist}
+    admin_funcs = {'get_redis': lambda: r, 'get_all_active_users': get_all_active_users, 'get_current_phase': get_current_phase, 'saw_teaser': saw_teaser, 'clicked_vip': clicked_vip, 'is_in_rejection_cooldown': is_in_rejection_cooldown, 'get_funnel_stats': get_funnel_stats, 'reset_daily_count': reset_daily_count, 'add_bonus_msgs': add_bonus_msgs, 'get_hours_since_activity': get_hours_since_activity, 'add_to_blacklist': add_to_blacklist}
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("stats", lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("funnel", lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("reset", lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)))
+    application.add_handler(CommandHandler("resetall", lambda u, c: admin_commands.resetall_cmd(u, c, ADMIN_IDS, admin_funcs)))  # ← AQUI
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
