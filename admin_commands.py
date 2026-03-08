@@ -166,6 +166,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_IDS
         "/stats - Estatísticas gerais\n"
         "/funnel - Funil de conversão\n"
         "/reset <id> - Reseta limite diário\n"
+        "/resetall <id> - Reseta TUDO do usuário\n"  # ← AQUI
         "/givebonus <id> <qtd> - Dá bônus de mensagens\n"
         "/broadcast - Sistema de broadcast\n"
         "/help - Esta mensagem",
