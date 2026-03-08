@@ -235,8 +235,8 @@ LIMITE_DIARIO = 30
 
 # v8.2 - CONTROLE DE INSISTÊNCIA
 VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
-MAX_VIP_OFFERS_PER_SESSION = 3      # máximo de ofertas VIP por dia
-TEASER_COOLDOWN_MESSAGES = 5        # msgs mínimas entre teasers
+MAX_VIP_OFFERS_PER_SESSION = 999     # máximo de ofertas VIP por dia
+TEASER_COOLDOWN_MESSAGES = 3        # msgs mínimas entre teasers
 
 REENGAGEMENT_HOURS = [2, 24, 72]
 FOLLOWUP_INTERVAL_HOURS = 12
