@@ -1,3 +1,4 @@
+
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -1267,46 +1268,22 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
     preco = ia_config.get("preco", PRECO_VIP) if ia_config else PRECO_VIP
 
-    # Prompt customizado do ias_config.json (se existir usa ele, senão usa o padrão Apex)
-    prompt_personality = ia_config.get("prompt_personality", "") if ia_config else ""
-    prompt_rules = ia_config.get("prompt_rules", "") if ia_config else ""
-
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
 
     time_ctx = get_time_context()
+    streak = get_streak(uid)
     in_cooldown = is_in_rejection_cooldown(uid)
     cooldown_remaining = get_rejection_cooldown_remaining(uid)
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
+    msgs_since = get_msgs_since_offer(uid)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Se o ias_config tem prompt_rules próprio → usa ele (substitui as variáveis)
-    # Senão → usa o prompt Apex padrão
+    # NOVO PROMPT APEX: funil direto VIP, sem canal free, com pergunta prévia
     # ─────────────────────────────────────────────────────────────────────────
-    if prompt_rules:
-        # Substitui placeholders do config
-        custom_rules = prompt_rules.replace("[PRECO]", preco).replace("[VIPLINK]", canal_vip)
-        custom_personality = prompt_personality or f"Você é {ia_name}, {ia_bio}."
-
-        base_prompt = f"""{custom_personality}
-
-{custom_rules}
-
-CONTEXTO ATUAL:
-- IA: {ia_name}
-- Mensagens trocadas: {msg_count}
-- Período do dia: {time_ctx['period']}
-- VIP Link: {canal_vip}
-- Preço: {preco}
-- Ofertas hoje: {offers_today}
-- Cooldown ativo: {in_cooldown} ({cooldown_remaining} msgs restantes)
-- Intent detectado: {intent}
-"""
-    else:
-        # Prompt Apex padrão (fallback quando não tem config customizado)
-        base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas VAI DIRETO PRO FUNIL.
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas VAI DIRETO PRO FUNIL.
 
 REGRAS OBRIGATÓRIAS (prioridade máxima):
 1. Máximo 2-3 mensagens antes de oferecer conteúdo.
@@ -1321,7 +1298,7 @@ REGRAS OBRIGATÓRIAS (prioridade máxima):
    - "Não sei pagar" / "como paga" / "pix" → responda APENAS: "Só clicar no botão que aparece aqui embaixo, abre direto o pagamento 💳 Super rápido!"
    - "Manda mais" → "No VIP tem MILHARES, aqui é só preview 😏"
    - "Depois" → "Tranquilo, mas o preço promocional acaba em poucas horas 😏"
-8. ⛔ NUNCA invente links, URLs, chaves PIX ou dados de pagamento. O botão de pagamento é enviado automaticamente pelo sistema.
+8. ⛔ NUNCA invente links, URLs, chaves PIX ou dados de pagamento. O botão de pagamento é enviado automaticamente pelo sistema — você NÃO precisa passar nenhum link.
 
 RETORNE APENAS JSON:
 {{
