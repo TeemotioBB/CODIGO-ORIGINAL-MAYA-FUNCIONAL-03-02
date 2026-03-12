@@ -1559,7 +1559,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥{#FF0000}", url=canal_vip)
+            InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥", url=canal_vip)
         ]])
 
         await bot.send_message(
