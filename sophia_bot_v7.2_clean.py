@@ -2150,19 +2150,34 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(grok_response["response"])
 
         # ─────────────────────────────────────────────────────────────────────
-        # 🔁 REENVIO DO BOTÃO VIP — quando usuário confirma depois do pitch
-        # Se pitch já foi enviado e usuário diz sim/quero/cadê → reenvia botão
+        # 🔁 REENVIO DO BOTÃO VIP
+        # Dispara em 2 situações:
+        # 1. Usuário confirma (sim/quero/cadê/onde...)
+        # 2. IA menciona "botão" na própria resposta (clica no botão, botão abaixo...)
         # ─────────────────────────────────────────────────────────────────────
         CONFIRM_KEYWORDS = [
             "sim", "quero", "cadê", "cade", "onde", "manda", "envia",
             "pode mandar", "to pronto", "tô pronto", "bora", "vamos",
             "me manda", "me passa", "qual o link", "qual link"
         ]
+        IA_BUTTON_KEYWORDS = [
+            "botão", "botao", "clica no botão", "clica no botao",
+            "botão abaixo", "botao abaixo", "clica abaixo",
+            "link abaixo", "aqui embaixo", "embaixo"
+        ]
         text_lower_confirm = text.lower().strip()
+        ia_response_lower = grok_response["response"].lower()
         already_pitched = saw_teaser(uid)
         is_confirm = any(kw in text_lower_confirm for kw in CONFIRM_KEYWORDS)
+        ia_mentioned_button = any(kw in ia_response_lower for kw in IA_BUTTON_KEYWORDS)
 
-        if already_pitched and is_confirm and not grok_response.get("offer_teaser", False):
+        should_resend_button = (
+            already_pitched
+            and not grok_response.get("offer_teaser", False)
+            and (is_confirm or ia_mentioned_button)
+        )
+
+        if should_resend_button:
             try:
                 _router = get_router()
                 _ia_config = _router.get_ia_config(uid=uid)
@@ -2174,11 +2189,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1)
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text="Tá aqui amor! 👇 Só clicar e já entra! 🔥",
+                    text="👇",
                     reply_markup=keyboard
                 )
-                logger.info(f"🔁 Botão VIP reenviado para {uid} (confirmação pós-pitch)")
-                save_message(uid, "system", "🔁 BOTÃO VIP REENVIADO (confirmação)")
+                reason_log = "ia_mencionou_botao" if ia_mentioned_button else "confirmacao_usuario"
+                logger.info(f"🔁 Botão VIP reenviado para {uid} ({reason_log})")
+                save_message(uid, "system", f"🔁 BOTÃO VIP REENVIADO ({reason_log})")
             except Exception as e:
                 logger.error(f"Erro reenvio botão VIP: {e}")
 
