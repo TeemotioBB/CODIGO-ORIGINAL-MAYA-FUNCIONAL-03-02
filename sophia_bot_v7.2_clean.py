@@ -2150,10 +2150,39 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(grok_response["response"])
 
         # ─────────────────────────────────────────────────────────────────────
-        # ← REMOVIDO: bloco redirect_to_free (canal free suprimido no Apex)
+        # 🔁 REENVIO DO BOTÃO VIP — quando usuário confirma depois do pitch
+        # Se pitch já foi enviado e usuário diz sim/quero/cadê → reenvia botão
         # ─────────────────────────────────────────────────────────────────────
+        CONFIRM_KEYWORDS = [
+            "sim", "quero", "cadê", "cade", "onde", "manda", "envia",
+            "pode mandar", "to pronto", "tô pronto", "bora", "vamos",
+            "me manda", "me passa", "qual o link", "qual link"
+        ]
+        text_lower_confirm = text.lower().strip()
+        already_pitched = saw_teaser(uid)
+        is_confirm = any(kw in text_lower_confirm for kw in CONFIRM_KEYWORDS)
 
-        # Verifica se deve enviar teaser
+        if already_pitched and is_confirm and not grok_response.get("offer_teaser", False):
+            try:
+                _router = get_router()
+                _ia_config = _router.get_ia_config(uid=uid)
+                _canal_vip = _ia_config.get("vip_link", CANAL_VIP_LINK)
+
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥", url=_canal_vip)
+                ]])
+                await asyncio.sleep(1)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Tá aqui amor! 👇 Só clicar e já entra! 🔥",
+                    reply_markup=keyboard
+                )
+                logger.info(f"🔁 Botão VIP reenviado para {uid} (confirmação pós-pitch)")
+                save_message(uid, "system", "🔁 BOTÃO VIP REENVIADO (confirmação)")
+            except Exception as e:
+                logger.error(f"Erro reenvio botão VIP: {e}")
+
+        # Verifica se deve enviar teaser completo
         should_offer = grok_response.get("offer_teaser", False)
 
         if should_offer:
