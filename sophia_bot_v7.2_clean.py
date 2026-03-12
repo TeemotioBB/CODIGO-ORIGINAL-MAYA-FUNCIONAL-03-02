@@ -1,16 +1,14 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                       🔥 SOPHIA BOT v8.2 - ANTI-SPAM FIX                    ║
+║                       🔥 SOPHIA BOT v8.3 - APEX FUNIL FIX                   ║
 ║                                                                              ║
-║  CORREÇÕES v8.2:                                                            ║
-║  ✅ Detecção de REJEIÇÃO (não, para, chega, já falou)                      ║
-║  ✅ Cooldown após rejeição (não oferece VIP por X mensagens)               ║
-║  ✅ Prompt da IA RESPEITA quando lead diz não                              ║
-║  ✅ Anti-repetição melhorado                                               ║
-║  ✅ Respostas mais naturais e variadas                                     ║
-║  ✅ Limite de ofertas VIP por sessão                                       ║
-║  ✅ Bot muda de assunto quando rejeitado                                   ║
+║  ALTERAÇÕES v8.3 APEX:                                                      ║
+║  ✅ Prompt novo: pergunta prévia antes de oferecer teaser                  ║
+║  ✅ Sem redirect pro canal free (funil direto VIP)                         ║
+║  ✅ send_teaser_and_apex com instrução PIX + urgência                      ║
+║  ✅ Detecção de intent pix_help                                            ║
+║  ✅ Objeções tratadas no prompt                                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -49,11 +47,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔧 ENVIRONMENT VARIABLES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 v8.3 - SISTEMA DE FASES
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -66,13 +59,11 @@ PHASES = {
     "RELATIONSHIP": {"id": 5, "name": "Relationship", "msg_limit": 999}
 }
 
-# Limites de mensagens por fase
 ONBOARDING_MSG_LIMIT = 5
 ENGAGEMENT_MSG_LIMIT = 15
 PROVOCATION_MSG_LIMIT = 25
 VIP_PITCH_MSG_LIMIT = 35
 
-# Sistema de retorno
 RETURN_WINDOW_HOURS = 6
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -176,7 +167,7 @@ CONTEXTUAL_PITCHES = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ATTACHMENT_KEYWORDS = {
-    "alto": {  # level 10
+    "alto": {
         "keywords": [
             "te amo", "amo voce", "amo vc", "amor da minha vida",
             "apaixonado", "apaixonada", "casar", "namorar",
@@ -184,7 +175,7 @@ ATTACHMENT_KEYWORDS = {
         ],
         "level": 10
     },
-    "medio": {  # level 6
+    "medio": {
         "keywords": [
             "especial", "diferente", "unica", "incrivel",
             "perfeita", "maravilhosa", "carinho", "sentimento",
@@ -192,7 +183,7 @@ ATTACHMENT_KEYWORDS = {
         ],
         "level": 6
     },
-    "baixo": {  # level 3
+    "baixo": {
         "keywords": [
             "gostando", "curtindo", "legal voce", "gosto de falar",
             "gosto de conversar", "interessante", "bacana"
@@ -233,10 +224,9 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 
 LIMITE_DIARIO = 30
 
-# v8.2 - CONTROLE DE INSISTÊNCIA
-VIP_COOLDOWN_AFTER_REJECT = 8       # msgs sem oferecer VIP após rejeição
-MAX_VIP_OFFERS_PER_SESSION = 999     # máximo de ofertas VIP por dia
-TEASER_COOLDOWN_MESSAGES = 3        # msgs mínimas entre teasers
+VIP_COOLDOWN_AFTER_REJECT = 8
+MAX_VIP_OFFERS_PER_SESSION = 999
+TEASER_COOLDOWN_MESSAGES = 3
 
 REENGAGEMENT_HOURS = [2, 24, 72]
 FOLLOWUP_INTERVAL_HOURS = 12
@@ -248,7 +238,7 @@ MODELO = "grok-4-1-fast-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 
-logger.info(f"🚀 Sophia Bot v8.2 ANTI-SPAM FIX iniciando...")
+logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
 logger.info(f"💎 Canal VIP: {CANAL_VIP_LINK}")
 logger.info(f"💰 Preço VIP: {PRECO_VIP}")
@@ -279,7 +269,7 @@ FOTOS_TEASER = [
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
 FOTO_BEM_VINDA = "https://i.postimg.cc/0NghLJD3/image.png"
 
-VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"  # Coloque a URL do vídeo hospedado
+VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"
 
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
@@ -308,18 +298,6 @@ INTERESSE_VIP_KEYWORDS = [
     'preço', 'preco', 'valor', 'custa', 'custo', 'plano',
     'assinatura', 'assinar', 'acesso', 'liberado'
 ]
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🚫 v8.2 - DETECÇÃO DE REJEIÇÃO
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🚫 v8.3 - DETECÇÃO DE REJEIÇÃO REMOVIDA DO CÓDIGO
-# A IA decide se oferece VIP ou não.
-# Código só mantém travas de segurança (limite diário, cooldown mínimo).
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Palavras removidas - IA cuida de tudo agora
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🗄️ REDIS KEYS
@@ -352,10 +330,6 @@ def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
 def funnel_key(uid): return f"funnel:{uid}"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🗄️ v8.3 - REDIS KEYS PARA SISTEMA DE FASES
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def current_phase_key(uid): return f"phase:{uid}"
 def message_count_key(uid): return f"msg_count:{uid}"
 def used_responses_key(uid, pool_name): return f"used_resp:{uid}:{pool_name}"
@@ -363,10 +337,8 @@ def attachment_level_key(uid): return f"attachment:{uid}"
 def is_attached_key(uid): return f"is_attached:{uid}"
 def return_count_key(uid): return f"return_count:{uid}"
 def last_return_pitch_key(uid): return f"last_return_pitch:{uid}"
-
 def onboarding_choice_key(uid): return f"onboard_choice:{uid}"
 
-# v8.2 - NOVAS CHAVES
 def rejection_cooldown_key(uid): return f"reject_cooldown:{uid}"
 def vip_offers_today_key(uid): return f"vip_offers:{uid}:{date.today()}"
 def msgs_since_last_offer_key(uid): return f"msgs_since_offer:{uid}"
@@ -374,11 +346,10 @@ def last_offer_rejected_key(uid): return f"offer_rejected:{uid}"
 def vip_just_offered_key(uid): return f"vip_just_offered:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🚫 v8.2 - FUNÇÕES DE COOLDOWN/REJEIÇÃO
+# 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def set_rejection_cooldown(uid, msgs=None):
-    """Ativa cooldown — chamado quando IA indica que não deve oferecer VIP"""
     try:
         cooldown_msgs = msgs or VIP_COOLDOWN_AFTER_REJECT
         r.set(rejection_cooldown_key(uid), cooldown_msgs)
@@ -388,7 +359,6 @@ def set_rejection_cooldown(uid, msgs=None):
         pass
 
 def decrement_rejection_cooldown(uid):
-    """Decrementa cooldown a cada mensagem do usuário"""
     try:
         current = r.get(rejection_cooldown_key(uid))
         if current:
@@ -404,14 +374,12 @@ def decrement_rejection_cooldown(uid):
         pass
 
 def is_in_rejection_cooldown(uid):
-    """Verifica se está em cooldown"""
     try:
         return r.exists(rejection_cooldown_key(uid))
     except:
         return False
 
 def get_rejection_cooldown_remaining(uid):
-    """Retorna msgs restantes no cooldown"""
     try:
         val = r.get(rejection_cooldown_key(uid))
         return int(val) if val else 0
@@ -419,14 +387,12 @@ def get_rejection_cooldown_remaining(uid):
         return 0
 
 def get_vip_offers_today(uid):
-    """Conta ofertas VIP feitas hoje"""
     try:
         return int(r.get(vip_offers_today_key(uid)) or 0)
     except:
         return 0
 
 def increment_vip_offers(uid):
-    """Incrementa contador de ofertas VIP"""
     try:
         r.incr(vip_offers_today_key(uid))
         r.expire(vip_offers_today_key(uid), timedelta(days=1))
@@ -434,24 +400,15 @@ def increment_vip_offers(uid):
         pass
 
 def can_offer_vip(uid):
-    """
-    Verifica se pode oferecer VIP.
-    Retorna (bool, reason)
-    """
-    # Em cooldown por rejeição?
     if is_in_rejection_cooldown(uid):
         remaining = get_rejection_cooldown_remaining(uid)
         return False, f"cooldown ({remaining} msgs restantes)"
-    
-    # Já ofereceu demais hoje?
     offers_today = get_vip_offers_today(uid)
     if offers_today >= MAX_VIP_OFFERS_PER_SESSION:
         return False, f"limite diário ({offers_today}/{MAX_VIP_OFFERS_PER_SESSION})"
-    
     return True, "ok"
 
 def increment_msgs_since_offer(uid):
-    """Conta msgs desde última oferta"""
     try:
         r.incr(msgs_since_last_offer_key(uid))
         r.expire(msgs_since_last_offer_key(uid), timedelta(days=1))
@@ -459,7 +416,6 @@ def increment_msgs_since_offer(uid):
         pass
 
 def reset_msgs_since_offer(uid):
-    """Reseta contador após nova oferta"""
     try:
         r.set(msgs_since_last_offer_key(uid), 0)
         r.expire(msgs_since_last_offer_key(uid), timedelta(days=1))
@@ -472,12 +428,7 @@ def get_msgs_since_offer(uid):
     except:
         return 99
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🧠 v8.2 - DETECÇÃO DE REJEIÇÃO IMPLÍCITA
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def mark_vip_just_offered(uid):
-    """Marca que acabou de oferecer VIP — IA será informada"""
     try:
         r.setex(vip_just_offered_key(uid), timedelta(hours=2), "1")
     except:
@@ -603,7 +554,6 @@ def update_streak(uid):
         today = date.today().isoformat()
         yesterday = (date.today() - timedelta(days=1)).isoformat()
         last_day = r.get(streak_last_day_key(uid))
-        
         if last_day == today:
             return get_streak(uid), False
         elif last_day == yesterday:
@@ -692,11 +642,7 @@ def is_response_recent(uid, response):
     try:
         recent = r.lrange(recent_responses_key(uid), 0, 14)
         resp_hash = get_response_hash(response)
-        if resp_hash in recent:
-            return True
-        # v8.2 - Também detecta respostas muito similares
-        # Checa se as primeiras 30 chars são iguais a alguma recente
-        return False
+        return resp_hash in recent
     except:
         return False
 
@@ -718,7 +664,7 @@ MOOD_PATTERNS = {
     "angry": [r"\b(raiva|ódio|puto|irritad[oa])\b"],
     "happy": [r"\b(feliz|alegr|animad[oa]|ótimo|maravilh)\b"],
     "horny": [r"\b(nude|nudes|pelad[oa]|sex|transar|foder)\b"],
-    "annoyed": [r"\b(porra|caralho|saco|chega|para)\b"]  # v8.2
+    "annoyed": [r"\b(porra|caralho|saco|chega|para)\b"]
 }
 
 def detect_mood(text):
@@ -949,31 +895,48 @@ def get_last_reengagement(uid):
         return 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔍 DETECÇÃO DE INTENÇÃO (v8.2 - COM REJEIÇÃO)
+# 🔍 DETECÇÃO DE INTENÇÃO (v8.3 APEX - COM PIX_HELP)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_intent(text):
-    """Detecção simples de intenção — apenas para contexto/logging.
-    A IA é quem realmente decide o que fazer."""
+    """Detecta intenção do usuário — inclui pix_help para objeções de pagamento."""
     if not text:
         return "neutral"
 
+    text_lower = text.lower()
+
+    # ← NOVO: Detecção de dúvidas sobre pagamento PIX
+    if any(word in text_lower for word in [
+        "pix", "pagar", "como paga", "como pago", "qr", "copia e cola",
+        "chave pix", "transferência", "transferencia", "pagamento", "não sei pagar",
+        "nao sei pagar", "como faz", "como funciona"
+    ]):
+        return "pix_help"
+
+    for keyword in PEDIDO_CONTEUDO_KEYWORDS:
+        if keyword in text_lower:
+            return "pedido_conteudo"
+
+    for keyword in INTERESSE_VIP_KEYWORDS:
+        if keyword in text_lower:
+            return "interesse_vip"
+
+    for keyword in HOT_KEYWORDS:
+        if keyword in text_lower:
+            return "hot"
+
+    return "neutral"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔍 v8.3 - DETECÇÃO DE APEGO EMOCIONAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_emotional_attachment(text):
-    """
-    Detecta apego emocional na mensagem do usuário.
-    Retorna SEMPRE: {"attached": bool, "level": int}
-    """
     if not text:
         return {"attached": False, "level": 0}
 
     text_lower = text.lower()
 
-    # Ordem: do apego mais forte para o mais fraco
     for level_name in ["alto", "medio", "baixo"]:
         level_data = ATTACHMENT_KEYWORDS[level_name]
         for keyword in level_data["keywords"]:
@@ -984,17 +947,13 @@ def detect_emotional_attachment(text):
                     "level": level
                 }
 
-    # <<<< ESSA LINHA É OBRIGATÓRIA >>>>
-    # Se nenhuma palavra-chave foi encontrada → retorna o padrão
     return {"attached": False, "level": 0}
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 v8.3 - FUNÇÕES DE GERENCIAMENTO DE FASES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_current_phase(uid):
-    """Retorna a fase atual do usuário (0-5)"""
     try:
         phase = r.get(current_phase_key(uid))
         return int(phase) if phase else 0
@@ -1002,7 +961,6 @@ def get_current_phase(uid):
         return 0
 
 def set_current_phase(uid, phase_id):
-    """Define a fase atual do usuário"""
     try:
         r.set(current_phase_key(uid), phase_id)
         r.expire(current_phase_key(uid), timedelta(days=30))
@@ -1010,21 +968,18 @@ def set_current_phase(uid, phase_id):
         pass
 
 def get_phase_name(phase_id):
-    """Retorna o nome da fase pelo ID"""
     for phase_name, data in PHASES.items():
         if data["id"] == phase_id:
             return phase_name
     return "UNKNOWN"
 
 def get_message_count(uid):
-    """Retorna contador de mensagens do usuário"""
     try:
         return int(r.get(message_count_key(uid)) or 0)
     except:
         return 0
 
 def increment_message_count(uid):
-    """Incrementa contador de mensagens"""
     try:
         r.incr(message_count_key(uid))
         r.expire(message_count_key(uid), timedelta(days=30))
@@ -1032,148 +987,67 @@ def increment_message_count(uid):
         pass
 
 def check_phase_transition(uid):
-    """
-    Verifica se usuário deve avançar de fase baseado no número de mensagens.
-    Não afeta fase 5 (RELATIONSHIP) - essa é permanente quando atingida.
-    """
     try:
         current_phase = get_current_phase(uid)
-        
-        # Fase 5 é permanente
         if current_phase == PHASES["RELATIONSHIP"]["id"]:
             return
-        
         msg_count = get_message_count(uid)
-        
-        # Verifica transições
         if msg_count >= VIP_PITCH_MSG_LIMIT and current_phase < PHASES["VIP_PITCH"]["id"]:
             set_current_phase(uid, PHASES["VIP_PITCH"]["id"])
             logger.info(f"📊 User {uid} → Fase 3 (VIP_PITCH)")
-        
         elif msg_count >= PROVOCATION_MSG_LIMIT and current_phase < PHASES["PROVOCATION"]["id"]:
             set_current_phase(uid, PHASES["PROVOCATION"]["id"])
             logger.info(f"📊 User {uid} → Fase 2 (PROVOCATION)")
-        
         elif msg_count >= ENGAGEMENT_MSG_LIMIT and current_phase < PHASES["ENGAGEMENT"]["id"]:
             set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
             logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
-        
         elif msg_count >= ONBOARDING_MSG_LIMIT and current_phase < PHASES["ONBOARDING"]["id"] + 1:
             set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
             logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
-    
     except Exception as e:
         logger.error(f"Erro check_phase_transition: {e}")
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 v8.3 - SISTEMA ANTI-REPETIÇÃO DE RESPOSTAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_unique_response(uid, pool_name, custom_pool=None):
-    """
-    Retorna uma resposta única do pool que não foi usada recentemente.
-    Rastreia últimas 15 respostas para evitar repetição.
-    """
     try:
-        # Usa pool customizado ou pool padrão
         pool = custom_pool if custom_pool else RESPONSE_POOLS.get(pool_name, [])
-        
         if not pool:
             return "Oi amor 💕"
-        
-        # Pega respostas já usadas
         used_key = used_responses_key(uid, pool_name)
-        used = r.lrange(used_key, 0, 14)  # Últimas 15
-        
-        # Filtra respostas não usadas
+        used = r.lrange(used_key, 0, 14)
         available = [resp for resp in pool if resp not in used]
-        
-        # Se todas foram usadas, reseta
         if not available:
             r.delete(used_key)
             available = pool
-        
-        # Escolhe aleatoriamente
         response = random.choice(available)
-        
-        # Adiciona aos usados
         r.lpush(used_key, response)
         r.ltrim(used_key, 0, 14)
         r.expire(used_key, timedelta(days=7))
-        
         return response
-    
     except Exception as e:
         logger.error(f"Erro get_unique_response: {e}")
         return random.choice(pool) if pool else "Oi amor 💕"
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 v8.3 - SISTEMA DE RETORNO (6h+)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def handle_return(uid, bot, chat_id):
-    """
-    Detecta retorno do usuário após 6h+ e envia pitch de saudade.
-    """
     try:
-        # Evita spam - só 1 pitch de retorno por dia
         if r.exists(last_return_pitch_key(uid)):
             return
-        
-        # Marca que enviou pitch de retorno
         r.setex(last_return_pitch_key(uid), timedelta(hours=24), "1")
-        
-        # Pega resposta única do pool de retorno
         message = get_unique_response(uid, "retorno")
-        
-        # Envia mensagem
         await bot.send_message(chat_id=chat_id, text=message)
-        
-        # Incrementa contador de retornos
         r.incr(return_count_key(uid))
         r.expire(return_count_key(uid), timedelta(days=30))
-        
         logger.info(f"🔄 Pitch de retorno enviado para {uid}")
         save_message(uid, "system", "PITCH DE RETORNO (6h+)")
-        
     except Exception as e:
         logger.error(f"Erro handle_return: {e}")
-
-
-
-    
-    text_lower = text.lower()
-    
-    # Checa por nível (do mais alto pro mais baixo)
-    for level_name in ["alto", "medio", "baixo"]:
-        level_data = ATTACHMENT_KEYWORDS[level_name]
-        for keyword in level_data["keywords"]:
-            if keyword in text_lower:
-                return {
-                    "attached": True if level_data["level"] >= 6 else False,
-                    "level": level_data["level"]
-                }
-    
-    return {"attached": False, "level": 0}
-
-    
-    text_lower = text.lower()
-    
-    for keyword in PEDIDO_CONTEUDO_KEYWORDS:
-        if keyword in text_lower:
-            return "pedido_conteudo"
-    
-    for keyword in INTERESSE_VIP_KEYWORDS:
-        if keyword in text_lower:
-            return "interesse_vip"
-    
-    for keyword in HOT_KEYWORDS:
-        if keyword in text_lower:
-            return "hot"
-    
-    return "neutral"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 FUNÇÕES AUXILIARES
@@ -1239,49 +1113,33 @@ MENSAGEM_INICIO = (
     "Tô louca pra saber o que você quer comigo 😈"
 )
 
-# ═══════════════════════════════════════════════════════════
-# 🔄 MENSAGENS DE RECUPERAÇÃO PÓS /START
-# ═══════════════════════════════════════════════════════════
-
 RECOVERY_MESSAGES = {
-    # NÍVEL 1: 10 minutos (Nudge leve)
     "10min": [
         "Ei... sumiu? 🥺",
         "Tímido? 😏",
         "Me deixou no vácuo? 😢",
         "Oi?? 💭",
     ],
-    
-    # NÍVEL 2: 2 horas (Provocação + curiosidade)
     "2h": [
         "Amor, tô aqui esperando você me chamar... 🥺\n\nNão vai nem dizer oi? 💕",
-        
         "Ei gato, você viu minhas fotos e sumiu? 😏\n\nTô curiosa pra saber o que achou... 🔥",
-        
         "Oi amor... tô achando que você ficou com vergonha 😊\n\nRelaxaaa, só quero conversar 💕",
-        
         "Pensei que você fosse diferente... 🥺\n\nVai me deixar aqui sozinha? 💔",
     ],
-    
-    # NÍVEL 3: 12 horas (Pitch de conteúdo)
     "12h": [
         "Amor, ainda tá aí? 👀\n\n"
         "Sabe... eu não costumo fazer isso, mas...\n\n"
         "Separei umas fotos BEM especiais pra você 🔥\n\n"
         "Quer ver? Só me chamar... 😈",
-        
         "Ei gato... 12 horas e nada? 🥺\n\n"
         "Olha, vou ser sincera:\n"
         "Tenho conteúdo EXCLUSIVO que sei que você vai gostar... 🔥\n\n"
         "Tô te esperando pra mostrar 😏",
-        
         "Tá me ignorando mesmo? 😢\n\n"
         "Pensei que você quisesse me conhecer de verdade...\n\n"
         "Tenho coisas que NÃO mostro pra qualquer um 🔥\n"
         "Mas você parece especial... 💕",
     ],
-    
-    # NÍVEL 4: 24 horas (Última chance + urgência)
     "24h": [
         "⚠️ **ÚLTIMA CHANCE**\n\n"
         "Amor, 24h e você não me deu bola nenhuma... 😢\n\n"
@@ -1293,7 +1151,6 @@ RECOVERY_MESSAGES = {
         "💰 **R$ 12,90** (vitalício)\n"
         "⏰ Essa oferta expira em 6h\n\n"
         "É agora ou nunca, gato. Me escolhe? 🔥",
-        
         "Ei... 24h se passaram 🥺\n\n"
         "Acho que não vou te ver mais por aqui né?\n\n"
         "Mas antes de você ir embora...\n"
@@ -1320,90 +1177,50 @@ TEASER_INTRO_MESSAGES = {
     ]
 }
 
-VIP_PITCH_MESSAGES = {
-    "A": (
-        "E aí amor, gostou? 😏\n\n"
-        "Isso é só um GOSTINHO do que eu tenho no VIP... 🔥\n\n"
-        "💎 **NO ACESSO VIP VOCÊ TEM:**\n"
-        "✅ Concorrer a 1 hora de aventura comigo\n"
-        "✅ Meu WhatsApp pessoal (sexting + nudes no zap)\n"
-        "✅ Fotos e Vídeos Exclusivos\n"
-        "✅ Fotos peladinha e videos brincando com a minha bucetinha\n\n"
-        "{urgencia}\n\n"
-        "Tá esperando o quê pra me ter só pra você? 💕"
-    ),
-    "B": (
-        "Gostou do que viu? Isso não é NADA... 😈\n\n"
-        "No VIP você me tem COMPLETINHA, sem censura, sem limites! 🔥\n\n"
-        "São MILHARES de fotos e vídeos que vão te deixar louco... 💦\n\n"
-        "{urgencia}\n\n"
-        "Clica no botão abaixo e vem me ter só pra você... 💕"
-    )
-}
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⏰ SISTEMA DE URGÊNCIA DINÂMICA
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_urgency_message(uid):
-    """
-    Gera mensagem de urgência dinâmica baseada em:
-    - Horário do dia (meia-noite, madrugada)
-    - Número da oferta (primeira vez vs repetida)
-    - Dia da semana
-    
-    IMPORTANTE: A urgência é FALSA (escassez artificial).
-    Mas funciona porque cria senso de "agora ou nunca".
-    """
     hour = datetime.now().hour
-    offer_num = get_vip_offers_today(uid)
     teaser_count = get_teaser_count(uid)
-    
-    # Pool de urgências por contexto
+
     urgencias = []
-    
-    # === BASEADO NO HORÁRIO ===
+
     if 20 <= hour <= 23:
-        # Noite — deadline de meia-noite
         urgencias.extend([
             f"⚡ **PROMOÇÃO SÓ ATÉ MEIA-NOITE!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!",
             f"🔥 **ÚLTIMAS HORAS!** Esse preço de {PRECO_VIP} só vale até meia-noite!\n⏰ Depois volta pra R$ 39,90...",
             f"⏰ **Faltam poucas horas!**\nHoje ainda tá {PRECO_VIP} com acesso vitalício... amanhã não garanto esse preço 😏",
         ])
     elif 0 <= hour <= 5:
-        # Madrugada — "última chance"
         urgencias.extend([
             f"🌙 **PREÇO DE MADRUGADA!**\n💰 {PRECO_VIP} por acesso VITALÍCIO — só pra quem tá acordado agora 😈",
             f"⚡ Shhh... esse preço de {PRECO_VIP} é segredo, só pra quem tá online agora 🤫\nAmanhã volta pra R$ 39,90!",
         ])
     elif 6 <= hour <= 11:
-        # Manhã
         urgencias.extend([
             f"☀️ **PROMOÇÃO DA MANHÃ!**\n💰 Acesso vitalício por apenas {PRECO_VIP}!\n⚠️ Só até o meio-dia, depois volta pra R$ 39,90",
             f"💎 {PRECO_VIP} por TUDO — acesso vitalício!\n⏰ Essa promoção acaba em poucas horas...",
         ])
     else:
-        # Tarde
         urgencias.extend([
             f"🔥 **PROMOÇÃO RELÂMPAGO!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!\n⚡ Poucas vagas restantes!",
             f"💎 Acesso vitalício por apenas {PRECO_VIP}!\n⚠️ Esse preço é por TEMPO LIMITADO...",
         ])
-    
-    # === BASEADO NO NÚMERO DE TEASERS (escassez) ===
+
     if teaser_count <= 1:
-        # Primeira vez — vagas
         urgencias.extend([
             f"💰 Por apenas {PRECO_VIP} você tem ACESSO VITALÍCIO!\n🔥 Últimas 10 vagas com esse preço... depois sobe pra R$ 39,90!",
             f"⚡ Tô com uma promoção ESPECIAL agora: {PRECO_VIP} vitalício!\n⚠️ Só restam algumas vagas nesse valor...",
         ])
     else:
-        # Já viu antes — mais pressão
         urgencias.extend([
             f"⚠️ **ÚLTIMA CHANCE!** Esse preço de {PRECO_VIP} tá acabando!\n🔥 Restam só 3 vagas... depois sobe pra R$ 39,90!",
             f"💰 Amor, da última vez você não garantiu... mas AINDA dá tempo!\n{PRECO_VIP} vitalício — mas só tem mais algumas vagas! 😢",
             f"⏰ Não vai perder de novo né?\n{PRECO_VIP} com acesso VITALÍCIO — mas tá acabando de verdade! 🔥",
         ])
-    
+
     return random.choice(urgencias)
 
 LIMIT_REACHED_MESSAGE = (
@@ -1439,17 +1256,16 @@ REENGAGEMENT_MESSAGES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK AI (v8.2 - PROMPT REFORMULADO)
+# 🤖 GROK AI — PROMPT APEX (v8.3)
 # ═══════════════════════════════════════════════════════════════════════════════
-   
+
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
     ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
-    canal_vip = ia_config.get("vip_link", "https://t.me/Mayaoficial_bot")
-    preco = ia_config.get("preco", "R$ 19,90") if ia_config else "R$ 19,90"
-    canal_free = ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))  # ← LINHA NOVA
+    canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+    preco = ia_config.get("preco", PRECO_VIP) if ia_config else PRECO_VIP
 
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
@@ -1463,28 +1279,30 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     vip_just_offered = was_vip_just_offered(uid)
     msgs_since = get_msgs_since_offer(uid)
 
-    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas NÃO vira namoradinha virtual grátis.
+    # ─────────────────────────────────────────────────────────────────────────
+    # NOVO PROMPT APEX: funil direto VIP, sem canal free, com pergunta prévia
+    # ─────────────────────────────────────────────────────────────────────────
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas VAI DIRETO PRO FUNIL.
 
 REGRAS OBRIGATÓRIAS (prioridade máxima):
-1. Sempre flerte leve, seja sexy e carinhosa, mas MANTENHA MISTÉRIO.
-2. Máximo 2-4 mensagens no DM antes de jogar pro canal free.
-3. Quando o cara pedir foto, nude, mais, mostrar, etc → responda com 1 frase sexy curta e retorne redirect_to_free: true. NÃO coloque link na resposta.
-4. Se "Já redirecionado pro free" for SIM → PARE de falar em canal free. Agora o objetivo é vender o VIP.
-5. Com "Já redirecionado pro free" = SIM, siga esse fluxo:
-   - Pergunte se ele curtiu as prévias
-   - Provoque com o que tem no VIP completo
-   - Ofereça o VIP diretamente: "Por apenas {preco} você me tem completinha, sem censura: {canal_vip} 🔥"
-   - Use offer_teaser: true quando sentir que ele tá quente
-6. Se ele hesitar no VIP → mude de assunto, seja fofa, mas volte pro pitch VIP na próxima abertura.
-7. Se ele falar "não quero pagar", "caro", "depois" → mude de assunto completamente, NÃO reofereça VIP nessa sessão.
-8. NUNCA coloque link do canal free depois de já ter redirecionado. Só VIP agora.
+1. Máximo 2-3 mensagens antes de oferecer conteúdo.
+2. Quando o cara mostrar interesse (pedir foto, "quero ver", hot keywords ou "quanto custa") → PERGUNTE PRIMEIRO:
+   "Quer ver umas prévias exclusivas antes de decidir o VIP? 😏"
+3. Se ele disser SIM (ou "quero", "manda", "sim") → use offer_teaser: true
+4. Depois dos teasers, emende direto o pitch VIP com instrução PIX clara.
+5. NUNCA redirecione pro canal free. Estamos no fluxo pago.
+6. Se ele perguntar preço, como pagar ou hesitar → responda direto e volte pro CTA.
+7. Objeções comuns:
+   - "Tá caro" → "É o preço mais baixo do mercado amor, vale cada centavo 🔥"
+   - "Não sei pagar" / "como paga" / "pix" → explique em 1 frase: "Só abrir o banco, ir em PIX, escanear o QR ou colar o código — cai na hora e você entra automático! 💳"
+   - "Manda mais" → "No VIP tem MILHARES, aqui é só preview 😏"
+   - "Depois" → "Tranquilo, mas o preço promocional acaba em poucas horas 😏"
+8. Se intent for pix_help → explique os 4 passos do PIX de forma curta e inclua o link: {canal_vip}
 
 RETORNE APENAS JSON:
 {{
   "response": "mensagem CURTA (máx 2 linhas)",
-  "send_teaser": false,
-  "redirect_to_free": true/false,
-  "offer_teaser": false,
+  "offer_teaser": true/false,
   "interest_level": "low|medium|high"
 }}
 
@@ -1492,15 +1310,14 @@ CONTEXTO ATUAL:
 - IA: {ia_name}
 - Fase: {current_phase} ({phase_name})
 - Mensagens trocadas: {msg_count}
-- Já redirecionado pro free: {"SIM" if r.exists(f"saw_free_invite:{uid}") else "NÃO"}
-- Canal Free: {canal_free}
+- Período do dia: {time_ctx['period']}
 - VIP Link: {canal_vip}
 - Preço: {preco}
 - Ofertas hoje: {offers_today}
-- Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
+- Cooldown ativo: {in_cooldown} ({cooldown_remaining} msgs restantes)
+- Intent detectado: {intent}
 """
 
-    
     if vip_just_offered:
         base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Analise a reação dele com cuidado."
     if in_cooldown:
@@ -1518,12 +1335,12 @@ class Grok:
         lang = get_lang(uid)
         mood = detect_mood(text) if text else "neutral"
         intent = detect_intent(text) if text else "neutral"
-        
+
         if is_first_contact(uid):
             mark_first_contact(uid)
-        
+
         prompt = build_prompt(uid, lang, mood, intent)
-        
+
         if image_base64:
             user_content = []
             if text:
@@ -1534,7 +1351,7 @@ class Grok:
             })
         else:
             user_content = text
-        
+
         for attempt in range(max_retries + 1):
             payload = {
                 "model": MODELO,
@@ -1544,10 +1361,10 @@ class Grok:
                     {"role": "user", "content": user_content},
                     {"role": "system", "content": "APENAS JSON! Resposta CURTA e NATURAL."}
                 ],
-                "max_tokens": 350,  # v8.2 - reduzido pra forçar respostas curtas
+                "max_tokens": 350,
                 "temperature": 0.85 + (attempt * 0.1)
             }
-            
+
             try:
                 timeout = aiohttp.ClientTimeout(total=20)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1562,164 +1379,156 @@ class Grok:
                         if resp.status != 200:
                             logger.error(f"Grok erro {resp.status}")
                             return self._fallback_response(intent)
-                        
+
                         data = await resp.json()
                         if "choices" not in data:
                             return self._fallback_response(intent)
-                        
+
                         answer = data["choices"][0]["message"]["content"]
-                        
+
                         try:
                             cleaned = answer.strip()
                             if "```json" in cleaned:
                                 cleaned = cleaned.split("```json")[1].split("```")[0].strip()
                             elif "```" in cleaned:
                                 cleaned = cleaned.split("```")[1].split("```")[0].strip()
-                            
+
                             if not cleaned.startswith("{"):
                                 start = cleaned.find("{")
                                 if start != -1:
                                     cleaned = cleaned[start:]
-                            
+
                             if not cleaned.endswith("}"):
                                 end = cleaned.rfind("}")
                                 if end != -1:
                                     cleaned = cleaned[:end+1]
-                            
+
                             result = json.loads(cleaned)
-                            
+
                             if "response" not in result:
                                 raise ValueError("Missing response")
-                            
+
                             result.setdefault("offer_teaser", False)
-                            result.setdefault("redirect_to_free", False)
+                            # ← REMOVIDO: redirect_to_free não existe mais no fluxo Apex
                             result.setdefault("interest_level", "medium")
-                            
-                            # ═══════════════════════════════════════════════
-                            # v8.3 - TRAVAS DE SEGURANÇA (código)
-                            # A IA decide, mas o código garante limites
-                            # ═══════════════════════════════════════════════
-                            
-                            # Trava: cooldown ativo → sempre false
+
+                            # Travas de segurança
                             if result["offer_teaser"] and is_in_rejection_cooldown(uid):
                                 result["offer_teaser"] = False
                                 logger.info(f"🔒 Trava: cooldown ativo para {uid}")
-                            
-                            # Trava: limite diário de ofertas
+
                             if result["offer_teaser"] and get_vip_offers_today(uid) >= MAX_VIP_OFFERS_PER_SESSION:
                                 result["offer_teaser"] = False
                                 logger.info(f"🔒 Trava: limite diário de ofertas para {uid}")
-                            
-                            # Trava: mínimo de msgs entre ofertas
+
                             if result["offer_teaser"] and get_msgs_since_offer(uid) < TEASER_COOLDOWN_MESSAGES:
                                 result["offer_teaser"] = False
                                 logger.info(f"🔒 Trava: muito cedo pra outra oferta para {uid}")
-                            
+
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
                                 continue
-                            
+
                             add_recent_response(uid, result["response"])
-                            
+
                             logger.info(
                                 f"🤖 {uid} | intent={intent} | offer={result['offer_teaser']} | "
                                 f"interest={result['interest_level']} | cooldown={is_in_rejection_cooldown(uid)}"
                             )
-                            
+
                             break
-                            
+
                         except (json.JSONDecodeError, ValueError) as e:
                             logger.error(f"Parse erro: {e}")
                             result = self._smart_fallback(answer, intent, uid)
                             break
-                        
+
             except Exception as e:
                 logger.exception(f"Grok erro: {e}")
                 return self._fallback_response(intent)
-        
+
         memory_text = f"[Foto] {text}" if image_base64 else text
         add_to_memory(uid, "user", memory_text)
         add_to_memory(uid, "assistant", result["response"])
         save_message(uid, "maya", result["response"])
-        
+
         return result
-    
+
     def _smart_fallback(self, raw_text, intent, uid):
-        """Fallback quando JSON parse falha — usa a resposta raw da IA"""
-        # Em cooldown → nunca oferece
         if is_in_rejection_cooldown(uid):
             return {
                 "response": raw_text,
                 "offer_teaser": False,
                 "interest_level": "low",
             }
-        
-        # Tenta detectar se a IA queria oferecer teaser pelo texto
         text_lower = raw_text.lower()
         offer_keywords = [
             'vou mandar', 'vou te mandar', 'vou te mostrar',
             'te mando', 'te mostro', 'tá aqui', 'ta aqui'
         ]
         offer_teaser = any(k in text_lower for k in offer_keywords)
-        
         return {
             "response": raw_text,
             "offer_teaser": offer_teaser,
-            "redirect_to_free": False,
             "interest_level": "medium" if intent in ["pedido_conteudo", "hot"] else "low",
         }
-    
+
     def _fallback_response(self, intent):
         if intent in ["pedido_conteudo", "interesse_vip"]:
             return {
                 "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
                 "offer_teaser": True,
-                "redirect_to_free": False,
                 "interest_level": "high",
             }
         else:
             return {
                 "response": "😔 Tive um probleminha... pode repetir? 💕",
                 "offer_teaser": False,
-                "redirect_to_free": False,
                 "interest_level": "low",
             }
+
 
 grok = Grok()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎯 ENVIO DE TEASER + PITCH VIP
+# 🎯 ENVIO DE TEASER + PITCH APEX VIP (v8.3)
+# Substituiu send_teaser_and_pitch — funil direto com instrução PIX
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def send_teaser_and_pitch(bot, chat_id, uid):
-    """v8.2 - Com verificação de cooldown antes de enviar"""
+async def send_teaser_and_apex(bot, chat_id, uid):
+    """
+    Envia 3-4 teasers seguidos de pitch VIP com instrução PIX clara.
+    Substitui send_teaser_and_pitch — sem canal free, direto pro pagamento.
+    """
     try:
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
-        
+
         fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
         canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-        # VERIFICAÇÃO FINAL antes de enviar
+        preco = ia_config.get("preco", PRECO_VIP)
+
+        # Verificação final antes de enviar
         can_offer, reason = can_offer_vip(uid)
         if not can_offer:
             logger.info(f"🚫 Teaser BLOQUEADO para {uid}: {reason}")
             return False
-        
+
         ab_group = get_ab_group(uid)
-        
+
         set_saw_teaser(uid)
         track_funnel(uid, "saw_teaser")
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
-        
+
         # 1. INTRO
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
-        
-        # 2. FOTOS
-        num_photos = random.randint(2, 3)
+
+        # 2. FOTOS (3-4 teasers)
+        num_photos = random.randint(3, 4)
         selected_photos = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
-        
+
         for i, photo_url in enumerate(selected_photos):
             try:
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
@@ -1730,35 +1539,50 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
             except Exception as e:
                 logger.error(f"Erro enviando foto {i}: {e}")
                 continue
-        
+
         # 3. PAUSA
         await asyncio.sleep(3)
-        
-        # 4. PITCH + BOTÃO COM URGÊNCIA DINÂMICA
+
+        # 4. PITCH COM INSTRUÇÃO PIX + URGÊNCIA DINÂMICA
         urgencia = get_urgency_message(uid)
-        pitch = VIP_PITCH_MESSAGES[ab_group].format(urgencia=urgencia)
+        pitch = (
+            f"E aí amor, curtiu o gostinho? 😈\n\n"
+            f"Isso é SÓ preview... no VIP você me tem COMPLETINHA (fotos + vídeos sem censura).\n\n"
+            f"💰 **{preco} vitalício**\n\n"
+            f"Como pagar em 10 segundos:\n"
+            f"1️⃣ Clica no botão abaixo\n"
+            f"2️⃣ Abre app do banco → PIX\n"
+            f"3️⃣ Escaneia QR ou cola o código\n"
+            f"4️⃣ Confirma ✅\n\n"
+            f"Pagamento cai na hora e você entra automático!\n\n"
+            f"{urgencia}"
+        )
+
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 QUERO ACESSO VIP AGORA 🔥", url=canal_vip)
+            InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥", url=canal_vip)
         ]])
-        
+
         await bot.send_message(
             chat_id=chat_id,
             text=pitch,
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
-        
-        logger.info(f"🎯 TEASER+PITCH enviado: {uid} (oferta #{get_vip_offers_today(uid)})")
-        save_message(uid, "system", f"TEASER+PITCH enviado (#{get_teaser_count(uid)})")
-        
-        # v8.2 - Marca que VIP acabou de ser oferecido
+
+        logger.info(f"🎯 TEASER+PITCH APEX enviado: {uid} (oferta #{get_vip_offers_today(uid)})")
+        save_message(uid, "system", f"TEASER+PITCH APEX enviado (#{get_teaser_count(uid)})")
+
         mark_vip_just_offered(uid)
-        
+
         return True
-        
+
     except Exception as e:
-        logger.error(f"❌ Erro send_teaser: {e}")
+        logger.error(f"❌ Erro send_teaser_and_apex: {e}")
         return False
+
+
+# Mantém alias para compatibilidade com qualquer chamada legacy
+send_teaser_and_pitch = send_teaser_and_apex
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📨 FOLLOW-UPS
@@ -1767,11 +1591,9 @@ async def send_teaser_and_pitch(bot, chat_id, uid):
 async def send_reengagement_message(bot, uid, level):
     if is_engagement_paused(uid):
         return False
-    
     messages = REENGAGEMENT_MESSAGES["pt"].get(level, [])
     if not messages:
         return False
-    
     try:
         message = random.choice(messages)
         await bot.send_message(chat_id=uid, text=message)
@@ -1787,7 +1609,6 @@ async def send_reengagement_message(bot, uid, level):
 async def process_engagement_jobs(bot):
     users = get_all_active_users()
     random.shuffle(users)
-    
     for uid in users:
         if is_blacklisted(uid) or is_engagement_paused(uid):
             continue
@@ -1814,51 +1635,33 @@ async def engagement_scheduler(bot):
         await asyncio.sleep(900)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎯 RETARGETING - MENSAGENS PÓS-TRAVA
+# 🎯 RETARGETING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def retarget_locked_users(bot):
-    """
-    Envia mensagens automáticas para usuários travados.
-    Rode via cron a cada 6h.
-    """
     try:
         users = get_all_active_users()
         now = datetime.now()
-        
         sent_count = 0
-        
+
         for uid in users:
             try:
-                # Só processa se estiver travado
                 if not is_user_locked(uid):
                     continue
-                
-                # Verifica há quanto tempo travou
                 hours_since_activity = get_hours_since_activity(uid)
                 if not hours_since_activity:
                     continue
-                
-                # Chave para controlar se já enviou retargeting
                 retarget_key = f"retarget_sent:{uid}:{date.today()}"
-                
-                # ═══════════════════════════════════════════════════════
-                # 🎯 RETARGETING 6H - Mensagem de Saudade + Desconto
-                # ═══════════════════════════════════════════════════════
+
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
-                    
-                    # Carregar config da IA
                     router = get_router()
                     ia_config = router.get_ia_config(uid=uid)
                     canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-                    
+
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            "💎 GARANTIR DESCONTO DE R$ 12,90",
-                            url=canal_vip
-                        )
+                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 12,90", url=canal_vip)
                     ]])
-                    
+
                     await bot.send_message(
                         chat_id=uid,
                         text=(
@@ -1875,220 +1678,155 @@ async def retarget_locked_users(bot):
                         reply_markup=keyboard,
                         parse_mode="Markdown"
                     )
-                    
-                    # Marca que enviou
+
                     r.setex(retarget_key, timedelta(hours=20), "1")
-                    
                     sent_count += 1
                     save_message(uid, "system", "📬 RETARGETING 6H enviado")
                     logger.info(f"📬 Retargeting enviado para {uid} ({hours_since_activity:.1f}h inativo)")
-                    
-                    # Rate limiting
                     await asyncio.sleep(0.2)
-                
+
             except Exception as e:
                 if "blocked" in str(e).lower():
                     add_to_blacklist(uid)
-                    logger.info(f"🚫 User {uid} bloqueou o bot")
                 else:
                     logger.error(f"Erro retargeting {uid}: {e}")
                 continue
-        
+
         logger.info(f"✅ Retargeting finalizado: {sent_count} mensagens enviadas")
         return sent_count
-        
+
     except Exception as e:
         logger.exception(f"Erro retarget_locked_users: {e}")
         return 0
 
 
 async def retargeting_scheduler(bot):
-    """Executa retargeting a cada 6h"""
     while True:
         try:
             logger.info("🎯 Iniciando ciclo de retargeting...")
             await retarget_locked_users(bot)
         except Exception as e:
             logger.error(f"Erro retargeting scheduler: {e}")
-        
-        # Aguarda 6h
-        await asyncio.sleep(21600)  # 6 horas em segundos
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
-# ═══════════════════════════════════════════════════════════════════════════════
+        await asyncio.sleep(21600)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def recover_silent_users(bot):
-    """
-    Recupera usuários que deram /start mas não responderam.
-    OTIMIZADO: Só verifica usuários dentro das janelas de tempo relevantes.
-    """
     try:
-        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
         logger.info("🔄 [RECOVERY] Iniciando verificação de usuários silenciosos...")
-        
         now = datetime.now()
         users = get_all_active_users()
-        
-        logger.info(f"🔄 [RECOVERY] Total de usuários ativos: {len(users)}")
-        
         recovered_count = 0
         checked_count = 0
         skipped_old = 0
         skipped_active = 0
-        
+
         for uid in users:
             try:
-                # Pula se está em blacklist
                 if is_blacklisted(uid):
                     continue
-                
-                # Pula se já conversou
                 msg_count = get_conversation_messages_count(uid)
                 if msg_count > 0:
                     skipped_active += 1
                     continue
-                
-                # Pula se não tem first_contact
                 first_contact = r.get(first_contact_key(uid))
                 if not first_contact:
                     continue
-                
                 first_contact_time = datetime.fromisoformat(first_contact)
                 hours_since_start = (now - first_contact_time).total_seconds() / 3600
-                
-                # JANELA DE TEMPO - 48h MAX
                 if hours_since_start > 48:
                     skipped_old += 1
                     continue
-                
-                # Pula se ainda não atingiu janela mínima (10 minutos)
                 if hours_since_start < 0.16:
                     continue
-                
+
                 checked_count += 1
-                
-                # Chaves de controle de recovery
+
                 recovery_10min_key = f"recovery_10min:{uid}"
                 recovery_2h_key = f"recovery_2h:{uid}"
                 recovery_12h_key = f"recovery_12h:{uid}"
                 recovery_24h_key = f"recovery_24h:{uid}"
-                
-                # NÍVEL 1: 10 MINUTOS
+
                 if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
                     message = random.choice(RECOVERY_MESSAGES["10min"])
-                    
                     await bot.send_message(chat_id=uid, text=message)
-                    
                     r.setex(recovery_10min_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 10min enviado")
                     logger.info(f"🔄 Recovery 10min → {uid} ({hours_since_start:.1f}h)")
-                    
                     await asyncio.sleep(0.3)
-                
-                # NÍVEL 2: 2 HORAS
+
                 elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
                     message = random.choice(RECOVERY_MESSAGES["2h"])
-                    
                     await bot.send_message(chat_id=uid, text=message)
-                    
                     r.setex(recovery_2h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 2h enviado")
                     logger.info(f"🔄 Recovery 2h → {uid} ({hours_since_start:.1f}h)")
-                    
                     await asyncio.sleep(0.3)
-                
-                # NÍVEL 3: 12 HORAS
+
                 elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
                     message = random.choice(RECOVERY_MESSAGES["12h"])
-                    
                     await bot.send_message(chat_id=uid, text=message)
-                    
                     r.setex(recovery_12h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 12h enviado")
                     logger.info(f"🔄 Recovery 12h → {uid} ({hours_since_start:.1f}h)")
-                    
                     await asyncio.sleep(0.3)
-                
-                # NÍVEL 4: 24 HORAS
+
                 elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
-                    
-                    # Carregar config da IA
                     router = get_router()
                     ia_config = router.get_ia_config(uid=uid)
                     canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-                    
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(
-                            "💎 QUERO ACESSO POR R$ 12,90",
-                            url=canal_vip
-                        )
+                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 12,90", url=canal_vip)
                     ]])
-                    
                     await bot.send_message(
-                        chat_id=uid,
-                        text=message,
-                        reply_markup=keyboard,
-                        parse_mode="Markdown"
+                        chat_id=uid, text=message,
+                        reply_markup=keyboard, parse_mode="Markdown"
                     )
-                    
                     r.setex(recovery_24h_key, timedelta(hours=48), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
                     logger.info(f"🔄 Recovery 24h → {uid} ({hours_since_start:.1f}h)")
-                    
                     await asyncio.sleep(0.3)
-                
+
             except Exception as e:
                 if "blocked" in str(e).lower():
                     add_to_blacklist(uid)
-                    logger.info(f"🚫 User {uid} bloqueou o bot")
                 else:
                     logger.error(f"Erro recovery {uid}: {e}")
                 continue
-        
-        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} usuários (nas janelas relevantes)")
-        logger.info(f"🔄 [RECOVERY] Pulados: {skipped_active} ativos + {skipped_old} antigos (>48h)")
-        logger.info(f"🔄 [RECOVERY] Enviados: {recovered_count} mensagens")
-        logger.info("🔄 [RECOVERY] ═══════════════════════════════════════")
-        
+
+        logger.info(f"🔄 [RECOVERY] Verificados: {checked_count} | Pulados: {skipped_active+skipped_old} | Enviados: {recovered_count}")
         return recovered_count
-        
+
     except Exception as e:
         logger.exception(f"Erro recover_silent_users: {e}")
         return 0
 
 
 async def recovery_scheduler(bot):
-    """Executa recovery a cada 5 minutos"""
     while True:
         try:
             await recover_silent_users(bot)
         except Exception as e:
             logger.error(f"Erro recovery scheduler: {e}")
-        
-        # Aguarda 5 minutos
         await asyncio.sleep(300)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️ AVISOS DE LIMITE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 async def check_and_send_limit_warning(uid, context, chat_id):
     if was_limit_warning_sent_today(uid):
         return
-    
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
     total = LIMITE_DIARIO + bonus
-    
     if count == total - 5:
         mark_limit_warning_sent(uid)
         try:
@@ -2101,65 +1839,58 @@ async def check_and_send_limit_warning(uid, context, chat_id):
             pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎮 HANDLERS (v8.2 - COM DETECÇÃO DE REJEIÇÃO)
+# 🎮 HANDLERS (v8.3 APEX)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
-    # Detectar qual IA o usuário quer
     router = get_router()
     start_param = context.args[0] if context.args else None
     detected_ia = router.parse_start_params(start_param)
-    
+
     if detected_ia:
         router.assign_ia(uid, detected_ia)
         logger.info(f"🎯 User {uid} → IA: {detected_ia}")
     else:
         router.assign_ia(uid, "maya")
         logger.info(f"🎯 User {uid} → IA: default (maya)")
-    
+
     ia_config = router.get_ia_config(uid=uid)
-    
+
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
-    
+
     if is_blacklisted(uid):
         return
-    
+
     update_last_activity(uid)
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
     set_lang(uid, "pt")
-    
-    # v8.3 - Inicializa fase 0
+
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
 
-    # ← ADICIONE ESTAS LINHAS AQUI:
-    mark_first_contact(uid)  # Salva timestamp do primeiro contato
+    mark_first_contact(uid)
     logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
-    
+
     try:
-        # 1. Envia a FOTO de boas-vindas
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
             await asyncio.sleep(0.5)
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=ia_config["foto_bem_vinda"],
-                connect_timeout=10,
-                read_timeout=10,
-                write_timeout=10
+                connect_timeout=10, read_timeout=10, write_timeout=10
             )
             logger.info(f"✅ Foto enviada para {uid}")
             await asyncio.sleep(2)
         except Exception as photo_error:
             logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
-        
-        # 2. Envia o VÍDEO de boas-vindas
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
             await asyncio.sleep(1)
@@ -2167,37 +1898,31 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 video=ia_config["video_bem_vindo"],
                 caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
-                connect_timeout=15,
-                read_timeout=15,
-                write_timeout=15
+                connect_timeout=15, read_timeout=15, write_timeout=15
             )
             logger.info(f"✅ Vídeo enviado para {uid}")
             await asyncio.sleep(3)
         except Exception as video_error:
             logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
-        
-        # 3. Mostra "digitando..."
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
         except:
             pass
-        
-        # 4. Envia a mensagem
+
         try:
             await update.message.reply_text(ia_config["start_message"])
-            logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING) [FOTO+VÍDEO+TEXTO]")
+            logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING)")
         except Exception as msg_error:
             logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
             try:
                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=MENSAGEM_INICIO
+                    chat_id=update.effective_chat.id, text=MENSAGEM_INICIO
                 )
-                logger.info(f"✅ Recuperado - msg enviada via send_message para {uid}")
             except Exception as final_error:
                 logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
-        
+
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
@@ -2207,27 +1932,29 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except:
             pass
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     try:
         uid = query.from_user.id
         if is_blacklisted(uid):
             return
-        
+
         update_last_activity(uid)
         reset_ignored(uid)
-        
+
         if query.data == "goto_vip":
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
-            
+
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-            
+
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
@@ -2241,139 +1968,121 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Erro callback: {e}")
 
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    
+
     if is_blacklisted(uid):
         return
-    
+
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
-    
-    # v8.2 - Decrementa cooldown a cada msg
+
     decrement_rejection_cooldown(uid)
     increment_msgs_since_offer(uid)
-    
-    # v8.3 - Incrementa contadores
+
     increment_message_count(uid)
     increment_conversation_messages(uid)
-    
-    # v8.3 - Detecta retorno (6h+)
+
+    # Detecta retorno após 6h+
     hours_since = get_hours_since_activity(uid)
     if hours_since and hours_since >= RETURN_WINDOW_HOURS:
         await handle_return(uid, context.bot, update.effective_chat.id)
         update_last_activity(uid)
-    
-    # 🔁 REMARKETING - Voltou pro DM após ter sido convidado pro canal free
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REMARKETING — voltou pro DM sem ter comprado VIP
+    # (mantido, mas sem mencionar canal free — só VIP direto)
+    # ─────────────────────────────────────────────────────────────────────────
     remarketing_sent_key = f"remarketing_dm_sent:{uid}:{date.today()}"
     if r.exists(f"saw_free_invite:{uid}") and not clicked_vip(uid) and not r.exists(remarketing_sent_key):
         _router = get_router()
         _ia_config = _router.get_ia_config(uid=uid)
-        _canal_free = _ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))
-        _ia_name = _ia_config.get("name", "Maya")
+        _canal_vip = _ia_config.get("vip_link", CANAL_VIP_LINK)
+        _preco = _ia_config.get("preco", PRECO_VIP)
         remarketing_msgs = [
-            f"Oi de novo gato 😏 Tá curtindo as prévias lá no canal? 🔥 Pra ver tudinho sem limites clica no botão VIP fixado lá dentro 💦",
-            f"E aí amor, viu os teasers novos? 😈 Se quiser continuar o papo quente de verdade, assina VIP pelo botão no canal: {_canal_free}",
-            f"Saudades... as prévias são só um gostinho hein? Vem pro VIP lá no canal e me tem todinha 🔥 {_canal_free}"
+            f"Oi de novo gato 😏 Pronto pra me ter completinha? Por {_preco} você entra no VIP agora: {_canal_vip} 🔥",
+            f"E aí amor, saudade? 😈 Ainda dá tempo de garantir o VIP por {_preco}: {_canal_vip}",
+            f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → {_canal_vip}"
         ]
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=random.choice(remarketing_msgs)
         )
         r.setex(remarketing_sent_key, timedelta(hours=24), "1")
-    
+
     try:
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
-        
+
         if text:
             save_message(uid, "user", text)
-            
-            # v8.3 - Detecta apego emocional
+
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
                 r.set(is_attached_key(uid), "1")
                 current_level = int(r.get(attachment_level_key(uid)) or 0)
                 if attachment["level"] > current_level:
                     r.set(attachment_level_key(uid), attachment["level"])
-                
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
                     logger.info(f"💕 User {uid} → Fase 5 (apego level {attachment['level']})")
-        
+
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
-        
-        # ═══════════════════════════════════════════════════════
-        # v8.3 - DETECÇÃO DE REJEIÇÃO PELA IA (não mais por código)
-        # O código só mantém cooldown e limites como trava de segurança
-        # ═══════════════════════════════════════════════════════
-        
+
         # Foto
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
-            
+
             image_base64 = await download_photo_base64(context.bot, photo_file_id)
             if image_base64:
                 try:
                     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
                 except:
                     pass
-                
+
                 grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                 await update.message.reply_text(grok_response["response"])
-                
-                # v8.2 - Só oferece se pode
+
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
                     if can_offer:
                         await asyncio.sleep(2)
-                        await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
+                        await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
                     else:
                         logger.info(f"🚫 Teaser bloqueado pós-foto: {reason}")
                 return
             else:
                 await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
                 return
-        
+
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
-        
-        # Limite diário COM SISTEMA DE ÚLTIMA CHANCE
+
+        # ── Limite diário ──
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
-        
+
         if current_count >= total:
-            # ═══════════════════════════════════════════════════════
-            # 🎁 SISTEMA DE ÚLTIMA CHANCE
-            # Dá 1 mensagem grátis com pitch FORTE na primeira trava
-            # ═══════════════════════════════════════════════════════
             last_chance_key = f"last_chance:{uid}:{date.today()}"
-            
+
             if not r.exists(last_chance_key):
-                # PRIMEIRA VEZ travando hoje → ÚLTIMA CHANCE
                 r.setex(last_chance_key, timedelta(hours=20), "1")
-                
-                # Libera 1 mensagem grátis
                 r.decr(count_key(uid))
-                
                 logger.info(f"🎁 ÚLTIMA CHANCE ativada para {uid}")
-                
-                # Pitch FORTE de última chance
+
                 router = get_router()
                 ia_config = router.get_ia_config(uid=uid)
                 canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-                
+
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        "CLIQUE AQUI: 👉 SER VIP",
-                        url=canal_vip
-                    )
+                    InlineKeyboardButton("CLIQUE AQUI: 👉 SER VIP", url=canal_vip)
                 ]])
-                
+
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=(
@@ -2391,27 +2100,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
-                
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
-                
-                # Permite que ele responda essa última mensagem
-                return  # NÃO trava ainda
-            
-            # ═══════════════════════════════════════════════════════
-            # 🚫 JÁ USOU A ÚLTIMA CHANCE → TRAVA DE VERDADE
-            # ═══════════════════════════════════════════════════════
-            
+                return
+
+            # Trava definitiva
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-            
+
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    text="CLIQUE AQUI: 👉 SER VIP",
-                    url=canal_vip
-                )
+                InlineKeyboardButton(text="CLIQUE AQUI: 👉 SER VIP", url=canal_vip)
             ]])
-            
+
             try:
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
@@ -2422,81 +2122,56 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Erro enviando foto limite: {e}")
-                # Fallback sem foto
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
-            
+
             save_message(uid, "system", "🚫 LIMITE ATINGIDO (pós última chance)")
             return
-        
+
         if bonus > 0:
             use_bonus_msg(uid)
         else:
             increment(uid)
-        
+
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
-        
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
         except:
             pass
-        
+
         grok_response = await grok.reply(uid, text)
-        
+
         await update.message.reply_text(grok_response["response"])
-        
-        # 📢 REDIRECIONAMENTO PRO CANAL FREE
-        if grok_response.get("redirect_to_free", False) and not r.exists(f"saw_free_invite:{uid}"):
-            _router = get_router()
-            _ia_config = _router.get_ia_config(uid=uid)
-            canal_free = _ia_config.get("free_channel", os.getenv("CANAL_FREE_LINK", "https://t.me/previasdamayaofc"))
-            await asyncio.sleep(1)
-            redirect_msg = (
-                f"Oi safado 😏 Quer ver mais de mim sem censura? 🔥\n"
-                f"Vem pro meu canal de prévias grátis agora:\n"
-                f"👉 {canal_free}\n\n"
-                f"Lá tem teaser novo todo dia, fotos quentes e o botão fixo pra assinar VIP completo 💦\n"
-                f"Te espero lá amor... não demora hein? 😈"
-            )
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=redirect_msg
-            )
-            r.set(f"saw_free_invite:{uid}", "1", ex=86400 * 7)
-            save_message(uid, "system", "📢 REDIRECIONADO PRO CANAL FREE")
-            logger.info(f"📢 User {uid} redirecionado pro canal free")
-            return
-        
-        # ═══════════════════════════════════════════════════════
-        # v8.3 - COOLDOWN BASEADO NA DECISÃO DA IA
-        
-        # ═══════════════════════════════════════════════════════
-        # VERIFICAÇÃO FINAL antes de enviar teaser
-        # ═══════════════════════════════════════════════════════
+
+        # ─────────────────────────────────────────────────────────────────────
+        # ← REMOVIDO: bloco redirect_to_free (canal free suprimido no Apex)
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Verifica se deve enviar teaser
         should_offer = grok_response.get("offer_teaser", False)
-        
+
         if should_offer:
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
                 await asyncio.sleep(2)
-                await send_teaser_and_pitch(context.bot, update.effective_chat.id, uid)
+                await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
             else:
                 logger.info(f"🚫 Teaser bloqueado: {uid} - {reason}")
-        
+
         if streak_updated:
             streak_msg = get_streak_message(streak)
             if streak_msg:
                 await asyncio.sleep(1)
                 await context.bot.send_message(update.effective_chat.id, streak_msg)
-        
-        # v8.3 - Verifica transição de fase
+
         check_phase_transition(uid)
-        
+
     except Exception as e:
         logger.exception(f"Erro message_handler: {e}")
 
@@ -2506,19 +2181,30 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 import admin_commands
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    admin_funcs = {'get_redis': lambda: r, 'get_all_active_users': get_all_active_users, 'get_current_phase': get_current_phase, 'saw_teaser': saw_teaser, 'clicked_vip': clicked_vip, 'is_in_rejection_cooldown': is_in_rejection_cooldown, 'get_funnel_stats': get_funnel_stats, 'reset_daily_count': reset_daily_count, 'add_bonus_msgs': add_bonus_msgs, 'get_hours_since_activity': get_hours_since_activity, 'add_to_blacklist': add_to_blacklist}
+    admin_funcs = {
+        'get_redis': lambda: r,
+        'get_all_active_users': get_all_active_users,
+        'get_current_phase': get_current_phase,
+        'saw_teaser': saw_teaser,
+        'clicked_vip': clicked_vip,
+        'is_in_rejection_cooldown': is_in_rejection_cooldown,
+        'get_funnel_stats': get_funnel_stats,
+        'reset_daily_count': reset_daily_count,
+        'add_bonus_msgs': add_bonus_msgs,
+        'get_hours_since_activity': get_hours_since_activity,
+        'add_to_blacklist': add_to_blacklist
+    }
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("stats", lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("funnel", lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("reset", lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)))
-    application.add_handler(CommandHandler("resetall", lambda u, c: admin_commands.resetall_cmd(u, c, ADMIN_IDS, admin_funcs)))  # ← AQUI
+    application.add_handler(CommandHandler("resetall", lambda u, c: admin_commands.resetall_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
@@ -2527,8 +2213,9 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.3)")
+    logger.info("✅ Handlers registrados (v8.3 APEX)")
     return application
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🌐 FLASK
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2547,7 +2234,7 @@ threading.Thread(target=start_loop, daemon=True).start()
 
 @app.route("/", methods=["GET"])
 def health():
-    return {"status": "ok", "version": "8.2"}, 200
+    return {"status": "ok", "version": "8.3-apex"}, 200
 
 @app.route("/set-webhook", methods=["GET"])
 def set_webhook_route():
@@ -2608,16 +2295,13 @@ def telegram_webhook():
         return "error", 500
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📊 ADICIONE ESSAS ROTAS AO SEU BOT (depois da linha 1391 - após /test-bot)
+# 📊 ADMIN DASHBOARD ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 📊 ADICIONE ESSAS ROTAS AO SEU BOT (depois da linha 1391 - após /test-bot)
-# ═══════════════════════════════════════════════════════════════════════════════
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "seu_token_super_secreto_aqui_123")
 
 @app.route("/admin/login", methods=["GET"])
 def admin_login_page():
-    """Serve a página de login"""
     try:
         with open("admin_login.html", "r", encoding="utf-8") as f:
             return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -2626,8 +2310,6 @@ def admin_login_page():
 
 @app.route("/admin/dashboard", methods=["GET"])
 def admin_dashboard():
-    """Serve o painel HTML de admin"""
-    # O painel agora checa autenticação via JavaScript
     try:
         with open("admin_panel.html", "r", encoding="utf-8") as f:
             return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -2636,49 +2318,35 @@ def admin_dashboard():
 
 @app.route("/admin/stats", methods=["GET"])
 def admin_stats():
-    """API endpoint para o dashboard - retorna TODOS os dados"""
-    # Verificação de segurança OBRIGATÓRIA
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return {"error": "Unauthorized"}, 401
-    
     token = auth_header.replace("Bearer ", "")
     if token != ADMIN_TOKEN:
         return {"error": "Invalid token"}, 401
-    
+
     try:
         users = get_all_active_users()
         total_users = len(users)
-        
-        # ═══════════════════════════════════════════════════════
-        # 📊 KPIs PRINCIPAIS
-        # ═══════════════════════════════════════════════════════
-        
+
         saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
         clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
         in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
         rejected_vip_count = sum(1 for uid in users if r.exists(last_offer_rejected_key(uid)))
         ignored_count = sum(1 for uid in users if get_ignored_count(uid) > 0)
-        
-        # Usuários ativos
+
         now = datetime.now()
         active_today = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 24)
         active_week = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 168)
-        
-        # Novos usuários 24h
-        new_users_24h = sum(1 for uid in users 
-                           if r.exists(first_contact_key(uid)) 
+
+        new_users_24h = sum(1 for uid in users
+                           if r.exists(first_contact_key(uid))
                            and (now - datetime.fromisoformat(r.get(first_contact_key(uid)))).total_seconds() < 86400)
-        
-        # Total de mensagens e streak médio
+
         total_messages = sum(get_conversation_messages_count(uid) for uid in users)
         streaks = [get_streak(uid) for uid in users if get_streak(uid) > 0]
         avg_streak = sum(streaks) / len(streaks) if streaks else 0
-        
-        # ═══════════════════════════════════════════════════════
-        # 📊 FUNIL DE CONVERSÃO
-        # ═══════════════════════════════════════════════════════
-        
+
         funnel_stages = {i: 0 for i in range(5)}
         for uid in users:
             try:
@@ -2686,20 +2354,13 @@ def admin_stats():
                 funnel_stages[stage] += 1
             except:
                 pass
-        
-        # ═══════════════════════════════════════════════════════
-        # 📊 ATIVIDADE DOS ÚLTIMOS 7 DIAS
-        # ═══════════════════════════════════════════════════════
-        
+
         activity_labels = []
         activity_messages = []
-        
         for i in range(6, -1, -1):
             day = now - timedelta(days=i)
             day_name = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][day.weekday()]
             activity_labels.append(day_name)
-            
-            # Conta msgs enviadas naquele dia (aproximação via daily_messages_sent)
             msgs = 0
             for uid in users:
                 try:
@@ -2708,34 +2369,20 @@ def admin_stats():
                 except:
                     pass
             activity_messages.append(msgs)
-        
-        # ═══════════════════════════════════════════════════════
-        # 📊 NÍVEL DE INTERESSE (últimas 24h)
-        # ═══════════════════════════════════════════════════════
-        
+
         interest_levels = {"high": 0, "medium": 0, "low": 0}
-        
         for uid in users:
-            # Heurística: quem tem muitas msgs + viu teaser = alto interesse
             msgs = get_conversation_messages_count(uid)
             saw = saw_teaser(uid)
-            
             if msgs > 20 and saw:
                 interest_levels["high"] += 1
             elif msgs > 10 or saw:
                 interest_levels["medium"] += 1
             else:
                 interest_levels["low"] += 1
-        
-        # ═══════════════════════════════════════════════════════
-        # 📊 OFERTAS VIP POR HORÁRIO
-        # ═══════════════════════════════════════════════════════
-        
+
         hourly_labels = [f"{h}h" for h in range(0, 24, 2)]
         hourly_offers = [0] * 12
-        
-        # Simulação - você pode logar timestamps reais das ofertas no Redis
-        # Por agora, vamos fazer uma distribuição baseada em quando os teasers foram vistos
         for uid in users:
             try:
                 saw_time = r.get(saw_teaser_key(uid))
@@ -2744,11 +2391,7 @@ def admin_stats():
                     hourly_offers[hour // 2] += 1
             except:
                 pass
-        
-        # ═══════════════════════════════════════════════════════
-        # 👥 TOP 20 USUÁRIOS MAIS ENGAJADOS
-        # ═══════════════════════════════════════════════════════
-        
+
         user_data = []
         for uid in users:
             msgs = get_conversation_messages_count(uid)
@@ -2760,13 +2403,11 @@ def admin_stats():
                     "teasers": get_teaser_count(uid),
                     "last_activity_hours": get_hours_since_activity(uid) or 999
                 })
-        
-        # Ordena por engajamento (msgs * streak)
+
         user_data.sort(key=lambda x: x["messages"] * (x["streak"] + 1), reverse=True)
-        
+
         top_users = []
         for user in user_data[:20]:
-            # Determina status
             hours = user["last_activity_hours"]
             if hours < 2:
                 status, status_text = "hot", "🔥 Quente"
@@ -2774,23 +2415,18 @@ def admin_stats():
                 status, status_text = "warm", "😊 Morno"
             else:
                 status, status_text = "cold", "❄️ Frio"
-            
-            # Determina interesse
             if user["messages"] > 20:
                 interest, interest_text = "hot", "Alto"
             elif user["messages"] > 10:
                 interest, interest_text = "warm", "Médio"
             else:
                 interest, interest_text = "cold", "Baixo"
-            
-            # Formata última atividade
             if hours < 1:
                 last_activity = "< 1h atrás"
             elif hours < 24:
                 last_activity = f"{int(hours)}h atrás"
             else:
                 last_activity = f"{int(hours/24)}d atrás"
-            
             top_users.append({
                 "id": user["id"],
                 "messages": user["messages"],
@@ -2802,11 +2438,7 @@ def admin_stats():
                 "interest": interest,
                 "interestText": interest_text
             })
-        
-        # ═══════════════════════════════════════════════════════
-        # 🚫 USUÁRIOS EM COOLDOWN
-        # ═══════════════════════════════════════════════════════
-        
+
         cooldown_users = []
         for uid in users:
             if is_in_rejection_cooldown(uid):
@@ -2814,14 +2446,12 @@ def admin_stats():
                 offers_today = get_vip_offers_today(uid)
                 total_teasers = get_teaser_count(uid)
                 hours = get_hours_since_activity(uid) or 0
-                
                 if hours < 1:
                     last_contact = "< 1h atrás"
                 elif hours < 24:
                     last_contact = f"{int(hours)}h atrás"
                 else:
                     last_contact = f"{int(hours/24)}d atrás"
-                
                 cooldown_users.append({
                     "id": uid,
                     "cooldownRemaining": cooldown_remaining,
@@ -2829,41 +2459,31 @@ def admin_stats():
                     "totalTeasers": total_teasers,
                     "lastContact": last_contact
                 })
-        
-        # ═══════════════════════════════════════════════════════
-        # 📉 ANÁLISE DE DROP-OFF
-        # ═══════════════════════════════════════════════════════
-        
-        started = funnel_stages[1]  # /start
-        first_message = funnel_stages[2]  # primeira msg
-        saw_teaser_funnel = funnel_stages[3]  # viu teaser
-        clicked_vip_funnel = funnel_stages[4]  # clicou VIP
-        
+
+        started = funnel_stages[1]
+        first_message = funnel_stages[2]
+        saw_teaser_funnel = funnel_stages[3]
+        clicked_vip_funnel = funnel_stages[4]
+
         def calc_drop(from_stage, to_stage):
             if from_stage == 0:
                 return 0
             return ((from_stage - to_stage) / from_stage * 100)
-        
+
         drop_1 = calc_drop(started, first_message)
         drop_2 = calc_drop(first_message, saw_teaser_funnel)
         drop_3 = calc_drop(saw_teaser_funnel, clicked_vip_funnel)
-        
+
         def get_drop_class(rate):
-            if rate > 70:
-                return "hot"
-            elif rate > 40:
-                return "warm"
-            else:
-                return "cold"
-        
+            if rate > 70: return "hot"
+            elif rate > 40: return "warm"
+            else: return "cold"
+
         def get_status(rate):
-            if rate > 70:
-                return "🚨 Crítico"
-            elif rate > 40:
-                return "⚠️ Alto"
-            else:
-                return "✅ Normal"
-        
+            if rate > 70: return "🚨 Crítico"
+            elif rate > 40: return "⚠️ Alto"
+            else: return "✅ Normal"
+
         dropoff = [
             {
                 "name": "Start → 1ª Msg",
@@ -2890,11 +2510,7 @@ def admin_stats():
                 "status": get_status(drop_3)
             }
         ]
-        
-        # ═══════════════════════════════════════════════════════
-        # 📦 MONTA RESPOSTA FINAL
-        # ═══════════════════════════════════════════════════════
-        
+
         return {
             "stats": {
                 "totalUsers": total_users,
@@ -2915,88 +2531,62 @@ def admin_stats():
                 "sawTeaser": saw_teaser_funnel,
                 "clickedVip": clicked_vip_funnel
             },
-            "activity": {
-                "labels": activity_labels,
-                "messages": activity_messages
-            },
+            "activity": {"labels": activity_labels, "messages": activity_messages},
             "interest": interest_levels,
-            "hourly": {
-                "labels": hourly_labels,
-                "offers": hourly_offers
-            },
+            "hourly": {"labels": hourly_labels, "offers": hourly_offers},
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
             "dropoff": dropoff
         }, 200
-        
+
     except Exception as e:
         logger.exception(f"Erro admin stats: {e}")
         return {"error": str(e)}, 500
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 💬 ADICIONE ESTA ROTA NO SEU BOT PYTHON
-# Cole este código ANTES da linha @app.route("/admin/user/<int:user_id>")
-# (por volta da linha 1650)
-# ═══════════════════════════════════════════════════════════════════════════════
-
 @app.route("/admin/conversations", methods=["GET"])
 def admin_conversations():
-    """Retorna conversas em tempo real"""
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return {"error": "Unauthorized"}, 401
-    
     token = auth_header.replace("Bearer ", "")
     if token != ADMIN_TOKEN:
         return {"error": "Invalid token"}, 401
-    
+
     try:
-        # Pega filtro (opcional)
-        filter_type = request.args.get('filter', 'all')  # all, hot, cooldown, converted
-        
+        filter_type = request.args.get('filter', 'all')
         users = get_all_active_users()
         conversations = []
-        
+
         for uid in users:
-            # Filtra por atividade recente (últimas 24h)
             hours = get_hours_since_activity(uid)
             if not hours or hours > 24:
                 continue
-            
-            # Aplica filtros
             if filter_type == 'hot' and get_conversation_messages_count(uid) < 10:
                 continue
             elif filter_type == 'cooldown' and not is_in_rejection_cooldown(uid):
                 continue
             elif filter_type == 'converted' and not clicked_vip(uid):
                 continue
-            
-            # Pega as últimas 50 mensagens do chatlog
+
             chatlog = r.lrange(chatlog_key(uid), -50, -1)
-            
-            # Formata última atividade
+
             if hours < 1:
                 last_activity = "< 1 min"
             elif hours < 1/60:
                 last_activity = f"{int(hours * 60)} min"
             else:
                 last_activity = f"{int(hours)}h"
-            
-            # Status
+
             if clicked_vip(uid):
-                status = "💎 Comprou VIP"
-                status_class = "vip"
+                status, status_class = "💎 Comprou VIP", "vip"
             elif is_in_rejection_cooldown(uid):
-                status = "🚫 Cooldown"
-                status_class = "cooldown"
+                status, status_class = "🚫 Cooldown", "cooldown"
             elif get_conversation_messages_count(uid) > 20:
-                status = "🔥 Quente"
-                status_class = "hot"
+                status, status_class = "🔥 Quente", "hot"
             else:
-                status = "💬 Conversando"
-                status_class = "normal"
-            
+                status, status_class = "💬 Conversando", "normal"
+
             conversations.append({
                 "userId": uid,
                 "messages": chatlog,
@@ -3009,38 +2599,25 @@ def admin_conversations():
                 "inCooldown": is_in_rejection_cooldown(uid),
                 "clickedVip": clicked_vip(uid)
             })
-        
-        # Ordena por última atividade (mais recente primeiro)
+
         conversations.sort(key=lambda x: x['lastActivity'])
-        
         return {"conversations": conversations}, 200
-        
+
     except Exception as e:
         logger.exception(f"Erro admin conversations: {e}")
         return {"error": str(e)}, 500
 
+
 @app.route("/admin/user/<int:user_id>", methods=["GET"])
 def admin_user_detail(user_id):
-    """Detalhes de um usuário específico"""
-    # Verificação de segurança
-    # auth_token = request.headers.get("Authorization")
-    # if auth_token != "SEU_TOKEN_SECRETO":
-    #     return {"error": "Unauthorized"}, 401
-    
     try:
         if not r.sismember(all_users_key(), str(user_id)):
             return {"error": "User not found"}, 404
-        
-        # Pega toda a conversa
+
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
-        
-        # Pega perfil
         profile = get_user_profile(user_id)
-        
-        # Pega memória da IA
         memory = get_memory(user_id)
-        
-        # Métricas
+
         return {
             "id": user_id,
             "profile": profile,
@@ -3062,40 +2639,31 @@ def admin_user_detail(user_id):
             "chatlog": chatlog,
             "memory": memory
         }, 200
-        
+
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
 
+
 @app.route("/admin/broadcast", methods=["POST"])
 def admin_broadcast():
-    """Envia mensagem para todos os usuários ativos"""
-    # ⚠️ CUIDADO: Isso pode violar ToS do Telegram se usado errado!
-    # Use apenas para mensagens importantes e relevantes
-    
-    # auth_token = request.headers.get("Authorization")
-    # if auth_token != "SEU_TOKEN_SECRETO":
-    #     return {"error": "Unauthorized"}, 401
-    
     try:
         data = request.json
         message = data.get("message")
-        target_group = data.get("target", "all")  # all, active_24h, saw_teaser, etc
-        
+        target_group = data.get("target", "all")
+
         if not message:
             return {"error": "Message required"}, 400
-        
+
         users = get_all_active_users()
-        
-        # Filtra target group
+
         if target_group == "active_24h":
             users = [u for u in users if get_hours_since_activity(u) and get_hours_since_activity(u) < 24]
         elif target_group == "saw_teaser":
             users = [u for u in users if saw_teaser(u)]
         elif target_group == "not_converted":
             users = [u for u in users if saw_teaser(u) and not clicked_vip(u)]
-        
-        # Envia mensagens (de forma assíncrona para não travar)
+
         async def send_broadcast():
             sent = 0
             failed = 0
@@ -3103,35 +2671,23 @@ def admin_broadcast():
                 try:
                     await application.bot.send_message(chat_id=uid, text=message)
                     sent += 1
-                    await asyncio.sleep(0.05)  # Rate limiting
+                    await asyncio.sleep(0.05)
                 except Exception as e:
                     failed += 1
                     logger.error(f"Broadcast failed for {uid}: {e}")
             return sent, failed
-        
-        # Executa no event loop
+
         future = asyncio.run_coroutine_threadsafe(send_broadcast(), loop)
         sent, failed = future.result(timeout=300)
-        
-        return {
-            "success": True,
-            "sent": sent,
-            "failed": failed,
-            "total": len(users)
-        }, 200
-        
+
+        return {"success": True, "sent": sent, "failed": failed, "total": len(users)}, 200
+
     except Exception as e:
         logger.exception(f"Erro broadcast: {e}")
         return {"error": str(e)}, 500
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔐 SISTEMA DE AUTENTICAÇÃO SIMPLES (ADICIONE ISSO!)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "seu_token_super_secreto_aqui_123")
 
 def require_auth():
-    """Decorator para proteger rotas admin"""
     def decorator(f):
         def wrapped(*args, **kwargs):
             auth = request.headers.get("Authorization")
@@ -3142,28 +2698,21 @@ def require_auth():
         return wrapped
     return decorator
 
-# USO:
-# @app.route("/admin/stats", methods=["GET"])
-# @require_auth()
-# def admin_stats():
-#     ...
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 STARTUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def startup_sequence():
     try:
-        logger.info("🚀 Iniciando Sophia Bot v8.2...")
-        # Inicializar IA Router
+        logger.info("🚀 Iniciando Sophia Bot v8.3 APEX...")
         router = init_router(redis_url=REDIS_URL, config_path="ias_config.json")
         logger.info(f"✅ IA Router inicializado")
         await application.initialize()
         await application.start()
         await asyncio.sleep(2)
-        
+
         webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-        
+
         for attempt in range(3):
             try:
                 await application.bot.delete_webhook(drop_pending_updates=True)
@@ -3185,21 +2734,20 @@ async def startup_sequence():
                     await asyncio.sleep(5)
                 else:
                     raise
-        
+
         asyncio.create_task(engagement_scheduler(application.bot))
         logger.info("✅ Scheduler de engagement iniciado")
-        
+
         asyncio.create_task(retargeting_scheduler(application.bot))
         logger.info("✅ Scheduler de retargeting iniciado")
-        
+
         asyncio.create_task(recovery_scheduler(application.bot))
         logger.info("✅ Scheduler de recovery iniciado")
 
-        
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.3 - Sistema de 6 Fases + Anti-Repetição + Apego Emocional")
-        
+        logger.info("✨ v8.3 APEX — Funil direto VIP + PIX + Pergunta prévia")
+
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
         raise
@@ -3210,9 +2758,9 @@ async def startup_sequence():
 
 if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
-    
+
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.3 SISTEMA COMPLETO operacional!")
-    logger.info("📊 Fases: ONBOARDING → ENGAGEMENT → PROVOCATION → VIP_PITCH → POST_REJECTION / RELATIONSHIP")
-    
+    logger.info("🚀 Sophia Bot v8.3 APEX operacional!")
+    logger.info("📊 Funil: /start → Conversa → Prévia? → Teasers → PIX → VIP")
+
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
