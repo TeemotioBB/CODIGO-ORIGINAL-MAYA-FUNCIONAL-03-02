@@ -41,7 +41,7 @@ from ia_router import init_router, get_router
 # ═══════════════════════════════════════════════════════════════════════════════
 # ==================== META CAPI - MAX POWER ====================
 PIXEL_ID = "2159200848249742"
-ACCESS_TOKEN = "EAANRM9QJv7YBRArh1VjZC5Yt4iUEXVQ6VBXZC7050nOnKZBMRYArZA4e4BF0uwsmENkLfddHRoZCOASTZADAtqY2aFOC0o5ZAZCJ4eW3TkW6k5NII0txk7SQ261TZBEiV74DJlSjN1ZC89vQE6sWT6WhmcuEIrWpsq9biBTo8SzZACK5pbUe7HptRCtKlsGNqxYsSh3GAZDZD"
+ACCESS_TOKEN = "EAANRM9QJv7YBRNwZCc631h76L8L3a2kSGsfbIIlQAPdcBrk5xJaRnfz5oNC3EhU5TIv1qCDjjsziHKJ7H2augcdYfxnMv1xKstRiPemMvohRShmCvJPOpZBaG8F6rhPGoClA178JrhWF5eYWtx9Xo0oUHsr0KBfx3tEUSKEulvu9OfxxSS5yJZCzQeaNQL56wZDZD"
 
 def hash_data(value: str) -> str:
     return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
