@@ -1,3 +1,4 @@
+requests
 python-telegram-bot==20.7
 aiohttp==3.9.1
 redis==5.0.1
