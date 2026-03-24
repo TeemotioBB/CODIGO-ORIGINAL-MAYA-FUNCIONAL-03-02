@@ -40,8 +40,8 @@ from ia_router import init_router, get_router
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ==================== META CAPI - MAX POWER ====================
-PIXEL_ID = "2159200848249742"
-ACCESS_TOKEN = "EAANRM9QJv7YBRNwZCc631h76L8L3a2kSGsfbIIlQAPdcBrk5xJaRnfz5oNC3EhU5TIv1qCDjjsziHKJ7H2augcdYfxnMv1xKstRiPemMvohRShmCvJPOpZBaG8F6rhPGoClA178JrhWF5eYWtx9Xo0oUHsr0KBfx3tEUSKEulvu9OfxxSS5yJZCzQeaNQL56wZDZD"
+PIXEL_ID = "735253462874774"
+ACCESS_TOKEN = "EAANRM9QJv7YBRG54vW9VkOT3rgEQDry9PA2UzN7HsdauowZBDKZB0e1MtvZBvUuUSc9Ub2I96psCQTl0PZBRoIG7ElDCyMU7uO2idnf0nrebj4u3f7ZA396AGXCrBZC4NljW8OURxBu4qi5zGFZBEaWVtqlfwdZCoqGFeJ238YqE86c2tfwjdjBBJ52xLX3xZCh1sqwZDZD"
 
 def hash_data(value: str) -> str:
     return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
