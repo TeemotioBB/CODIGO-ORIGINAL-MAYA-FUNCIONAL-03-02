@@ -14,7 +14,7 @@
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📦 IMPORTS
+# 📦 IMPORTS (todos juntos e sem duplicação)
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 import asyncio
@@ -26,6 +26,8 @@ import json
 import random
 import hashlib
 import base64
+import time
+import requests
 from datetime import datetime, timedelta, date
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -34,9 +36,149 @@ from telegram.ext import (
     Application, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler, CommandHandler
 )
-
 from ia_router import init_router, get_router
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ==================== META CAPI - MAX POWER ====================
+PIXEL_ID = "2159200848249742"
+ACCESS_TOKEN = "EAANRM9QJv7YBRAZAZCKyjOfUJus4tKnlYmuCMtZBS7AWRp2dESIyJy5030NTaN6GDrU3S5boZBGln228id1ScUlSFQGU9pBN1aHsAgnnVBF71TAf6avNQ1y2wkELNw2bccS5GtsjTa5m1FWcmzSDHqi1aC5e1Nl4K9CkLRQYuJfsU6ABV9VLD1ZAcJxirqRS27gZDZD"
+
+def hash_data(value: str) -> str:
+    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
+
+# As funções get_lead_score_max e enviar_lead_capi_max ficam aqui (antes de qualquer chamada)
+def get_lead_score_max(uid: int, intent: str = "neutral", text: str = "", trigger: str = "botao_vip") -> dict:
+    """Versão MAX POWER - Envia o máximo de sinais para o Meta"""
+    score = 0
+    reasons = []
+
+    if intent in ["hot", "pedido_conteudo"]:
+        score += 35
+        reasons.append("intent_hot")
+    elif intent == "interesse_vip":
+        score += 30
+        reasons.append("interesse_vip")
+
+    attachment = detect_emotional_attachment(text)
+    if attachment["level"] >= 8:
+        score += 25
+        reasons.append("apego_alto")
+    elif attachment["level"] >= 5:
+        score += 15
+        reasons.append("apego_medio")
+
+    phase = get_current_phase(uid)
+    if phase >= 4:
+        score += 20
+        reasons.append("fase_relationship")
+    elif phase >= 3:
+        score += 15
+        reasons.append("fase_vip_pitch")
+    elif phase >= 2:
+        score += 8
+        reasons.append("fase_provocacao")
+
+    if saw_teaser(uid):
+        score += 12
+        reasons.append("viu_teaser")
+
+    teaser_count = get_teaser_count(uid)
+    if teaser_count >= 3:
+        score += 10
+        reasons.append("multiplos_teasers")
+    elif teaser_count >= 1:
+        score += 5
+        reasons.append("viu_teaser")
+
+    streak = get_streak(uid)
+    if streak >= 5:
+        score += 12
+        reasons.append("streak_alto")
+    elif streak >= 3:
+        score += 6
+        reasons.append("streak_medio")
+
+    msg_count = get_conversation_messages_count(uid)
+    if msg_count >= 30:
+        score += 10
+        reasons.append("alta_conversacao")
+    elif msg_count >= 15:
+        score += 5
+        reasons.append("conversacao_media")
+
+    first_contact = r.get(first_contact_key(uid))
+    hours_since_start = None
+    if first_contact:
+        try:
+            hours_since_start = (datetime.now() - datetime.fromisoformat(first_contact)).total_seconds() / 3600
+            if hours_since_start <= 12:
+                score += 8
+                reasons.append("contato_recente")
+        except:
+            pass
+
+    if score >= 85:
+        level = "SUPER_HOT"
+    elif score >= 70:
+        level = "HOT"
+    elif score >= 50:
+        level = "high"
+    elif score >= 30:
+        level = "medium"
+    else:
+        level = "low"
+
+    return {
+        "score": round(score, 1),
+        "level": level,
+        "reasons": reasons,
+        "intent": intent,
+        "phase": get_phase_name(phase),
+        "streak": streak,
+        "message_count": msg_count,
+        "teaser_count": teaser_count,
+        "trigger": trigger,
+        "hours_since_start": round(hours_since_start, 1) if hours_since_start else None,
+        "content_category": "adult_vip",
+        "niche": "hot_content"
+    }
+
+def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
+    """Envia o Lead para o Meta com todos os dados ricos"""
+    url = f"https://graph.facebook.com/v19.0/{PIXEL_ID}/events"
+    payload = {
+        "data": [{
+            "event_name": "Lead",
+            "event_time": int(time.time()),
+            "action_source": "other",
+            "user_data": {"external_id": hash_data(str(uid))},
+            "custom_data": {
+                "lead_score": lead_data["score"],
+                "lead_level": lead_data["level"],
+                "intent_type": lead_data["intent"],
+                "funnel_phase": lead_data["phase"],
+                "streak_days": lead_data["streak"],
+                "message_count": lead_data["message_count"],
+                "teaser_count": lead_data["teaser_count"],
+                "trigger": trigger,
+                "content_category": "adult_vip",
+                "niche": "hot_content",
+                "hours_since_start": lead_data.get("hours_since_start")
+            }
+        }],
+        "access_token": ACCESS_TOKEN
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"✅ CAPI LEAD ENVIADO → User {uid} | Level: {lead_data['level']} | Score: {lead_data['score']}")
+            return True
+        else:
+            logger.error(f"❌ Erro CAPI: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Falha CAPI: {e}")
+        return False
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1938,12 +2080,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     try:
         uid = query.from_user.id
         if is_blacklisted(uid):
             return
-
         update_last_activity(uid)
         reset_ignored(uid)
 
@@ -1952,16 +2092,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
 
+            # 🔥 MAX POWER LEAD TRACKING
+            lead_data = get_lead_score_max(uid, intent=detect_intent(""), trigger="botao_vip")
+            enviar_lead_capi_max(uid, lead_data, trigger="botao_vip")
+
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+
+            utm_link = f"{canal_vip}?utm_source=facebook&utm_medium=cpc&utm_campaign=hot_niche&utm_content=lead_max"
 
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
                     f"💎 **PERFEITO AMOR!**\n\n"
                     f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
-                    f"👉 {canal_vip}\n\n"
+                    f"👉 {utm_link}\n\n"
                     f"Te espero lá com MUITO conteúdo exclusivo! 🔥💕"
                 ),
                 parse_mode="Markdown"
@@ -2147,6 +2293,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         grok_response = await grok.reply(uid, text)
+                # 🔥 LEAD quando detecta intenção forte na conversa
+        if grok_response.get("offer_teaser", False) or any(k in text.lower() for k in ["quero", "manda", "foto", "preço", "pix"]):
+            lead_data = get_lead_score_max(uid, intent=detect_intent(text), text=text, trigger="conversa_intencao")
+            enviar_lead_capi_max(uid, lead_data, trigger="conversa_intencao")
 
         await update.message.reply_text(grok_response["response"])
 
