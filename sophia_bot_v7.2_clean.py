@@ -231,6 +231,50 @@ def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
         return False
 
 
+# ====================== FUNÇÃO PURCHASE ======================
+def enviar_purchase_capi(uid: int, valor: float = 12.90, transaction_id: str = None):
+    """Evento PURCHASE - Compra confirmada"""
+    
+    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
+    
+    event_id = f"purchase_{uid}_{int(time.time())}"
+    
+    if transaction_id is None:
+        transaction_id = f"pix_{uid}_{int(time.time())}"
+
+    payload = {
+        "data": [{
+            "event_name": "Purchase",
+            "event_time": int(time.time()),
+            "event_id": event_id,
+            "action_source": "chat",
+            "user_data": {
+                "external_id": [hash_data(str(uid))],
+            },
+            "custom_data": {
+                "currency": "BRL",
+                "value": float(valor),
+                "transaction_id": transaction_id,
+                "content_category": "adult_vip",
+                "niche": "hot_content"
+            }
+        }],
+        "access_token": ACCESS_TOKEN
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        if response.status_code == 200:
+            logger.info(f"✅ PURCHASE ENVIADO → UID: {uid} | Valor: R${valor:.2f}")
+            return True
+        else:
+            logger.error(f"❌ Erro Purchase | Status: {response.status_code} | {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Falha Purchase CAPI: {e}")
+        return False
+# ============================================================
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2039,39 +2083,30 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-
     router = get_router()
     start_param = context.args[0] if context.args else None
     detected_ia = router.parse_start_params(start_param)
-
     if detected_ia:
         router.assign_ia(uid, detected_ia)
         logger.info(f"🎯 User {uid} → IA: {detected_ia}")
     else:
         router.assign_ia(uid, "maya")
         logger.info(f"🎯 User {uid} → IA: default (maya)")
-
     ia_config = router.get_ia_config(uid=uid)
-
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
-
     if is_blacklisted(uid):
         return
-
     update_last_activity(uid)
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
     set_lang(uid, "pt")
-
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
-
     mark_first_contact(uid)
     logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
-
     try:
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
@@ -2085,7 +2120,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(2)
         except Exception as photo_error:
             logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
-
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
             await asyncio.sleep(1)
@@ -2099,13 +2133,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(3)
         except Exception as video_error:
             logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
-
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
         except:
             pass
-
         try:
             await update.message.reply_text(ia_config["start_message"])
             logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING)")
@@ -2117,7 +2149,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as final_error:
                 logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
-
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
@@ -2129,21 +2160,59 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+async def compra_confirmada_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando: /compra_confirmada <user_id> [valor]"""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Apenas admins podem usar este comando.")
+        return
+
+    try:
+        if len(context.args) < 1:
+            await update.message.reply_text(
+                "Uso correto:\n"
+                "/compra_confirmada <user_id> [valor]\n\n"
+                "Exemplo:\n"
+                "/compra_confirmada 84583380652 12.93"
+            )
+            return
+
+        uid = int(context.args[0])
+        valor = float(context.args[1]) if len(context.args) > 1 else 12.90
+
+        sucesso = enviar_purchase_capi(uid, valor=valor)
+
+        if sucesso:
+            await update.message.reply_text(
+                f"✅ **Purchase enviado com sucesso para o Meta!**\n\n"
+                f"ID Cliente: `{uid}`\n"
+                f"Valor: R$ {valor:.2f}"
+            )
+        else:
+            await update.message.reply_text("❌ Falha ao enviar o evento Purchase.")
+
+    except ValueError:
+        await update.message.reply_text("❌ Erro: O user_id deve ser um número.\nExemplo: /compra_confirmada 84583380652 12.93")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro inesperado: {e}")
+
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    uid = query.from_user.id
-
+    await query.answer()
     try:
-        await query.answer()
+        uid = query.from_user.id
+        if is_blacklisted(uid):
+            return
+        update_last_activity(uid)
+        reset_ignored(uid)
 
         if query.data == "goto_vip":
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
 
+            # META CAPI
             enviar_initiatecheckout_capi(uid, trigger="botao_vip")
-
             lead_data = get_lead_score_max(uid, intent=detect_intent(""), trigger="botao_vip")
             enviar_lead_capi_max(uid, lead_data, trigger="botao_vip")
 
@@ -2162,7 +2231,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 parse_mode="Markdown"
             )
-
     except Exception as e:
         logger.error(f"Erro callback: {e}")
 
@@ -2446,7 +2514,10 @@ def setup_application():
         'get_hours_since_activity': get_hours_since_activity,
         'add_to_blacklist': add_to_blacklist
     }
+
+    # Handlers
     application.add_handler(CommandHandler("start", start_handler))
+    application.add_handler(CommandHandler("compra_confirmada", compra_confirmada_handler))   # ← ESSA LINHA É IMPORTANTE
     application.add_handler(CommandHandler("stats", lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("funnel", lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("reset", lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)))
@@ -2454,11 +2525,13 @@ def setup_application():
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
+
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs), pattern="^bc_(?!confirm)"))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK), pattern="^bc_confirm$"))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
+
     logger.info("✅ Handlers registrados (v8.3 APEX)")
     return application
 
