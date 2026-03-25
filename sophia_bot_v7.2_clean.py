@@ -2129,19 +2129,23 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+
+    try:
+        await query.answer()
+
         if query.data == "goto_vip":
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
 
-            # ====================== META CAPI ======================
-            # 1. Envia InitiateCheckout (iniciou processo de compra)
             enviar_initiatecheckout_capi(uid, trigger="botao_vip")
 
-            # 2. Envia Lead (já existia, agora melhorado)
             lead_data = get_lead_score_max(uid, intent=detect_intent(""), trigger="botao_vip")
             enviar_lead_capi_max(uid, lead_data, trigger="botao_vip")
-            # =======================================================
 
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
@@ -2158,9 +2162,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 parse_mode="Markdown"
             )
+
     except Exception as e:
         logger.error(f"Erro callback: {e}")
-
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
