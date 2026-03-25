@@ -144,40 +144,56 @@ def get_lead_score_max(uid: int, intent: str = "neutral", text: str = "", trigge
     }
 
 def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
-    """Envia o Lead para o Meta com todos os dados ricos"""
-    url = f"https://graph.facebook.com/v19.0/{PIXEL_ID}/events"
+    """Versão melhorada do evento Lead para Meta CAPI 2026"""
+    
+    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"   # ← Versão atualizada
+
+    # Gera um ID único para este evento (essencial)
+    event_id = f"lead_{uid}_{int(time.time())}"
+
     payload = {
         "data": [{
             "event_name": "Lead",
-            "event_time": int(time.time()),
-            "action_source": "other",
-            "user_data": {"external_id": hash_data(str(uid))},
+            "event_time": int(time.time()),           # horário atual (Unix timestamp)
+            "event_id": event_id,                     # ← Adicionado
+            "action_source": "chat",                  # ← Mudado de "other" para "chat"
+            
+            "user_data": {
+                "external_id": [hash_data(str(uid))],   # você já tem isso
+                # Se no futuro você tiver e-mail ou telefone, adicione aqui:
+                # "em": ["hash_do_email"],
+                # "ph": ["hash_do_telefone"],
+            },
+            
             "custom_data": {
-                "lead_score": lead_data["score"],
-                "lead_level": lead_data["level"],
-                "intent_type": lead_data["intent"],
-                "funnel_phase": lead_data["phase"],
-                "streak_days": lead_data["streak"],
-                "message_count": lead_data["message_count"],
-                "teaser_count": lead_data["teaser_count"],
+                "lead_score": lead_data.get("score", 0),
+                "lead_level": lead_data.get("level", "low"),
+                "intent_type": lead_data.get("intent", "neutral"),
+                "funnel_phase": lead_data.get("phase"),
                 "trigger": trigger,
                 "content_category": "adult_vip",
                 "niche": "hot_content",
-                "hours_since_start": lead_data.get("hours_since_start")
+                "streak_days": lead_data.get("streak", 0),
+                "message_count": lead_data.get("message_count", 0)
             }
         }],
         "access_token": ACCESS_TOKEN
     }
+
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=15)
+        
         if response.status_code == 200:
-            logger.info(f"✅ CAPI LEAD ENVIADO → User {uid} | Level: {lead_data['level']} | Score: {lead_data['score']}")
+            logger.info(f"✅ LEAD CAPI ENVIADO → UID: {uid} | Level: {lead_data.get('level')} | EventID: {event_id}")
+            # Log opcional para debug:
+            # logger.debug(f"Meta resposta: {response.json()}")
             return True
         else:
-            logger.error(f"❌ Erro CAPI: {response.status_code} - {response.text}")
+            logger.error(f"❌ Erro ao enviar Lead | Status: {response.status_code} | {response.text}")
             return False
+            
     except Exception as e:
-        logger.error(f"❌ Falha CAPI: {e}")
+        logger.error(f"❌ Falha na requisição Lead CAPI: {e}")
         return False
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
