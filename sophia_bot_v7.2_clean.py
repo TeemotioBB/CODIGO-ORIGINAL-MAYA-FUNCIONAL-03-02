@@ -143,28 +143,24 @@ def get_lead_score_max(uid: int, intent: str = "neutral", text: str = "", trigge
         "niche": "hot_content"
     }
 
+# ====================== META CAPI - FUNÇÕES ======================
+
 def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
     """Versão melhorada do evento Lead para Meta CAPI 2026"""
+   
+    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
     
-    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"   # ← Versão atualizada
-
-    # Gera um ID único para este evento (essencial)
     event_id = f"lead_{uid}_{int(time.time())}"
-
+    
     payload = {
         "data": [{
             "event_name": "Lead",
-            "event_time": int(time.time()),           # horário atual (Unix timestamp)
-            "event_id": event_id,                     # ← Adicionado
-            "action_source": "chat",                  # ← Mudado de "other" para "chat"
-            
+            "event_time": int(time.time()),
+            "event_id": event_id,
+            "action_source": "chat",
             "user_data": {
-                "external_id": [hash_data(str(uid))],   # você já tem isso
-                # Se no futuro você tiver e-mail ou telefone, adicione aqui:
-                # "em": ["hash_do_email"],
-                # "ph": ["hash_do_telefone"],
+                "external_id": [hash_data(str(uid))],
             },
-            
             "custom_data": {
                 "lead_score": lead_data.get("score", 0),
                 "lead_level": lead_data.get("level", "low"),
@@ -182,19 +178,59 @@ def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
 
     try:
         response = requests.post(url, json=payload, timeout=15)
-        
+       
         if response.status_code == 200:
             logger.info(f"✅ LEAD CAPI ENVIADO → UID: {uid} | Level: {lead_data.get('level')} | EventID: {event_id}")
-            # Log opcional para debug:
-            # logger.debug(f"Meta resposta: {response.json()}")
             return True
         else:
             logger.error(f"❌ Erro ao enviar Lead | Status: {response.status_code} | {response.text}")
             return False
-            
+           
     except Exception as e:
         logger.error(f"❌ Falha na requisição Lead CAPI: {e}")
         return False
+
+
+def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
+    """Evento INITIATECHECKOUT - Usuário clicou no botão de pagar"""
+  
+    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
+  
+    event_id = f"initiatecheckout_{uid}_{int(time.time())}"
+   
+    payload = {
+        "data": [{
+            "event_name": "InitiateCheckout",
+            "event_time": int(time.time()),
+            "event_id": event_id,
+            "action_source": "chat",
+            "user_data": {
+                "external_id": [hash_data(str(uid))],
+            },
+            "custom_data": {
+                "currency": "BRL",
+                "value": 12.90,
+                "trigger": trigger,
+                "content_category": "adult_vip",
+                "niche": "hot_content"
+            }
+        }],
+        "access_token": ACCESS_TOKEN
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        if response.status_code == 200:
+            logger.info(f"✅ INITIATECHECKOUT ENVIADO → UID: {uid} | EventID: {event_id}")
+            return True
+        else:
+            logger.error(f"❌ Erro InitiateCheckout | Status: {response.status_code} | {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Falha InitiateCheckout CAPI: {e}")
+        return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2093,29 +2129,23 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    try:
-        uid = query.from_user.id
-        if is_blacklisted(uid):
-            return
-        update_last_activity(uid)
-        reset_ignored(uid)
-
         if query.data == "goto_vip":
             set_clicked_vip(uid)
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
 
-            # 🔥 MAX POWER LEAD TRACKING
+            # ====================== META CAPI ======================
+            # 1. Envia InitiateCheckout (iniciou processo de compra)
+            enviar_initiatecheckout_capi(uid, trigger="botao_vip")
+
+            # 2. Envia Lead (já existia, agora melhorado)
             lead_data = get_lead_score_max(uid, intent=detect_intent(""), trigger="botao_vip")
             enviar_lead_capi_max(uid, lead_data, trigger="botao_vip")
+            # =======================================================
 
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-
             utm_link = f"{canal_vip}?utm_source=facebook&utm_medium=cpc&utm_campaign=hot_niche&utm_content=lead_max"
 
             await context.bot.send_message(
