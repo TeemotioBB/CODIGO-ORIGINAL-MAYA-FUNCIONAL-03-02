@@ -192,32 +192,35 @@ def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
 
 
 def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
-    """Evento INITIATECHECKOUT - Usuário clicou no botão de pagar"""
-  
+    """Evento INITIATECHECKOUT melhorado - mais visível no Meta"""
+ 
     url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-  
-    event_id = f"initiatecheckout_{uid}_{int(time.time())}"
+ 
+    event_id = f"initiatecheckout_{uid}_{int(time.time())}"   # ID único importante
    
     payload = {
         "data": [{
             "event_name": "InitiateCheckout",
             "event_time": int(time.time()),
-            "event_id": event_id,
-            "action_source": "chat",
+            "event_id": event_id,                    # ← essencial para deduplicação
+            "action_source": "chat",                 # ← correto para Telegram
+           
             "user_data": {
                 "external_id": [hash_data(str(uid))],
             },
+           
             "custom_data": {
                 "currency": "BRL",
-                "value": 12.90,
+                "value": 12.90,                      # valor do VIP
                 "trigger": trigger,
                 "content_category": "adult_vip",
-                "niche": "hot_content"
+                "content_type": "product",
+                "niche": "hot_content",
+                "num_items": 1
             }
         }],
         "access_token": ACCESS_TOKEN
     }
-
     try:
         response = requests.post(url, json=payload, timeout=15)
         if response.status_code == 200:
