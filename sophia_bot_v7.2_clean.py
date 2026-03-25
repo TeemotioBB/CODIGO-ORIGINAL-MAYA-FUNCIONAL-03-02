@@ -146,12 +146,16 @@ def get_lead_score_max(uid: int, intent: str = "neutral", text: str = "", trigge
 # ====================== META CAPI - FUNÇÕES ======================
 
 def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
-    """Versão melhorada do evento Lead para Meta CAPI 2026"""
-   
     url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-    
-    event_id = f"lead_{uid}_{int(time.time())}"
-    
+
+    # 1 Lead por dia por usuário — evita spam de eventos
+    event_id = f"lead_{uid}_{date.today()}"
+
+    # Segmentação: novo ou existente
+    is_new = not r.exists(f"lead_sent_before:{uid}")
+    segmentation = "new_customer_to_business" if is_new else "existing_customer_to_business"
+    r.set(f"lead_sent_before:{uid}", "1")
+
     payload = {
         "data": [{
             "event_name": "Lead",
@@ -170,7 +174,8 @@ def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
                 "content_category": "adult_vip",
                 "niche": "hot_content",
                 "streak_days": lead_data.get("streak", 0),
-                "message_count": lead_data.get("message_count", 0)
+                "message_count": lead_data.get("message_count", 0),
+                "customer_segmentation": segmentation
             }
         }],
         "access_token": ACCESS_TOKEN
@@ -178,49 +183,49 @@ def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
 
     try:
         response = requests.post(url, json=payload, timeout=15)
-       
         if response.status_code == 200:
-            logger.info(f"✅ LEAD CAPI ENVIADO → UID: {uid} | Level: {lead_data.get('level')} | EventID: {event_id}")
+            logger.info(f"✅ LEAD CAPI ENVIADO → UID: {uid} | Level: {lead_data.get('level')} | Seg: {segmentation}")
             return True
         else:
-            logger.error(f"❌ Erro ao enviar Lead | Status: {response.status_code} | {response.text}")
+            logger.error(f"❌ Erro Lead | Status: {response.status_code} | {response.text}")
             return False
-           
     except Exception as e:
-        logger.error(f"❌ Falha na requisição Lead CAPI: {e}")
+        logger.error(f"❌ Falha Lead CAPI: {e}")
         return False
 
 
 def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
-    """Evento INITIATECHECKOUT melhorado - mais visível no Meta"""
- 
     url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
- 
-    event_id = f"initiatecheckout_{uid}_{int(time.time())}"   # ID único importante
-   
+
+    # 1 InitiateCheckout por dia por usuário
+    event_id = f"initiatecheckout_{uid}_{date.today()}"
+
+    is_new = not r.exists(f"lead_sent_before:{uid}")
+    segmentation = "new_customer_to_business" if is_new else "existing_customer_to_business"
+
     payload = {
         "data": [{
             "event_name": "InitiateCheckout",
             "event_time": int(time.time()),
-            "event_id": event_id,                    # ← essencial para deduplicação
-            "action_source": "chat",                 # ← correto para Telegram
-           
+            "event_id": event_id,
+            "action_source": "chat",
             "user_data": {
                 "external_id": [hash_data(str(uid))],
             },
-           
             "custom_data": {
                 "currency": "BRL",
-                "value": 12.90,                      # valor do VIP
+                "value": 12.90,
+                "num_items": 1,
+                "content_type": "product",
                 "trigger": trigger,
                 "content_category": "adult_vip",
-                "content_type": "product",
                 "niche": "hot_content",
-                "num_items": 1
+                "customer_segmentation": segmentation
             }
         }],
         "access_token": ACCESS_TOKEN
     }
+
     try:
         response = requests.post(url, json=payload, timeout=15)
         if response.status_code == 200:
@@ -231,6 +236,50 @@ def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
             return False
     except Exception as e:
         logger.error(f"❌ Falha InitiateCheckout CAPI: {e}")
+        return False
+
+
+def enviar_purchase_capi(uid: int, valor: float = 12.90, transaction_id: str = None):
+    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
+
+    event_id = f"purchase_{uid}_{int(time.time())}"
+
+    if transaction_id is None:
+        transaction_id = f"pix_{uid}_{int(time.time())}"
+
+    payload = {
+        "data": [{
+            "event_name": "Purchase",
+            "event_time": int(time.time()),
+            "event_id": event_id,
+            "action_source": "chat",
+            "user_data": {
+                "external_id": [hash_data(str(uid))],
+            },
+            "custom_data": {
+                "currency": "BRL",
+                "value": float(valor),
+                "transaction_id": transaction_id,
+                "num_items": 1,
+                "content_type": "product",
+                "content_category": "adult_vip",
+                "niche": "hot_content",
+                "customer_segmentation": "existing_customer_to_business"
+            }
+        }],
+        "access_token": ACCESS_TOKEN
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        if response.status_code == 200:
+            logger.info(f"✅ PURCHASE ENVIADO → UID: {uid} | Valor: R${valor:.2f} | TxID: {transaction_id}")
+            return True
+        else:
+            logger.error(f"❌ Erro Purchase | Status: {response.status_code} | {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Falha Purchase CAPI: {e}")
         return False
 
 
@@ -2413,10 +2462,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        grok_response = await grok.reply(uid, text)
-                # 🔥 LEAD quando detecta intenção forte na conversa
-        if grok_response.get("offer_teaser", False) or any(k in text.lower() for k in ["quero", "manda", "foto", "preço", "pix"]):
-            lead_data = get_lead_score_max(uid, intent=detect_intent(text), text=text, trigger="conversa_intencao")
+        ggrok_response = await grok.reply(uid, text)
+                # 🔥 LEAD apenas em intenções qualificadas — evita spam de eventos
+        LEAD_INTENTS_QUALIFICADOS = ["interesse_vip", "pedido_conteudo", "hot", "pix_help"]
+        intent_atual = detect_intent(text)
+        if grok_response.get("offer_teaser", False) or intent_atual in LEAD_INTENTS_QUALIFICADOS:
+            lead_data = get_lead_score_max(uid, intent=intent_atual, text=text, trigger="conversa_intencao")
             enviar_lead_capi_max(uid, lead_data, trigger="conversa_intencao")
 
         await update.message.reply_text(grok_response["response"])
