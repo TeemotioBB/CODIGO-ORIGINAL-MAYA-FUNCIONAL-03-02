@@ -172,7 +172,7 @@ def _get_pix_pendente(uid: int):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco    = _callbacks.get("PRECO_VIP", "R$ 1,00")
+    preco    = _callbacks.get("PRECO_VIP", "R$ 12,90")
     pix_code = pix_data["pix_code"]
 
     mensagem = (
@@ -220,7 +220,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         get_router   = _callbacks.get("get_router")
         ia_config    = get_router().get_ia_config(uid=uid) if get_router else {}
         fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
-        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 1,00"))
+        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 12,90"))
 
         can_offer, reason = bot_main.can_offer_vip(uid)
         if not can_offer:
