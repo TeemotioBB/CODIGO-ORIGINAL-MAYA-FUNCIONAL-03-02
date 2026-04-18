@@ -1932,7 +1932,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
 
-        if text:
+                if text:
             save_message(uid, "user", text)
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
@@ -1942,10 +1942,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     r.set(attachment_level_key(uid), attachment["level"])
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
-        elif has_photo:
-            save_message(uid, "user", "[📷 FOTO]")
 
-                if has_photo:
+        if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
             image_base64 = await download_photo_base64(context.bot, photo_file_id)
@@ -1961,11 +1959,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msgs_since = get_msgs_since_offer(uid)
                     
                     if msgs_since <= 4:
-                        # Primeiras 4 mensagens após PIX: Grok continua respondendo (com foto)
+                        # Primeiras 4 mensagens após o PIX: Grok continua respondendo
                         grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                         await update.message.reply_text(grok_response["response"])
                     else:
-                        # Depois da 4ª mensagem: respostas curtas (sem chamar Grok)
+                        # Depois da 4ª mensagem: respostas curtas (economia de tokens)
                         response_text = random.choice([
                             "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
                             "Hmmm... mandou foto gostosa hein? 😏 Me avisa quando o PIX cair que eu te mostro muito mais 💦",
