@@ -14,7 +14,7 @@
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📦 IMPORTS (todos juntos e sem duplicação)
+# 📦 IMPORTS
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 import asyncio
@@ -26,8 +26,7 @@ import json
 import random
 import hashlib
 import base64
-import time
-import requests
+import syncpay_integration
 from datetime import datetime, timedelta, date
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -36,296 +35,8 @@ from telegram.ext import (
     Application, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler, CommandHandler
 )
+
 from ia_router import init_router, get_router
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ==================== META CAPI - MAX POWER ====================
-PIXEL_ID = "735253462874774"
-ACCESS_TOKEN = "EAANRM9QJv7YBRG54vW9VkOT3rgEQDry9PA2UzN7HsdauowZBDKZB0e1MtvZBvUuUSc9Ub2I96psCQTl0PZBRoIG7ElDCyMU7uO2idnf0nrebj4u3f7ZA396AGXCrBZC4NljW8OURxBu4qi5zGFZBEaWVtqlfwdZCoqGFeJ238YqE86c2tfwjdjBBJ52xLX3xZCh1sqwZDZD"
-
-def hash_data(value: str) -> str:
-    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
-
-# As funções get_lead_score_max e enviar_lead_capi_max ficam aqui (antes de qualquer chamada)
-def get_lead_score_max(uid: int, intent: str = "neutral", text: str = "", trigger: str = "botao_vip") -> dict:
-    """Versão MAX POWER - Envia o máximo de sinais para o Meta"""
-    score = 0
-    reasons = []
-
-    if intent in ["hot", "pedido_conteudo"]:
-        score += 35
-        reasons.append("intent_hot")
-    elif intent == "interesse_vip":
-        score += 30
-        reasons.append("interesse_vip")
-
-    attachment = detect_emotional_attachment(text)
-    if attachment["level"] >= 8:
-        score += 25
-        reasons.append("apego_alto")
-    elif attachment["level"] >= 5:
-        score += 15
-        reasons.append("apego_medio")
-
-    phase = get_current_phase(uid)
-    if phase >= 4:
-        score += 20
-        reasons.append("fase_relationship")
-    elif phase >= 3:
-        score += 15
-        reasons.append("fase_vip_pitch")
-    elif phase >= 2:
-        score += 8
-        reasons.append("fase_provocacao")
-
-    if saw_teaser(uid):
-        score += 12
-        reasons.append("viu_teaser")
-
-    teaser_count = get_teaser_count(uid)
-    if teaser_count >= 3:
-        score += 10
-        reasons.append("multiplos_teasers")
-    elif teaser_count >= 1:
-        score += 5
-        reasons.append("viu_teaser")
-
-    streak = get_streak(uid)
-    if streak >= 5:
-        score += 12
-        reasons.append("streak_alto")
-    elif streak >= 3:
-        score += 6
-        reasons.append("streak_medio")
-
-    msg_count = get_conversation_messages_count(uid)
-    if msg_count >= 30:
-        score += 10
-        reasons.append("alta_conversacao")
-    elif msg_count >= 15:
-        score += 5
-        reasons.append("conversacao_media")
-
-    first_contact = r.get(first_contact_key(uid))
-    hours_since_start = None
-    if first_contact:
-        try:
-            hours_since_start = (datetime.now() - datetime.fromisoformat(first_contact)).total_seconds() / 3600
-            if hours_since_start <= 12:
-                score += 8
-                reasons.append("contato_recente")
-        except:
-            pass
-
-    if score >= 85:
-        level = "SUPER_HOT"
-    elif score >= 70:
-        level = "HOT"
-    elif score >= 50:
-        level = "high"
-    elif score >= 30:
-        level = "medium"
-    else:
-        level = "low"
-
-    return {
-        "score": round(score, 1),
-        "level": level,
-        "reasons": reasons,
-        "intent": intent,
-        "phase": get_phase_name(phase),
-        "streak": streak,
-        "message_count": msg_count,
-        "teaser_count": teaser_count,
-        "trigger": trigger,
-        "hours_since_start": round(hours_since_start, 1) if hours_since_start else None,
-        "content_category": "adult_vip",
-        "niche": "hot_content"
-    }
-
-# ====================== META CAPI - FUNÇÕES ======================
-
-def enviar_lead_capi_max(uid: int, lead_data: dict, trigger: str = "botao_vip"):
-    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-
-    # 1 Lead por dia por usuário — evita spam de eventos
-    event_id = f"lead_{uid}_{date.today()}"
-
-    # Segmentação: novo ou existente
-    is_new = not r.exists(f"lead_sent_before:{uid}")
-    segmentation = "new_customer_to_business" if is_new else "existing_customer_to_business"
-    r.set(f"lead_sent_before:{uid}", "1")
-
-    payload = {
-        "data": [{
-            "event_name": "Lead",
-            "event_time": int(time.time()),
-            "event_id": event_id,
-            "action_source": "chat",
-            "user_data": {
-                "external_id": [hash_data(str(uid))],
-            },
-            "custom_data": {
-                "lead_score": lead_data.get("score", 0),
-                "lead_level": lead_data.get("level", "low"),
-                "intent_type": lead_data.get("intent", "neutral"),
-                "funnel_phase": lead_data.get("phase"),
-                "trigger": trigger,
-                "content_category": "adult_vip",
-                "niche": "hot_content",
-                "streak_days": lead_data.get("streak", 0),
-                "message_count": lead_data.get("message_count", 0),
-                "customer_segmentation": segmentation
-            }
-        }],
-        "access_token": ACCESS_TOKEN
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            logger.info(f"✅ LEAD CAPI ENVIADO → UID: {uid} | Level: {lead_data.get('level')} | Seg: {segmentation}")
-            return True
-        else:
-            logger.error(f"❌ Erro Lead | Status: {response.status_code} | {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Falha Lead CAPI: {e}")
-        return False
-
-
-def enviar_initiatecheckout_capi(uid: int, trigger: str = "botao_vip"):
-    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-
-    # 1 InitiateCheckout por dia por usuário
-    event_id = f"initiatecheckout_{uid}_{date.today()}"
-
-    is_new = not r.exists(f"lead_sent_before:{uid}")
-    segmentation = "new_customer_to_business" if is_new else "existing_customer_to_business"
-
-    payload = {
-        "data": [{
-            "event_name": "InitiateCheckout",
-            "event_time": int(time.time()),
-            "event_id": event_id,
-            "action_source": "chat",
-            "user_data": {
-                "external_id": [hash_data(str(uid))],
-            },
-            "custom_data": {
-                "currency": "BRL",
-                "value": 12.90,
-                "num_items": 1,
-                "content_type": "product",
-                "trigger": trigger,
-                "content_category": "adult_vip",
-                "niche": "hot_content",
-                "customer_segmentation": segmentation
-            }
-        }],
-        "access_token": ACCESS_TOKEN
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            logger.info(f"✅ INITIATECHECKOUT ENVIADO → UID: {uid} | EventID: {event_id}")
-            return True
-        else:
-            logger.error(f"❌ Erro InitiateCheckout | Status: {response.status_code} | {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Falha InitiateCheckout CAPI: {e}")
-        return False
-
-
-def enviar_purchase_capi(uid: int, valor: float = 12.90, transaction_id: str = None):
-    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-
-    event_id = f"purchase_{uid}_{int(time.time())}"
-
-    if transaction_id is None:
-        transaction_id = f"pix_{uid}_{int(time.time())}"
-
-    payload = {
-        "data": [{
-            "event_name": "Purchase",
-            "event_time": int(time.time()),
-            "event_id": event_id,
-            "action_source": "chat",
-            "user_data": {
-                "external_id": [hash_data(str(uid))],
-            },
-            "custom_data": {
-                "currency": "BRL",
-                "value": float(valor),
-                "transaction_id": transaction_id,
-                "num_items": 1,
-                "content_type": "product",
-                "content_category": "adult_vip",
-                "niche": "hot_content",
-                "customer_segmentation": "existing_customer_to_business"
-            }
-        }],
-        "access_token": ACCESS_TOKEN
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            logger.info(f"✅ PURCHASE ENVIADO → UID: {uid} | Valor: R${valor:.2f} | TxID: {transaction_id}")
-            return True
-        else:
-            logger.error(f"❌ Erro Purchase | Status: {response.status_code} | {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Falha Purchase CAPI: {e}")
-        return False
-
-
-# ====================== FUNÇÃO PURCHASE ======================
-def enviar_purchase_capi(uid: int, valor: float = 12.90, transaction_id: str = None):
-    """Evento PURCHASE - Compra confirmada"""
-    
-    url = f"https://graph.facebook.com/v22.0/{PIXEL_ID}/events"
-    
-    event_id = f"purchase_{uid}_{int(time.time())}"
-    
-    if transaction_id is None:
-        transaction_id = f"pix_{uid}_{int(time.time())}"
-
-    payload = {
-        "data": [{
-            "event_name": "Purchase",
-            "event_time": int(time.time()),
-            "event_id": event_id,
-            "action_source": "chat",
-            "user_data": {
-                "external_id": [hash_data(str(uid))],
-            },
-            "custom_data": {
-                "currency": "BRL",
-                "value": float(valor),
-                "transaction_id": transaction_id,
-                "content_category": "adult_vip",
-                "niche": "hot_content"
-            }
-        }],
-        "access_token": ACCESS_TOKEN
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=15)
-        if response.status_code == 200:
-            logger.info(f"✅ PURCHASE ENVIADO → UID: {uid} | Valor: R${valor:.2f}")
-            return True
-        else:
-            logger.error(f"❌ Erro Purchase | Status: {response.status_code} | {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Falha Purchase CAPI: {e}")
-        return False
-# ============================================================
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
@@ -517,7 +228,7 @@ LIMITE_DIARIO = 30
 
 VIP_COOLDOWN_AFTER_REJECT = 8
 MAX_VIP_OFFERS_PER_SESSION = 999
-TEASER_COOLDOWN_MESSAGES = 0
+TEASER_COOLDOWN_MESSAGES = 3
 
 REENGAGEMENT_HOURS = [2, 24, 72]
 FOLLOWUP_INTERVAL_HOURS = 12
@@ -1874,6 +1585,8 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
 # Mantém alias para compatibilidade com qualquer chamada legacy
 send_teaser_and_pitch = send_teaser_and_apex
+send_teaser_and_pitch = syncpay_integration.send_teaser_com_pix
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📨 FOLLOW-UPS
@@ -2135,30 +1848,39 @@ async def check_and_send_limit_warning(uid, context, chat_id):
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
     router = get_router()
     start_param = context.args[0] if context.args else None
     detected_ia = router.parse_start_params(start_param)
+
     if detected_ia:
         router.assign_ia(uid, detected_ia)
         logger.info(f"🎯 User {uid} → IA: {detected_ia}")
     else:
         router.assign_ia(uid, "maya")
         logger.info(f"🎯 User {uid} → IA: default (maya)")
+
     ia_config = router.get_ia_config(uid=uid)
+
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
         return
+
     if is_blacklisted(uid):
         return
+
     update_last_activity(uid)
     track_funnel(uid, "start")
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
     set_lang(uid, "pt")
+
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
+
     mark_first_contact(uid)
     logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
+
     try:
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
@@ -2172,6 +1894,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(2)
         except Exception as photo_error:
             logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
             await asyncio.sleep(1)
@@ -2185,11 +1908,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(3)
         except Exception as video_error:
             logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
         except:
             pass
+
         try:
             await update.message.reply_text(ia_config["start_message"])
             logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING)")
@@ -2201,6 +1926,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as final_error:
                 logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
+
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
@@ -2212,49 +1938,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def compra_confirmada_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando: /compra_confirmada <user_id> [valor]"""
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Apenas admins podem usar este comando.")
-        return
-
-    try:
-        if len(context.args) < 1:
-            await update.message.reply_text(
-                "Uso correto:\n"
-                "/compra_confirmada <user_id> [valor]\n\n"
-                "Exemplo:\n"
-                "/compra_confirmada 84583380652 12.93"
-            )
-            return
-
-        uid = int(context.args[0])
-        valor = float(context.args[1]) if len(context.args) > 1 else 12.90
-
-        sucesso = enviar_purchase_capi(uid, valor=valor)
-
-        if sucesso:
-            await update.message.reply_text(
-                f"✅ **Purchase enviado com sucesso para o Meta!**\n\n"
-                f"ID Cliente: `{uid}`\n"
-                f"Valor: R$ {valor:.2f}"
-            )
-        else:
-            await update.message.reply_text("❌ Falha ao enviar o evento Purchase.")
-
-    except ValueError:
-        await update.message.reply_text("❌ Erro: O user_id deve ser um número.\nExemplo: /compra_confirmada 84583380652 12.93")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro inesperado: {e}")
-
-
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     try:
         uid = query.from_user.id
         if is_blacklisted(uid):
             return
+
         update_last_activity(uid)
         reset_ignored(uid)
 
@@ -2263,28 +1955,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             track_funnel(uid, "clicked_vip")
             save_message(uid, "action", "💎 CLICOU VIP")
 
-            # META CAPI
-            enviar_initiatecheckout_capi(uid, trigger="botao_vip")
-            lead_data = get_lead_score_max(uid, intent=detect_intent(""), trigger="botao_vip")
-            enviar_lead_capi_max(uid, lead_data, trigger="botao_vip")
-
             router = get_router()
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-            utm_link = f"{canal_vip}?utm_source=facebook&utm_medium=cpc&utm_campaign=hot_niche&utm_content=lead_max"
 
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
                     f"💎 **PERFEITO AMOR!**\n\n"
                     f"Clica no link abaixo pra garantir seu acesso VIP:\n\n"
-                    f"👉 {utm_link}\n\n"
+                    f"👉 {canal_vip}\n\n"
                     f"Te espero lá com MUITO conteúdo exclusivo! 🔥💕"
                 ),
                 parse_mode="Markdown"
             )
     except Exception as e:
         logger.error(f"Erro callback: {e}")
+
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -2462,13 +2149,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        ggrok_response = await grok.reply(uid, text)
-                # 🔥 LEAD apenas em intenções qualificadas — evita spam de eventos
-        LEAD_INTENTS_QUALIFICADOS = ["interesse_vip", "pedido_conteudo", "hot", "pix_help"]
-        intent_atual = detect_intent(text)
-        if grok_response.get("offer_teaser", False) or intent_atual in LEAD_INTENTS_QUALIFICADOS:
-            lead_data = get_lead_score_max(uid, intent=intent_atual, text=text, trigger="conversa_intencao")
-            enviar_lead_capi_max(uid, lead_data, trigger="conversa_intencao")
+        grok_response = await grok.reply(uid, text)
 
         await update.message.reply_text(grok_response["response"])
 
@@ -2568,10 +2249,7 @@ def setup_application():
         'get_hours_since_activity': get_hours_since_activity,
         'add_to_blacklist': add_to_blacklist
     }
-
-    # Handlers
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("compra_confirmada", compra_confirmada_handler))   # ← ESSA LINHA É IMPORTANTE
     application.add_handler(CommandHandler("stats", lambda u, c: admin_commands.stats_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("funnel", lambda u, c: admin_commands.funnel_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("reset", lambda u, c: admin_commands.reset_cmd(u, c, ADMIN_IDS, admin_funcs)))
@@ -2579,13 +2257,11 @@ def setup_application():
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
-
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs), pattern="^bc_(?!confirm)"))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK), pattern="^bc_confirm$"))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-
     logger.info("✅ Handlers registrados (v8.3 APEX)")
     return application
 
@@ -2604,6 +2280,22 @@ def start_loop():
 
 import threading
 threading.Thread(target=start_loop, daemon=True).start()
+
+# ✅ SYNCPAY — adiciona aqui
+syncpay_integration.init(
+    flask_app  = app,
+    bot_app    = application,
+    event_loop = loop,
+    redis_conn = r,
+    callbacks  = {
+        "set_clicked_vip" : set_clicked_vip,
+        "add_bonus_msgs"  : add_bonus_msgs,
+        "save_message"    : save_message,
+        "get_router"      : get_router,
+        "CANAL_VIP_LINK"  : CANAL_VIP_LINK,
+        "PRECO_VIP"       : PRECO_VIP,
+    }
+)
 
 @app.route("/", methods=["GET"])
 def health():
