@@ -2197,6 +2197,13 @@ def telegram_webhook():
         logger.exception(f"Webhook erro: {e}")
         return "error", 500
 
+@app.route("/limpar-pix-cache", methods=["GET"])
+def limpar_pix_cache():
+    keys = r.keys("sp:pix:*")
+    for key in keys:
+        r.delete(key)
+    return {"deletadas": len(keys), "status": "ok"}, 200
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📊 ADMIN DASHBOARD ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
