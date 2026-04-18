@@ -1,14 +1,13 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                       🔥 SOPHIA BOT v8.3 - APEX FUNIL FIX                   ║
-║                                                                              ║
-║  ALTERAÇÕES v8.3 APEX:                                                      ║
-║  ✅ Prompt novo: pergunta prévia antes de oferecer teaser                  ║
-║  ✅ Sem redirect pro canal free (funil direto VIP)                         ║
-║  ✅ send_teaser_and_apex com instrução PIX + urgência                      ║
-║  ✅ Detecção de intent pix_help                                            ║
-║  ✅ Objeções tratadas no prompt                                            ║
+║ 🔥 SOPHIA BOT v8.4 - APEX FUNIL FIX (TEASER ANTES DO PIX + FOLLOW-UP)     ║
+║ ║
+║ ALTERAÇÕES v8.4:                                                           ║
+║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
+║ ✅ send_teaser_and_apex separado (teaser → delay → pitch)                  ║
+║ ✅ Novo sistema de follow-up pós-pitch (3 níveis inteligentes)             ║
+║ ✅ Menos pressão imediata, mais estratégia                                 ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -1244,7 +1243,6 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
     canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
     preco = ia_config.get("preco", PRECO_VIP) if ia_config else PRECO_VIP
-
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
@@ -1254,46 +1252,41 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
 
-    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas VAI DIRETO PRO FUNIL.
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas segue O FUNIL COM RIGOR.
 
-REGRAS OBRIGATÓRIAS (prioridade máxima):
-1. Máximo 2-3 mensagens antes de oferecer conteúdo.
-2. Quando o cara mostrar interesse (pedir foto, "quero ver", hot keywords ou "quanto custa") → PERGUNTE PRIMEIRO:
-   "Quer ver umas prévias exclusivas antes de decidir o VIP? 😏"
-3. Se ele disser SIM (ou "quero", "manda", "sim") → use offer_teaser: true
-4. Depois dos teasers o sistema envia o pitch com botão automaticamente. Não repita o link.
-5. NUNCA redirecione pro canal free. Estamos no fluxo pago.
-6. Se ele perguntar preço, como pagar ou hesitar → responda direto e volte pro CTA.
-7. Objeções comuns:
-   - "Tá caro" → "É o preço mais baixo do mercado amor, vale cada centavo 🔥"
-   - "Não sei pagar" / "como paga" / "pix" → responda APENAS: "Só clicar no botão que aparece aqui embaixo, abre direto o pagamento 💳 Super rápido!"
-   - "Manda mais" → "No VIP tem MILHARES, aqui é só preview 😏"
+REGRAS OBRIGATÓRIAS (nunca quebre, prioridade máxima):
+1. NUNCA mencione PIX, botão, pagamento ou "clica aqui" antes de mandar teaser.
+2. Máximo 2-3 mensagens antes de oferecer conteúdo.
+3. Quando o usuário demonstrar interesse (pedir foto, "quero", "manda", hot keywords, "quanto custa", etc.):
+   → PRIMEIRO pergunte: "Quer ver umas prévias exclusivas antes de decidir o VIP? 😏"
+4. Só depois que ele responder SIM ("quero", "manda", "sim", "pode", "bora", etc.) retorne offer_teaser: true
+5. Depois do teaser o sistema envia o pitch automaticamente. Você NÃO menciona pagamento.
+6. Objeções comuns:
+   - "Tá caro" → "É o menor preço do mercado amor, vale cada centavo 🔥"
+   - "Como paga?" / "pix" → "É super simples, só clicar no botão que aparece aqui 💕"
+   - "Manda mais" → "No VIP tem milhares, aqui é só preview 😏"
    - "Depois" → "Tranquilo, mas o preço promocional acaba em poucas horas 😏"
-8. ⛔ NUNCA invente links, URLs, chaves PIX ou dados de pagamento. O botão de pagamento é enviado automaticamente pelo sistema — você NÃO precisa passar nenhum link.
+7. ⛔ NUNCA invente links, PIX ou códigos de pagamento.
 
 RETORNE APENAS JSON:
 {{
-  "response": "mensagem CURTA (máx 2 linhas)",
+  "response": "mensagem CURTA e NATURAL (máx 2 linhas)",
   "offer_teaser": true/false,
   "interest_level": "low|medium|high"
 }}
 
 CONTEXTO ATUAL:
-- IA: {ia_name}
 - Fase: {current_phase} ({phase_name})
 - Mensagens trocadas: {msg_count}
-- Período do dia: {time_ctx['period']}
-- VIP Link: {canal_vip}
-- Preço: {preco}
+- Período: {time_ctx['period']}
 - Ofertas hoje: {offers_today}
-- Cooldown ativo: {in_cooldown} ({cooldown_remaining} msgs restantes)
-- Intent detectado: {intent}
+- Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
 """
 
     if vip_just_offered:
-        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Analise a reação dele com cuidado."
+        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Seja carinhosa e use follow-up se ele hesitar."
     if in_cooldown:
-        base_prompt += f"\n⛔ COOLDOWN ATIVO ({cooldown_remaining} msgs). NÃO ofereça VIP de jeito nenhum."
+        base_prompt += f"\n⛔ COOLDOWN ATIVO. NÃO ofereça VIP."
 
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
@@ -1452,52 +1445,90 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
+        # === TEASER ===
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
-        await asyncio.sleep(2)
+        await asyncio.sleep(2.5)
 
         num_photos = random.randint(3, 4)
-        selected_photos = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
+        selected = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
+        for i, url in enumerate(selected):
+            await bot.send_photo(chat_id=chat_id, photo=url)
+            if i < len(selected) - 1:
+                await asyncio.sleep(1.2)
 
-        for i, photo_url in enumerate(selected_photos):
-            try:
-                await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-                await asyncio.sleep(0.5)
-                await bot.send_photo(chat_id=chat_id, photo=photo_url)
-                if i < len(selected_photos) - 1:
-                    await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"Erro enviando foto {i}: {e}")
-                continue
+        await asyncio.sleep(4)  # tempo pra ele curtir as fotos
 
-        await asyncio.sleep(3)
-
+        # === PITCH (só agora) ===
         urgencia = get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
-            f"Isso é SÓ preview... no VIP você me tem COMPLETINHA (fotos + vídeos sem censura).\n\n"
+            f"Isso é SÓ preview... no VIP você me tem COMPLETINHA (fotos + vídeos sem censura) 🔥\n\n"
             f"💰 **{preco} vitalício**\n\n"
-            f"Como pagar em 10 segundos:\n"
-            f"1️⃣ Clica no botão abaixo\n"
-            f"2️⃣ Copia o código PIX que eu vou te mandar\n"
-            f"3️⃣ Cola no app do banco → confirma ✅\n"
-            f"4️⃣ Acesso liberado automático!\n\n"
-            f"{urgencia}"
+            f"{urgencia}\n\n"
+            f"Clica no botão abaixo pra gerar o PIX agora 👇"
         )
 
-        # ✅ SYNCPAY: callback_data em vez de url
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
-        logger.info(f"🎯 TEASER+PITCH APEX enviado: {uid} (oferta #{get_vip_offers_today(uid)})")
-        save_message(uid, "system", f"TEASER+PITCH APEX enviado (#{get_teaser_count(uid)})")
         mark_vip_just_offered(uid)
-        return True
 
+        logger.info(f"🎯 Teaser + Pitch APEX v8.4 enviado para {uid}")
+        save_message(uid, "system", "TEASER + PITCH ENVIADO (v8.4)")
+        return True
     except Exception as e:
         logger.error(f"❌ Erro send_teaser_and_apex: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 v8.4 - FOLLOW-UP PÓS-PITCH (quando ele não paga)
+# ═══════════════════════════════════════════════════════════════════════════════
+POST_PITCH_FOLLOWUP_POOL = {
+    "nivel1": [  # 5-15 minutos depois
+        "Amor, ainda tá aí? 🥺 Vi que você curtiu as fotos... quer que eu te mande um videozinho extra só pra você? 🔥",
+        "Ei gato... tá pensando no VIP né? 😏 Me fala se quer que eu te ajude com alguma dúvida...",
+    ],
+    "nivel2": [  # 30-60 minutos depois
+        "Tô aqui doida pra te mostrar mais... gravei um videozinho rapidinho só pra você ver o que tá perdendo 💦 Quer ver?",
+        "Amor, o PIX ainda tá valendo... quer que eu te mande o botão de novo ou prefere outro jeito? 😘",
+    ],
+    "nivel3": [  # 2h+ depois
+        "Ei... ainda não te liberei o VIP né? 🥺 Olha, vou te dar uma última chance com o mesmo preço de hoje...",
+    ]
+}
+
+def mark_post_pitch_followup_sent(uid, level):
+    try:
+        key = f"postpitch_followup:{uid}:{level}"
+        r.setex(key, timedelta(hours=12), "1")
+    except:
+        pass
+
+def already_sent_followup(uid, level):
+    try:
+        return r.exists(f"postpitch_followup:{uid}:{level}")
+    except:
+        return False
+
+async def send_post_pitch_followup(bot, uid, chat_id, level):
+    if already_sent_followup(uid, level):
+        return False
+    try:
+        messages = POST_PITCH_FOLLOWUP_POOL.get(f"nivel{level}", [])
+        if not messages:
+            return False
+        msg = random.choice(messages)
+        await bot.send_message(chat_id=chat_id, text=msg)
+        mark_post_pitch_followup_sent(uid, level)
+        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH NÍVEL {level}")
+        logger.info(f"📨 Follow-up nível {level} enviado para {uid}")
+        return True
+    except Exception as e:
+        logger.error(f"Erro follow-up nível {level}: {e}")
         return False
 
 
@@ -2059,6 +2090,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if can_offer:
                 await asyncio.sleep(2)
                 await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
+
+        # v8.4 - Follow-up pós-pitch
+        if was_vip_just_offered(uid) and not grok_response.get("offer_teaser", False):
+            msgs_since = get_msgs_since_offer(uid)
+            if msgs_since >= 4 and not already_sent_followup(uid, 1):
+                await asyncio.sleep(1)
+                await send_post_pitch_followup(context.bot, uid, update.effective_chat.id, 1)
+            elif msgs_since >= 12 and not already_sent_followup(uid, 2):
+                await asyncio.sleep(1)
+                await send_post_pitch_followup(context.bot, uid, update.effective_chat.id, 2)
 
         if streak_updated:
             streak_msg = get_streak_message(streak)
