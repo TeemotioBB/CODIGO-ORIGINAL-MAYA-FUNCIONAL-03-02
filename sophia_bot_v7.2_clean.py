@@ -1945,17 +1945,41 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
 
-        if has_photo:
+                if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
             image_base64 = await download_photo_base64(context.bot, photo_file_id)
+            
             if image_base64:
                 try:
                     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
                 except:
                     pass
-                grok_response = await grok.reply(uid, caption, image_base64=image_base64)
-                await update.message.reply_text(grok_response["response"])
+
+                # ==================== v8.5 - MODO HÍBRIDO (FOTO) ====================
+                if was_vip_just_offered(uid):
+                    msgs_since = get_msgs_since_offer(uid)
+                    
+                    if msgs_since <= 4:
+                        # Primeiras 4 mensagens após PIX: Grok continua respondendo (com foto)
+                        grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                        await update.message.reply_text(grok_response["response"])
+                    else:
+                        # Depois da 4ª mensagem: respostas curtas (sem chamar Grok)
+                        response_text = random.choice([
+                            "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
+                            "Hmmm... mandou foto gostosa hein? 😏 Me avisa quando o PIX cair que eu te mostro muito mais 💦",
+                            "Ainda tô aqui te esperando amor... quer que eu te mande mais uma foto enquanto você paga? 🔥",
+                            "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
+                        ])
+                        await update.message.reply_text(response_text)
+                        grok_response = {"response": response_text, "offer_teaser": False}
+                else:
+                    # Modo normal (antes do PIX)
+                    grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                    await update.message.reply_text(grok_response["response"])
+                # =================================================================
+
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
                     if can_offer:
