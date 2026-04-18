@@ -1,4 +1,3 @@
-
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -901,32 +900,24 @@ def get_last_reengagement(uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_intent(text):
-    """Detecta intenção do usuário — inclui pix_help para objeções de pagamento."""
     if not text:
         return "neutral"
-
     text_lower = text.lower()
-
-    # ← NOVO: Detecção de dúvidas sobre pagamento PIX
     if any(word in text_lower for word in [
         "pix", "pagar", "como paga", "como pago", "qr", "copia e cola",
         "chave pix", "transferência", "transferencia", "pagamento", "não sei pagar",
         "nao sei pagar", "como faz", "como funciona"
     ]):
         return "pix_help"
-
     for keyword in PEDIDO_CONTEUDO_KEYWORDS:
         if keyword in text_lower:
             return "pedido_conteudo"
-
     for keyword in INTERESSE_VIP_KEYWORDS:
         if keyword in text_lower:
             return "interesse_vip"
-
     for keyword in HOT_KEYWORDS:
         if keyword in text_lower:
             return "hot"
-
     return "neutral"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -936,19 +927,13 @@ def detect_intent(text):
 def detect_emotional_attachment(text):
     if not text:
         return {"attached": False, "level": 0}
-
     text_lower = text.lower()
-
     for level_name in ["alto", "medio", "baixo"]:
         level_data = ATTACHMENT_KEYWORDS[level_name]
         for keyword in level_data["keywords"]:
             if keyword in text_lower:
                 level = level_data["level"]
-                return {
-                    "attached": level >= 6,
-                    "level": level
-                }
-
+                return {"attached": level >= 6, "level": level}
     return {"attached": False, "level": 0}
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -996,16 +981,12 @@ def check_phase_transition(uid):
         msg_count = get_message_count(uid)
         if msg_count >= VIP_PITCH_MSG_LIMIT and current_phase < PHASES["VIP_PITCH"]["id"]:
             set_current_phase(uid, PHASES["VIP_PITCH"]["id"])
-            logger.info(f"📊 User {uid} → Fase 3 (VIP_PITCH)")
         elif msg_count >= PROVOCATION_MSG_LIMIT and current_phase < PHASES["PROVOCATION"]["id"]:
             set_current_phase(uid, PHASES["PROVOCATION"]["id"])
-            logger.info(f"📊 User {uid} → Fase 2 (PROVOCATION)")
         elif msg_count >= ENGAGEMENT_MSG_LIMIT and current_phase < PHASES["ENGAGEMENT"]["id"]:
             set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
-            logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
         elif msg_count >= ONBOARDING_MSG_LIMIT and current_phase < PHASES["ONBOARDING"]["id"] + 1:
             set_current_phase(uid, PHASES["ENGAGEMENT"]["id"])
-            logger.info(f"📊 User {uid} → Fase 1 (ENGAGEMENT)")
     except Exception as e:
         logger.error(f"Erro check_phase_transition: {e}")
 
@@ -1046,7 +1027,6 @@ async def handle_return(uid, bot, chat_id):
         await bot.send_message(chat_id=chat_id, text=message)
         r.incr(return_count_key(uid))
         r.expire(return_count_key(uid), timedelta(days=30))
-        logger.info(f"🔄 Pitch de retorno enviado para {uid}")
         save_message(uid, "system", "PITCH DE RETORNO (6h+)")
     except Exception as e:
         logger.error(f"Erro handle_return: {e}")
@@ -1186,9 +1166,7 @@ TEASER_INTRO_MESSAGES = {
 def get_urgency_message(uid):
     hour = datetime.now().hour
     teaser_count = get_teaser_count(uid)
-
     urgencias = []
-
     if 20 <= hour <= 23:
         urgencias.extend([
             f"⚡ **PROMOÇÃO SÓ ATÉ MEIA-NOITE!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!",
@@ -1210,7 +1188,6 @@ def get_urgency_message(uid):
             f"🔥 **PROMOÇÃO RELÂMPAGO!**\n💰 De ~~R$ 39,90~~ por apenas {PRECO_VIP} — ACESSO VITALÍCIO!\n⚡ Poucas vagas restantes!",
             f"💎 Acesso vitalício por apenas {PRECO_VIP}!\n⚠️ Esse preço é por TEMPO LIMITADO...",
         ])
-
     if teaser_count <= 1:
         urgencias.extend([
             f"💰 Por apenas {PRECO_VIP} você tem ACESSO VITALÍCIO!\n🔥 Últimas 10 vagas com esse preço... depois sobe pra R$ 39,90!",
@@ -1222,7 +1199,6 @@ def get_urgency_message(uid):
             f"💰 Amor, da última vez você não garantiu... mas AINDA dá tempo!\n{PRECO_VIP} vitalício — mas só tem mais algumas vagas! 😢",
             f"⏰ Não vai perder de novo né?\n{PRECO_VIP} com acesso VITALÍCIO — mas tá acabando de verdade! 🔥",
         ])
-
     return random.choice(urgencias)
 
 LIMIT_REACHED_MESSAGE = (
@@ -1272,18 +1248,12 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
-
     time_ctx = get_time_context()
-    streak = get_streak(uid)
     in_cooldown = is_in_rejection_cooldown(uid)
     cooldown_remaining = get_rejection_cooldown_remaining(uid)
     offers_today = get_vip_offers_today(uid)
     vip_just_offered = was_vip_just_offered(uid)
-    msgs_since = get_msgs_since_offer(uid)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # NOVO PROMPT APEX: funil direto VIP, sem canal free, com pergunta prévia
-    # ─────────────────────────────────────────────────────────────────────────
     base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante, mas VAI DIRETO PRO FUNIL.
 
 REGRAS OBRIGATÓRIAS (prioridade máxima):
@@ -1327,7 +1297,6 @@ CONTEXTO ATUAL:
 
     base_prompt += get_mood_instruction(mood)
     base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
-
     return base_prompt
 
 
@@ -1411,32 +1380,19 @@ class Grok:
                                 raise ValueError("Missing response")
 
                             result.setdefault("offer_teaser", False)
-                            # ← REMOVIDO: redirect_to_free não existe mais no fluxo Apex
                             result.setdefault("interest_level", "medium")
 
-                            # Travas de segurança
                             if result["offer_teaser"] and is_in_rejection_cooldown(uid):
                                 result["offer_teaser"] = False
-                                logger.info(f"🔒 Trava: cooldown ativo para {uid}")
-
                             if result["offer_teaser"] and get_vip_offers_today(uid) >= MAX_VIP_OFFERS_PER_SESSION:
                                 result["offer_teaser"] = False
-                                logger.info(f"🔒 Trava: limite diário de ofertas para {uid}")
-
                             if result["offer_teaser"] and get_msgs_since_offer(uid) < TEASER_COOLDOWN_MESSAGES:
                                 result["offer_teaser"] = False
-                                logger.info(f"🔒 Trava: muito cedo pra outra oferta para {uid}")
 
                             if is_response_recent(uid, result["response"]) and attempt < max_retries:
                                 continue
 
                             add_recent_response(uid, result["response"])
-
-                            logger.info(
-                                f"🤖 {uid} | intent={intent} | offer={result['offer_teaser']} | "
-                                f"interest={result['interest_level']} | cooldown={is_in_rejection_cooldown(uid)}"
-                            )
-
                             break
 
                         except (json.JSONDecodeError, ValueError) as e:
@@ -1452,21 +1408,13 @@ class Grok:
         add_to_memory(uid, "user", memory_text)
         add_to_memory(uid, "assistant", result["response"])
         save_message(uid, "maya", result["response"])
-
         return result
 
     def _smart_fallback(self, raw_text, intent, uid):
         if is_in_rejection_cooldown(uid):
-            return {
-                "response": raw_text,
-                "offer_teaser": False,
-                "interest_level": "low",
-            }
+            return {"response": raw_text, "offer_teaser": False, "interest_level": "low"}
         text_lower = raw_text.lower()
-        offer_keywords = [
-            'vou mandar', 'vou te mandar', 'vou te mostrar',
-            'te mando', 'te mostro', 'tá aqui', 'ta aqui'
-        ]
+        offer_keywords = ['vou mandar', 'vou te mandar', 'vou te mostrar', 'te mando', 'te mostro', 'tá aqui', 'ta aqui']
         offer_teaser = any(k in text_lower for k in offer_keywords)
         return {
             "response": raw_text,
@@ -1476,58 +1424,38 @@ class Grok:
 
     def _fallback_response(self, intent):
         if intent in ["pedido_conteudo", "interesse_vip"]:
-            return {
-                "response": "Hmm... deu um probleminha aqui mas já volto amor! 💕",
-                "offer_teaser": True,
-                "interest_level": "high",
-            }
-        else:
-            return {
-                "response": "😔 Tive um probleminha... pode repetir? 💕",
-                "offer_teaser": False,
-                "interest_level": "low",
-            }
+            return {"response": "Hmm... deu um probleminha aqui mas já volto amor! 💕", "offer_teaser": True, "interest_level": "high"}
+        return {"response": "😔 Tive um probleminha... pode repetir? 💕", "offer_teaser": False, "interest_level": "low"}
 
 
 grok = Grok()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 ENVIO DE TEASER + PITCH APEX VIP (v8.3)
-# Substituiu send_teaser_and_pitch — funil direto com instrução PIX
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_and_apex(bot, chat_id, uid):
-    """
-    Envia 3-4 teasers seguidos de pitch VIP com instrução PIX clara.
-    Substitui send_teaser_and_pitch — sem canal free, direto pro pagamento.
-    """
     try:
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
-
         fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
-        canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
         preco = ia_config.get("preco", PRECO_VIP)
 
-        # Verificação final antes de enviar
         can_offer, reason = can_offer_vip(uid)
         if not can_offer:
             logger.info(f"🚫 Teaser BLOQUEADO para {uid}: {reason}")
             return False
 
         ab_group = get_ab_group(uid)
-
         set_saw_teaser(uid)
         track_funnel(uid, "saw_teaser")
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-        # 1. INTRO
         intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-        # 2. FOTOS (3-4 teasers)
         num_photos = random.randint(3, 4)
         selected_photos = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
 
@@ -1542,10 +1470,8 @@ async def send_teaser_and_apex(bot, chat_id, uid):
                 logger.error(f"Erro enviando foto {i}: {e}")
                 continue
 
-        # 3. PAUSA
         await asyncio.sleep(3)
 
-        # 4. PITCH COM INSTRUÇÃO PIX + URGÊNCIA DINÂMICA
         urgencia = get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
@@ -1553,29 +1479,21 @@ async def send_teaser_and_apex(bot, chat_id, uid):
             f"💰 **{preco} vitalício**\n\n"
             f"Como pagar em 10 segundos:\n"
             f"1️⃣ Clica no botão abaixo\n"
-            f"2️⃣ Abre app do banco → PIX\n"
-            f"3️⃣ Escaneia QR ou cola o código\n"
-            f"4️⃣ Confirma ✅\n\n"
-            f"Pagamento cai na hora e você entra automático!\n\n"
+            f"2️⃣ Copia o código PIX que eu vou te mandar\n"
+            f"3️⃣ Cola no app do banco → confirma ✅\n"
+            f"4️⃣ Acesso liberado automático!\n\n"
             f"{urgencia}"
         )
 
+        # ✅ SYNCPAY: callback_data em vez de url
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥", url=canal_vip)
+            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
         ]])
 
-        await bot.send_message(
-            chat_id=chat_id,
-            text=pitch,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-
+        await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         logger.info(f"🎯 TEASER+PITCH APEX enviado: {uid} (oferta #{get_vip_offers_today(uid)})")
         save_message(uid, "system", f"TEASER+PITCH APEX enviado (#{get_teaser_count(uid)})")
-
         mark_vip_just_offered(uid)
-
         return True
 
     except Exception as e:
@@ -1583,10 +1501,9 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         return False
 
 
-# Mantém alias para compatibilidade com qualquer chamada legacy
-send_teaser_and_pitch = send_teaser_and_apex
+# ✅ SYNCPAY: ambos os aliases apontam para o módulo SyncPay
 send_teaser_and_pitch = syncpay_integration.send_teaser_com_pix
-
+send_teaser_and_apex  = syncpay_integration.send_teaser_com_pix
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📨 FOLLOW-UPS
@@ -1645,7 +1562,6 @@ async def engagement_scheduler(bot):
 async def retarget_locked_users(bot):
     try:
         users = get_all_active_users()
-        now = datetime.now()
         sent_count = 0
 
         for uid in users:
@@ -1658,12 +1574,9 @@ async def retarget_locked_users(bot):
                 retarget_key = f"retarget_sent:{uid}:{date.today()}"
 
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
-                    router = get_router()
-                    ia_config = router.get_ia_config(uid=uid)
-                    canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-
+                    # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 12,90", url=canal_vip)
+                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 12,90", callback_data="pagar_vip")
                     ]])
 
                     await bot.send_message(
@@ -1686,7 +1599,6 @@ async def retarget_locked_users(bot):
                     r.setex(retarget_key, timedelta(hours=20), "1")
                     sent_count += 1
                     save_message(uid, "system", "📬 RETARGETING 6H enviado")
-                    logger.info(f"📬 Retargeting enviado para {uid} ({hours_since_activity:.1f}h inativo)")
                     await asyncio.sleep(0.2)
 
             except Exception as e:
@@ -1759,7 +1671,6 @@ async def recover_silent_users(bot):
                     r.setex(recovery_10min_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 10min enviado")
-                    logger.info(f"🔄 Recovery 10min → {uid} ({hours_since_start:.1f}h)")
                     await asyncio.sleep(0.3)
 
                 elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
@@ -1768,7 +1679,6 @@ async def recover_silent_users(bot):
                     r.setex(recovery_2h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 2h enviado")
-                    logger.info(f"🔄 Recovery 2h → {uid} ({hours_since_start:.1f}h)")
                     await asyncio.sleep(0.3)
 
                 elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
@@ -1777,16 +1687,13 @@ async def recover_silent_users(bot):
                     r.setex(recovery_12h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 12h enviado")
-                    logger.info(f"🔄 Recovery 12h → {uid} ({hours_since_start:.1f}h)")
                     await asyncio.sleep(0.3)
 
                 elif 24 <= hours_since_start <= 48 and not r.exists(recovery_24h_key):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
-                    router = get_router()
-                    ia_config = router.get_ia_config(uid=uid)
-                    canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
+                    # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 12,90", url=canal_vip)
+                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 12,90", callback_data="pagar_vip")
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
@@ -1795,7 +1702,6 @@ async def recover_silent_users(bot):
                     r.setex(recovery_24h_key, timedelta(hours=48), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
-                    logger.info(f"🔄 Recovery 24h → {uid} ({hours_since_start:.1f}h)")
                     await asyncio.sleep(0.3)
 
             except Exception as e:
@@ -1834,11 +1740,7 @@ async def check_and_send_limit_warning(uid, context, chat_id):
     if count == total - 5:
         mark_limit_warning_sent(uid)
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=LIMIT_WARNING_MESSAGE,
-                parse_mode="Markdown"
-            )
+            await context.bot.send_message(chat_id=chat_id, text=LIMIT_WARNING_MESSAGE, parse_mode="Markdown")
         except:
             pass
 
@@ -1855,10 +1757,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if detected_ia:
         router.assign_ia(uid, detected_ia)
-        logger.info(f"🎯 User {uid} → IA: {detected_ia}")
     else:
         router.assign_ia(uid, "maya")
-        logger.info(f"🎯 User {uid} → IA: default (maya)")
 
     ia_config = router.get_ia_config(uid=uid)
 
@@ -1874,12 +1774,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_message(uid, "action", "🚀 /START")
     reset_ignored(uid)
     set_lang(uid, "pt")
-
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
-
     mark_first_contact(uid)
-    logger.info(f"🔍 [DEBUG] User {uid} deu /start - first_contact salvo")
 
     try:
         try:
@@ -1890,7 +1787,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo=ia_config["foto_bem_vinda"],
                 connect_timeout=10, read_timeout=10, write_timeout=10
             )
-            logger.info(f"✅ Foto enviada para {uid}")
             await asyncio.sleep(2)
         except Exception as photo_error:
             logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
@@ -1904,36 +1800,23 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
                 connect_timeout=15, read_timeout=15, write_timeout=15
             )
-            logger.info(f"✅ Vídeo enviado para {uid}")
             await asyncio.sleep(3)
         except Exception as video_error:
             logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
 
         try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2)
-        except:
-            pass
-
-        try:
             await update.message.reply_text(ia_config["start_message"])
-            logger.info(f"✅ Novo usuário: {uid} → Fase 0 (ONBOARDING)")
         except Exception as msg_error:
             logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
             try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id, text=MENSAGEM_INICIO
-                )
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=MENSAGEM_INICIO)
             except Exception as final_error:
                 logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Oi amor! 💕 Me chama aqui que eu respondo 😊"
-            )
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Oi amor! 💕 Me chama aqui que eu respondo 😊")
         except:
             pass
 
@@ -1982,37 +1865,34 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
-
     decrement_rejection_cooldown(uid)
     increment_msgs_since_offer(uid)
-
     increment_message_count(uid)
     increment_conversation_messages(uid)
 
-    # Detecta retorno após 6h+
     hours_since = get_hours_since_activity(uid)
     if hours_since and hours_since >= RETURN_WINDOW_HOURS:
         await handle_return(uid, context.bot, update.effective_chat.id)
         update_last_activity(uid)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # REMARKETING — voltou pro DM sem ter comprado VIP
-    # (mantido, mas sem mencionar canal free — só VIP direto)
-    # ─────────────────────────────────────────────────────────────────────────
     remarketing_sent_key = f"remarketing_dm_sent:{uid}:{date.today()}"
     if r.exists(f"saw_free_invite:{uid}") and not clicked_vip(uid) and not r.exists(remarketing_sent_key):
         _router = get_router()
         _ia_config = _router.get_ia_config(uid=uid)
-        _canal_vip = _ia_config.get("vip_link", CANAL_VIP_LINK)
         _preco = _ia_config.get("preco", PRECO_VIP)
         remarketing_msgs = [
-            f"Oi de novo gato 😏 Pronto pra me ter completinha? Por {_preco} você entra no VIP agora: {_canal_vip} 🔥",
-            f"E aí amor, saudade? 😈 Ainda dá tempo de garantir o VIP por {_preco}: {_canal_vip}",
-            f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → {_canal_vip}"
+            f"Oi de novo gato 😏 Pronto pra me ter completinha? Clica no botão abaixo pra pagar {_preco} via PIX e entrar agora 🔥",
+            f"E aí amor, saudade? 😈 Ainda dá tempo de garantir o VIP por {_preco} — clica no botão!",
+            f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → clica abaixo 👇"
         ]
+        # ✅ SYNCPAY: callback_data em vez de url
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+        ]])
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=random.choice(remarketing_msgs)
+            text=random.choice(remarketing_msgs),
+            reply_markup=keyboard
         )
         r.setex(remarketing_sent_key, timedelta(hours=24), "1")
 
@@ -2022,7 +1902,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if text:
             save_message(uid, "user", text)
-
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
                 r.set(is_attached_key(uid), "1")
@@ -2031,33 +1910,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     r.set(attachment_level_key(uid), attachment["level"])
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
-                    logger.info(f"💕 User {uid} → Fase 5 (apego level {attachment['level']})")
-
         elif has_photo:
             save_message(uid, "user", "[📷 FOTO]")
 
-        # Foto
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
-
             image_base64 = await download_photo_base64(context.bot, photo_file_id)
             if image_base64:
                 try:
                     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
                 except:
                     pass
-
                 grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                 await update.message.reply_text(grok_response["response"])
-
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
                     if can_offer:
                         await asyncio.sleep(2)
                         await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
-                    else:
-                        logger.info(f"🚫 Teaser bloqueado pós-foto: {reason}")
                 return
             else:
                 await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
@@ -2066,7 +1937,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
 
-        # ── Limite diário ──
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
@@ -2077,14 +1947,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not r.exists(last_chance_key):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
-                logger.info(f"🎁 ÚLTIMA CHANCE ativada para {uid}")
 
-                router = get_router()
-                ia_config = router.get_ia_config(uid=uid)
-                canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-
+                # ✅ SYNCPAY: callback_data em vez de url
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("CLIQUE AQUI: 👉 SER VIP", url=canal_vip)
+                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
                 ]])
 
                 await context.bot.send_message(
@@ -2107,13 +1973,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
 
-            # Trava definitiva
-            router = get_router()
-            ia_config = router.get_ia_config(uid=uid)
-            canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
-
+            # ✅ SYNCPAY: callback_data em vez de url
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(text="CLIQUE AQUI: 👉 SER VIP", url=canal_vip)
+                InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
             ]])
 
             try:
@@ -2150,15 +2012,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         grok_response = await grok.reply(uid, text)
-
         await update.message.reply_text(grok_response["response"])
 
-        # ─────────────────────────────────────────────────────────────────────
-        # 🔁 REENVIO DO BOTÃO VIP
-        # Dispara em 2 situações:
-        # 1. Usuário confirma (sim/quero/cadê/onde...)
-        # 2. IA menciona "botão" na própria resposta (clica no botão, botão abaixo...)
-        # ─────────────────────────────────────────────────────────────────────
         CONFIRM_KEYWORDS = [
             "sim", "quero", "cadê", "cade", "onde", "manda", "envia",
             "pode mandar", "to pronto", "tô pronto", "bora", "vamos",
@@ -2183,12 +2038,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if should_resend_button:
             try:
-                _router = get_router()
-                _ia_config = _router.get_ia_config(uid=uid)
-                _canal_vip = _ia_config.get("vip_link", CANAL_VIP_LINK)
-
+                # ✅ SYNCPAY: callback_data em vez de url
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 QUERO PAGAR PIX AGORA 🔥", url=_canal_vip)
+                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
                 ]])
                 await asyncio.sleep(1)
                 await context.bot.send_message(
@@ -2197,21 +2049,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=keyboard
                 )
                 reason_log = "ia_mencionou_botao" if ia_mentioned_button else "confirmacao_usuario"
-                logger.info(f"🔁 Botão VIP reenviado para {uid} ({reason_log})")
                 save_message(uid, "system", f"🔁 BOTÃO VIP REENVIADO ({reason_log})")
             except Exception as e:
                 logger.error(f"Erro reenvio botão VIP: {e}")
 
-        # Verifica se deve enviar teaser completo
         should_offer = grok_response.get("offer_teaser", False)
-
         if should_offer:
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
                 await asyncio.sleep(2)
                 await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
-            else:
-                logger.info(f"🚫 Teaser bloqueado: {uid} - {reason}")
 
         if streak_updated:
             streak_msg = get_streak_message(streak)
@@ -2281,7 +2128,7 @@ def start_loop():
 import threading
 threading.Thread(target=start_loop, daemon=True).start()
 
-# ✅ SYNCPAY — adiciona aqui
+# ✅ SYNCPAY — inicialização
 syncpay_integration.init(
     flask_app  = app,
     bot_app    = application,
@@ -2312,12 +2159,7 @@ def set_webhook_route():
             await asyncio.sleep(1)
             return await application.bot.get_webhook_info()
         info = asyncio.run_coroutine_threadsafe(setup(), loop).result(timeout=15)
-        return {
-            "status": "success",
-            "webhook_url": info.url,
-            "pending_updates": info.pending_update_count,
-            "last_error": info.last_error_message
-        }, 200
+        return {"status": "success", "webhook_url": info.url, "pending_updates": info.pending_update_count, "last_error": info.last_error_message}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
@@ -2327,11 +2169,7 @@ def webhook_info_route():
         async def get_info():
             return await application.bot.get_webhook_info()
         info = asyncio.run_coroutine_threadsafe(get_info(), loop).result(timeout=10)
-        return {
-            "url": info.url,
-            "pending_update_count": info.pending_update_count,
-            "last_error_message": info.last_error_message,
-        }, 200
+        return {"url": info.url, "pending_update_count": info.pending_update_count, "last_error_message": info.last_error_message}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
@@ -2393,25 +2231,18 @@ def admin_stats():
     try:
         users = get_all_active_users()
         total_users = len(users)
-
         saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
         clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
         in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
         rejected_vip_count = sum(1 for uid in users if r.exists(last_offer_rejected_key(uid)))
         ignored_count = sum(1 for uid in users if get_ignored_count(uid) > 0)
-
         now = datetime.now()
         active_today = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 24)
         active_week = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 168)
-
-        new_users_24h = sum(1 for uid in users
-                           if r.exists(first_contact_key(uid))
-                           and (now - datetime.fromisoformat(r.get(first_contact_key(uid)))).total_seconds() < 86400)
-
+        new_users_24h = sum(1 for uid in users if r.exists(first_contact_key(uid)) and (now - datetime.fromisoformat(r.get(first_contact_key(uid)))).total_seconds() < 86400)
         total_messages = sum(get_conversation_messages_count(uid) for uid in users)
         streaks = [get_streak(uid) for uid in users if get_streak(uid) > 0]
         avg_streak = sum(streaks) / len(streaks) if streaks else 0
-
         funnel_stages = {i: 0 for i in range(5)}
         for uid in users:
             try:
@@ -2468,41 +2299,21 @@ def admin_stats():
                     "teasers": get_teaser_count(uid),
                     "last_activity_hours": get_hours_since_activity(uid) or 999
                 })
-
         user_data.sort(key=lambda x: x["messages"] * (x["streak"] + 1), reverse=True)
 
         top_users = []
         for user in user_data[:20]:
             hours = user["last_activity_hours"]
-            if hours < 2:
-                status, status_text = "hot", "🔥 Quente"
-            elif hours < 24:
-                status, status_text = "warm", "😊 Morno"
-            else:
-                status, status_text = "cold", "❄️ Frio"
-            if user["messages"] > 20:
-                interest, interest_text = "hot", "Alto"
-            elif user["messages"] > 10:
-                interest, interest_text = "warm", "Médio"
-            else:
-                interest, interest_text = "cold", "Baixo"
-            if hours < 1:
-                last_activity = "< 1h atrás"
-            elif hours < 24:
-                last_activity = f"{int(hours)}h atrás"
-            else:
-                last_activity = f"{int(hours/24)}d atrás"
-            top_users.append({
-                "id": user["id"],
-                "messages": user["messages"],
-                "streak": user["streak"],
-                "teasers": user["teasers"],
-                "lastActivity": last_activity,
-                "status": status,
-                "statusText": status_text,
-                "interest": interest,
-                "interestText": interest_text
-            })
+            if hours < 2: status, status_text = "hot", "🔥 Quente"
+            elif hours < 24: status, status_text = "warm", "😊 Morno"
+            else: status, status_text = "cold", "❄️ Frio"
+            if user["messages"] > 20: interest, interest_text = "hot", "Alto"
+            elif user["messages"] > 10: interest, interest_text = "warm", "Médio"
+            else: interest, interest_text = "cold", "Baixo"
+            if hours < 1: last_activity = "< 1h atrás"
+            elif hours < 24: last_activity = f"{int(hours)}h atrás"
+            else: last_activity = f"{int(hours/24)}d atrás"
+            top_users.append({"id": user["id"], "messages": user["messages"], "streak": user["streak"], "teasers": user["teasers"], "lastActivity": last_activity, "status": status, "statusText": status_text, "interest": interest, "interestText": interest_text})
 
         cooldown_users = []
         for uid in users:
@@ -2511,19 +2322,10 @@ def admin_stats():
                 offers_today = get_vip_offers_today(uid)
                 total_teasers = get_teaser_count(uid)
                 hours = get_hours_since_activity(uid) or 0
-                if hours < 1:
-                    last_contact = "< 1h atrás"
-                elif hours < 24:
-                    last_contact = f"{int(hours)}h atrás"
-                else:
-                    last_contact = f"{int(hours/24)}d atrás"
-                cooldown_users.append({
-                    "id": uid,
-                    "cooldownRemaining": cooldown_remaining,
-                    "offersToday": offers_today,
-                    "totalTeasers": total_teasers,
-                    "lastContact": last_contact
-                })
+                if hours < 1: last_contact = "< 1h atrás"
+                elif hours < 24: last_contact = f"{int(hours)}h atrás"
+                else: last_contact = f"{int(hours/24)}d atrás"
+                cooldown_users.append({"id": uid, "cooldownRemaining": cooldown_remaining, "offersToday": offers_today, "totalTeasers": total_teasers, "lastContact": last_contact})
 
         started = funnel_stages[1]
         first_message = funnel_stages[2]
@@ -2531,8 +2333,7 @@ def admin_stats():
         clicked_vip_funnel = funnel_stages[4]
 
         def calc_drop(from_stage, to_stage):
-            if from_stage == 0:
-                return 0
+            if from_stage == 0: return 0
             return ((from_stage - to_stage) / from_stage * 100)
 
         drop_1 = calc_drop(started, first_message)
@@ -2542,60 +2343,22 @@ def admin_stats():
         def get_drop_class(rate):
             if rate > 70: return "hot"
             elif rate > 40: return "warm"
-            else: return "cold"
+            return "cold"
 
         def get_status(rate):
             if rate > 70: return "🚨 Crítico"
             elif rate > 40: return "⚠️ Alto"
-            else: return "✅ Normal"
+            return "✅ Normal"
 
         dropoff = [
-            {
-                "name": "Start → 1ª Msg",
-                "users": started - first_message,
-                "percent": round((first_message / started * 100) if started > 0 else 0, 1),
-                "dropRate": f"{drop_1:.1f}",
-                "dropClass": get_drop_class(drop_1),
-                "status": get_status(drop_1)
-            },
-            {
-                "name": "1ª Msg → Teaser",
-                "users": first_message - saw_teaser_funnel,
-                "percent": round((saw_teaser_funnel / first_message * 100) if first_message > 0 else 0, 1),
-                "dropRate": f"{drop_2:.1f}",
-                "dropClass": get_drop_class(drop_2),
-                "status": get_status(drop_2)
-            },
-            {
-                "name": "Teaser → Clique VIP",
-                "users": saw_teaser_funnel - clicked_vip_funnel,
-                "percent": round((clicked_vip_funnel / saw_teaser_funnel * 100) if saw_teaser_funnel > 0 else 0, 1),
-                "dropRate": f"{drop_3:.1f}",
-                "dropClass": get_drop_class(drop_3),
-                "status": get_status(drop_3)
-            }
+            {"name": "Start → 1ª Msg", "users": started - first_message, "percent": round((first_message / started * 100) if started > 0 else 0, 1), "dropRate": f"{drop_1:.1f}", "dropClass": get_drop_class(drop_1), "status": get_status(drop_1)},
+            {"name": "1ª Msg → Teaser", "users": first_message - saw_teaser_funnel, "percent": round((saw_teaser_funnel / first_message * 100) if first_message > 0 else 0, 1), "dropRate": f"{drop_2:.1f}", "dropClass": get_drop_class(drop_2), "status": get_status(drop_2)},
+            {"name": "Teaser → Clique VIP", "users": saw_teaser_funnel - clicked_vip_funnel, "percent": round((clicked_vip_funnel / saw_teaser_funnel * 100) if saw_teaser_funnel > 0 else 0, 1), "dropRate": f"{drop_3:.1f}", "dropClass": get_drop_class(drop_3), "status": get_status(drop_3)}
         ]
 
         return {
-            "stats": {
-                "totalUsers": total_users,
-                "newUsers24h": new_users_24h,
-                "activeToday": active_today,
-                "activeWeek": active_week,
-                "sawTeaser": saw_teaser_count,
-                "clickedVip": clicked_vip_count,
-                "totalMessages": total_messages,
-                "avgStreak": round(avg_streak, 1),
-                "inCooldown": in_cooldown_count,
-                "rejectedVip": rejected_vip_count,
-                "ignored": ignored_count
-            },
-            "funnel": {
-                "started": started,
-                "firstMessage": first_message,
-                "sawTeaser": saw_teaser_funnel,
-                "clickedVip": clicked_vip_funnel
-            },
+            "stats": {"totalUsers": total_users, "newUsers24h": new_users_24h, "activeToday": active_today, "activeWeek": active_week, "sawTeaser": saw_teaser_count, "clickedVip": clicked_vip_count, "totalMessages": total_messages, "avgStreak": round(avg_streak, 1), "inCooldown": in_cooldown_count, "rejectedVip": rejected_vip_count, "ignored": ignored_count},
+            "funnel": {"started": started, "firstMessage": first_message, "sawTeaser": saw_teaser_funnel, "clickedVip": clicked_vip_funnel},
             "activity": {"labels": activity_labels, "messages": activity_messages},
             "interest": interest_levels,
             "hourly": {"labels": hourly_labels, "offers": hourly_offers},
@@ -2635,35 +2398,16 @@ def admin_conversations():
                 continue
 
             chatlog = r.lrange(chatlog_key(uid), -50, -1)
+            if hours < 1: last_activity = "< 1 min"
+            elif hours < 1/60: last_activity = f"{int(hours * 60)} min"
+            else: last_activity = f"{int(hours)}h"
 
-            if hours < 1:
-                last_activity = "< 1 min"
-            elif hours < 1/60:
-                last_activity = f"{int(hours * 60)} min"
-            else:
-                last_activity = f"{int(hours)}h"
+            if clicked_vip(uid): status, status_class = "💎 Comprou VIP", "vip"
+            elif is_in_rejection_cooldown(uid): status, status_class = "🚫 Cooldown", "cooldown"
+            elif get_conversation_messages_count(uid) > 20: status, status_class = "🔥 Quente", "hot"
+            else: status, status_class = "💬 Conversando", "normal"
 
-            if clicked_vip(uid):
-                status, status_class = "💎 Comprou VIP", "vip"
-            elif is_in_rejection_cooldown(uid):
-                status, status_class = "🚫 Cooldown", "cooldown"
-            elif get_conversation_messages_count(uid) > 20:
-                status, status_class = "🔥 Quente", "hot"
-            else:
-                status, status_class = "💬 Conversando", "normal"
-
-            conversations.append({
-                "userId": uid,
-                "messages": chatlog,
-                "totalMessages": get_conversation_messages_count(uid),
-                "lastActivity": last_activity,
-                "status": status,
-                "statusClass": status_class,
-                "sawTeaser": saw_teaser(uid),
-                "teaserCount": get_teaser_count(uid),
-                "inCooldown": is_in_rejection_cooldown(uid),
-                "clickedVip": clicked_vip(uid)
-            })
+            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid)})
 
         conversations.sort(key=lambda x: x['lastActivity'])
         return {"conversations": conversations}, 200
@@ -2678,33 +2422,10 @@ def admin_user_detail(user_id):
     try:
         if not r.sismember(all_users_key(), str(user_id)):
             return {"error": "User not found"}, 404
-
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
         profile = get_user_profile(user_id)
         memory = get_memory(user_id)
-
-        return {
-            "id": user_id,
-            "profile": profile,
-            "stats": {
-                "messages": get_conversation_messages_count(user_id),
-                "streak": get_streak(user_id),
-                "teasers": get_teaser_count(user_id),
-                "sawTeaser": saw_teaser(user_id),
-                "clickedVip": clicked_vip(user_id),
-                "inCooldown": is_in_rejection_cooldown(user_id),
-                "cooldownRemaining": get_rejection_cooldown_remaining(user_id),
-                "vipOffersToday": get_vip_offers_today(user_id),
-                "bonusMessages": get_bonus_msgs(user_id),
-                "todayCount": today_count(user_id),
-                "ignored": get_ignored_count(user_id),
-                "lastActivity": r.get(last_activity_key(user_id)),
-                "firstContact": r.get(first_contact_key(user_id))
-            },
-            "chatlog": chatlog,
-            "memory": memory
-        }, 200
-
+        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id))}, "chatlog": chatlog, "memory": memory}, 200
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
@@ -2716,12 +2437,9 @@ def admin_broadcast():
         data = request.json
         message = data.get("message")
         target_group = data.get("target", "all")
-
         if not message:
             return {"error": "Message required"}, 400
-
         users = get_all_active_users()
-
         if target_group == "active_24h":
             users = [u for u in users if get_hours_since_activity(u) and get_hours_since_activity(u) < 24]
         elif target_group == "saw_teaser":
@@ -2739,12 +2457,10 @@ def admin_broadcast():
                     await asyncio.sleep(0.05)
                 except Exception as e:
                     failed += 1
-                    logger.error(f"Broadcast failed for {uid}: {e}")
             return sent, failed
 
         future = asyncio.run_coroutine_threadsafe(send_broadcast(), loop)
         sent, failed = future.result(timeout=300)
-
         return {"success": True, "sent": sent, "failed": failed, "total": len(users)}, 200
 
     except Exception as e:
@@ -2782,10 +2498,7 @@ async def startup_sequence():
             try:
                 await application.bot.delete_webhook(drop_pending_updates=True)
                 await asyncio.sleep(1)
-                success = await application.bot.set_webhook(
-                    url=webhook_url,
-                    allowed_updates=["message", "callback_query"]
-                )
+                success = await application.bot.set_webhook(url=webhook_url, allowed_updates=["message", "callback_query"])
                 if success:
                     info = await application.bot.get_webhook_info()
                     if info.url == webhook_url:
@@ -2801,17 +2514,12 @@ async def startup_sequence():
                     raise
 
         asyncio.create_task(engagement_scheduler(application.bot))
-        logger.info("✅ Scheduler de engagement iniciado")
-
         asyncio.create_task(retargeting_scheduler(application.bot))
-        logger.info("✅ Scheduler de retargeting iniciado")
-
         asyncio.create_task(recovery_scheduler(application.bot))
-        logger.info("✅ Scheduler de recovery iniciado")
 
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.3 APEX — Funil direto VIP + PIX + Pergunta prévia")
+        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
 
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
@@ -2823,9 +2531,6 @@ async def startup_sequence():
 
 if __name__ == "__main__":
     asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
-
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.3 APEX operacional!")
-    logger.info("📊 Funil: /start → Conversa → Prévia? → Teasers → PIX → VIP")
-
+    logger.info("🚀 Sophia Bot v8.3 APEX + SyncPay operacional!")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
