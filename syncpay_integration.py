@@ -318,14 +318,14 @@ async def _pagar_vip_callback(update: Update, context):
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
 
         nome      = query.from_user.full_name or "Cliente"
-        preco_str = _callbacks.get("PRECO_VIP", "12.90")
+        preco_str = _callbacks.get("PRECO_VIP", "1,00")
         try:
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
                          .replace(",", ".").strip()
             )
         except Exception:
-            valor = 12.90
+            valor = 1.00
 
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
