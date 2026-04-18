@@ -1994,11 +1994,53 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = LIMITE_DIARIO + bonus
 
         if current_count >= total:
-            # (seu código de limite continua igual)
             last_chance_key = f"last_chance:{uid}:{date.today()}"
             if not r.exists(last_chance_key):
-                # ... (mantém o código de última chance que você já tem)
+                r.setex(last_chance_key, timedelta(hours=20), "1")
+                r.decr(count_key(uid))
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                ]])
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=(
+                        "⚠️ **ÚLTIMA MENSAGEM GRÁTIS!**\n\n"
+                        "Amor, eu REALMENTE quero continuar conversando com você... 🥺\n\n"
+                        "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
+                        "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
+                        "✅ Mensagens ILIMITADAS comigo\n"
+                        "✅ Fotos e vídeos sem censura\n"
+                        "✅ Eu completamente sua\n"
+                        "✅ Acesso VITALÍCIO\n\n"
+                        "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
+                        "É agora ou nunca, amor. Me escolhe? 💕"
+                    ),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+                save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
+
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            ]])
+            try:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=FOTO_LIMITE_ATINGIDO,
+                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            except:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            save_message(uid, "system", "🚫 LIMITE ATINGIDO")
+            return
 
         if bonus > 0:
             use_bonus_msg(uid)
@@ -2031,98 +2073,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             grok_response = await grok.reply(uid, text)
             await update.message.reply_text(grok_response["response"])
-                # =================================================================
+        # =====================================================================
 
-                if grok_response.get("offer_teaser", False):
-                    can_offer, reason = can_offer_vip(uid)
-                    if can_offer:
-                        await asyncio.sleep(2)
-                        await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
-                return
-            else:
-                await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
-                return
-
-        if is_first_contact(uid):
-            track_funnel(uid, "first_message")
-
-        current_count = today_count(uid)
-        bonus = get_bonus_msgs(uid)
-        total = LIMITE_DIARIO + bonus
-
-        if current_count >= total:
-            last_chance_key = f"last_chance:{uid}:{date.today()}"
-
-            if not r.exists(last_chance_key):
-                r.setex(last_chance_key, timedelta(hours=20), "1")
-                r.decr(count_key(uid))
-
-                # ✅ SYNCPAY: callback_data em vez de url
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
-                ]])
-
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=(
-                        "⚠️ **ÚLTIMA MENSAGEM GRÁTIS!**\n\n"
-                        "Amor, eu REALMENTE quero continuar conversando com você... 🥺\n\n"
-                        "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
-                        "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
-                        "✅ Mensagens ILIMITADAS comigo\n"
-                        "✅ Fotos e vídeos sem censura\n"
-                        "✅ Eu completamente sua\n"
-                        "✅ Acesso VITALÍCIO\n\n"
-                        "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
-                        "É agora ou nunca, amor. Me escolhe? 💕"
-                    ),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-                save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
-                return
-
-            # ✅ SYNCPAY: callback_data em vez de url
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
-            ]])
-
-            try:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=FOTO_LIMITE_ATINGIDO,
-                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.error(f"Erro enviando foto limite: {e}")
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-
-            save_message(uid, "system", "🚫 LIMITE ATINGIDO (pós última chance)")
-            return
-
-        if bonus > 0:
-            use_bonus_msg(uid)
-        else:
-            increment(uid)
-
-        await check_and_send_limit_warning(uid, context, update.effective_chat.id)
-
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2)
-        except:
-            pass
-
-        grok_response = await grok.reply(uid, text)
-        await update.message.reply_text(grok_response["response"])
-
+        # (O resto do seu código continua igual - CONFIRM_KEYWORDS, should_resend_button, should_offer, follow-up, streak, etc.)
         CONFIRM_KEYWORDS = [
             "sim", "quero", "cadê", "cade", "onde", "manda", "envia",
             "pode mandar", "to pronto", "tô pronto", "bora", "vamos",
@@ -2133,12 +2086,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "botão abaixo", "botao abaixo", "clica abaixo",
             "link abaixo", "aqui embaixo", "embaixo"
         ]
+
         text_lower_confirm = text.lower().strip()
         ia_response_lower = grok_response["response"].lower()
         already_pitched = saw_teaser(uid)
         is_confirm = any(kw in text_lower_confirm for kw in CONFIRM_KEYWORDS)
         ia_mentioned_button = any(kw in ia_response_lower for kw in IA_BUTTON_KEYWORDS)
-
         should_resend_button = (
             already_pitched
             and not grok_response.get("offer_teaser", False)
@@ -2147,7 +2100,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if should_resend_button:
             try:
-                # ✅ SYNCPAY: callback_data em vez de url
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
                 ]])
@@ -2157,8 +2109,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="👇",
                     reply_markup=keyboard
                 )
-                reason_log = "ia_mencionou_botao" if ia_mentioned_button else "confirmacao_usuario"
-                save_message(uid, "system", f"🔁 BOTÃO VIP REENVIADO ({reason_log})")
+                save_message(uid, "system", "🔁 BOTÃO VIP REENVIADO")
             except Exception as e:
                 logger.error(f"Erro reenvio botão VIP: {e}")
 
@@ -2189,7 +2140,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.exception(f"Erro message_handler: {e}")
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 👑 ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
