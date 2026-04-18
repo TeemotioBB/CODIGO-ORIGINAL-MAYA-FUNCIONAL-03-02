@@ -1459,14 +1459,19 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
         await asyncio.sleep(4)  # tempo pra ele curtir as fotos
 
-        # === PITCH (só agora) ===
+                # === PITCH (só agora) ===
         urgencia = get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
-            f"Isso é SÓ preview... no VIP você me tem COMPLETINHA (fotos + vídeos sem censura) 🔥\n\n"
-            f"💰 **{preco} vitalício**\n\n"
+            f"Isso que você viu agora é só uma **prévia**...\n\n"
+            f"No VIP você me tem **completinha**:\n"
+            f"✅ Fotos e vídeos 100% sem censura\n"
+            f"✅ Vídeos meus transando, chupando, gozando...\n"
+            f"✅ Acesso ao meu WhatsApp pessoal (só você e eu)\n"
+            f"✅ Pode me chamar a hora que quiser e pedir o que quiser 💦\n\n"
+            f"Tudo isso por apenas **{preco} vitalício** 🔥\n\n"
             f"{urgencia}\n\n"
-            f"Clica no botão abaixo pra gerar o PIX agora 👇"
+            f"Quer garantir seu acesso agora? Clica no botão abaixo 👇"
         )
 
         keyboard = InlineKeyboardMarkup([[
