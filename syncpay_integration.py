@@ -1,41 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.3 APEX                  ║
-║                                                                              ║
-║  Módulo separado. Não mexa em IA_SEM_CAPI.py além das 3 linhas abaixo.     ║
-║                                                                              ║
-║  INSTALAÇÃO — adicione em IA_SEM_CAPI.py:                                  ║
-║                                                                              ║
-║  1) No topo do arquivo, junto dos outros imports:                           ║
-║       import syncpay_integration                                             ║
-║                                                                              ║
-║  2) Logo abaixo da linha  "application = setup_application()"  :           ║
-║       syncpay_integration.init(                                              ║
-║           flask_app   = app,                                                 ║
-║           bot_app     = application,                                         ║
-║           event_loop  = loop,                                                ║
-║           redis_conn  = r,                                                   ║
-║           callbacks   = {                                                    ║
-║               "set_clicked_vip" : set_clicked_vip,                          ║
-║               "add_bonus_msgs"  : add_bonus_msgs,                           ║
-║               "save_message"    : save_message,                              ║
-║               "get_router"      : get_router,                                ║
-║               "CANAL_VIP_LINK"  : CANAL_VIP_LINK,                           ║
-║               "PRECO_VIP"       : PRECO_VIP,                                 ║
-║           }                                                                  ║
-║       )                                                                      ║
-║                                                                              ║
-║  3) Substitua a função send_teaser_and_apex pelo wrapper do módulo:         ║
-║     Procure a linha:                                                         ║
-║         send_teaser_and_pitch = send_teaser_and_apex                        ║
-║     E adicione logo abaixo:                                                  ║
-║         send_teaser_and_apex = syncpay_integration.send_teaser_com_pix      ║
-║         send_teaser_and_pitch = syncpay_integration.send_teaser_com_pix     ║
-║                                                                              ║
-║  VARIÁVEIS DE AMBIENTE necessárias:                                         ║
-║       SYNCPAY_CLIENT_ID      → seu client_id do painel SyncPay              ║
-║       SYNCPAY_CLIENT_SECRET  → seu client_secret do painel SyncPay          ║
-║       WEBHOOK_BASE_URL       → já existe no seu .env (ex: railway.app)      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -44,7 +9,7 @@ import json
 import asyncio
 import logging
 import random
-import importlib
+import importlib.util
 import requests
 from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
@@ -55,7 +20,7 @@ from telegram.ext import CallbackQueryHandler
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ⚙️  CONFIGURAÇÕES SYNCPAY — lidas do ambiente
+# ⚙️  CONFIGURAÇÕES SYNCPAY
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SYNCPAY_CLIENT_ID     = "423ab714-71b3-4ee1-8f28-602415b2bf92"
@@ -67,7 +32,7 @@ SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
 PIX_VALIDADE_MINUTOS = 30
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🗄️  ESTADO INTERNO (referências injetadas via init())
+# 🗄️  ESTADO INTERNO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _r          = None
@@ -76,6 +41,17 @@ _bot_app    = None
 _callbacks  = {}
 
 _token_cache = {"token": None, "expires_at": None}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔧  HELPER — carrega o módulo principal pelo caminho do arquivo
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_bot_main():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sophia_bot_v7.2_clean.py")
+    spec = importlib.util.spec_from_file_location("bot_main", path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑  REDIS KEYS
@@ -196,7 +172,7 @@ def _get_pix_pendente(uid: int):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco = _callbacks.get("PRECO_VIP", "R$ 12,90")
+    preco    = _callbacks.get("PRECO_VIP", "R$ 12,90")
     pix_code = pix_data["pix_code"]
 
     mensagem = (
@@ -212,9 +188,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
     await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
     await asyncio.sleep(0.5)
-
     await bot.send_message(chat_id=chat_id, text=f"`{pix_code}`", parse_mode="Markdown")
-
     await asyncio.sleep(0.5)
     await bot.send_message(
         chat_id=chat_id,
@@ -237,17 +211,16 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
 async def send_teaser_com_pix(bot, chat_id: int, uid: int):
     try:
-        import importlib
-        bot_main = importlib.import_module("sophia_bot_v7.2_clean")
-    except ImportError:
-        logger.error("[SyncPay] Não consegui importar sophia_bot_v7.2_clean")
+        bot_main = _load_bot_main()
+    except Exception as e:
+        logger.error(f"[SyncPay] Não consegui carregar o bot principal: {e}")
         return False
 
     try:
-        get_router      = _callbacks.get("get_router")
-        ia_config       = get_router().get_ia_config(uid=uid) if get_router else {}
-        fotos_teaser    = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
-        preco           = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 12,90"))
+        get_router   = _callbacks.get("get_router")
+        ia_config    = get_router().get_ia_config(uid=uid) if get_router else {}
+        fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
+        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 12,90"))
 
         can_offer, reason = bot_main.can_offer_vip(uid)
         if not can_offer:
@@ -344,26 +317,21 @@ async def _pagar_vip_callback(update: Update, context):
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
 
+        nome      = query.from_user.full_name or "Cliente"
+        preco_str = _callbacks.get("PRECO_VIP", "12.90")
         try:
-            import importlib
-            bot_main = importlib.import_module("sophia_bot_v7.2_clean")
-            nome = query.from_user.full_name or "Cliente"
-            preco_str = _callbacks.get("PRECO_VIP", "12.90")
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
                          .replace(",", ".").strip()
             )
-        except Exception as e:
-            logger.error(f"[SyncPay] Erro extraindo valor: {e}")
+        except Exception:
             valor = 12.90
-            nome  = "Cliente"
 
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
         try:
-            import importlib
-            bot_main = importlib.import_module("sophia_bot_v7.2_clean")
+            bot_main = _load_bot_main()
             bot_main.set_clicked_vip(uid)
             bot_main.track_funnel(uid, "clicked_vip")
         except Exception:
@@ -442,10 +410,8 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 
         if set_clicked_vip:
             set_clicked_vip(uid)
-
         if add_bonus_msgs:
             add_bonus_msgs(uid, 9999)
-
         if save_message:
             save_message(uid, "system", f"💎 PAGAMENTO CONFIRMADO via SyncPay (id={identifier})")
 
@@ -474,11 +440,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("💎 ACESSAR VIP AGORA", url=canal_vip)
             ]])
-            await bot.send_message(
-                chat_id=uid,
-                text="👇",
-                reply_markup=keyboard
-            )
+            await bot.send_message(chat_id=uid, text="👇", reply_markup=keyboard)
 
         _r.delete(_sp_id_to_uid_key(identifier))
         _r.delete(_sp_pix_key(uid))
