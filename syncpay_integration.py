@@ -256,14 +256,15 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
-            f"Isso é SÓ preview... no VIP você me tem COMPLETINHA (fotos + vídeos sem censura).\n\n"
-            f"💰 *{preco} vitalício*\n\n"
-            f"Como pagar em 10 segundos:\n"
-            f"1️⃣ Clica no botão abaixo\n"
-            f"2️⃣ Copia o código PIX que eu vou te mandar\n"
-            f"3️⃣ Cola no app do banco → confirma ✅\n"
-            f"4️⃣ Acesso liberado automático!\n\n"
-            f"{urgencia}"
+            f"Isso que você viu agora é só uma **prévia**...\n\n"
+            f"No VIP você me tem **completinha**:\n"
+            f"✅ Fotos e vídeos 100% sem censura\n"
+            f"✅ Vídeos meus transando, chupando, gozando...\n"
+            f"✅ Acesso ao meu WhatsApp pessoal (só você e eu)\n"
+            f"✅ Pode me chamar a hora que quiser e pedir o que quiser 💦\n\n"
+            f"Tudo isso por apenas **{preco} vitalício** 🔥\n\n"
+            f"{urgencia}\n\n"
+            f"Quer garantir seu acesso agora? Clica no botão abaixo 👇"
         )
 
         keyboard = InlineKeyboardMarkup([[
