@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 SYNCPAY_CLIENT_ID     = "423ab714-71b3-4ee1-8f28-602415b2bf92"
 SYNCPAY_CLIENT_SECRET = "65ea61dd-eb51-4ce1-b3e0-fc2fcd838b6b"
-SYNCPAY_BASE_URL      = "https://api.syncpay.com.br/api/partner/v1"
+SYNCPAY_BASE_URL      = "https://api.syncpay.io/api/partner/v1"
 WEBHOOK_BASE_URL      = os.getenv("WEBHOOK_BASE_URL", "")
 SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
 
