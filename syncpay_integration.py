@@ -44,6 +44,7 @@ import json
 import asyncio
 import logging
 import random
+import importlib
 import requests
 from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
@@ -63,39 +64,33 @@ SYNCPAY_BASE_URL      = "https://api.syncpay.com.br"
 WEBHOOK_BASE_URL      = os.getenv("WEBHOOK_BASE_URL", "")
 SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
 
-# Validade do PIX gerado (em minutos). Após isso, gera um novo se o usuário
-# clicar de novo.
 PIX_VALIDADE_MINUTOS = 30
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🗄️  ESTADO INTERNO (referências injetadas via init())
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_r          = None   # redis
-_loop       = None   # event loop do bot
-_bot_app    = None   # telegram Application
-_callbacks  = {}     # funções do bot principal
+_r          = None
+_loop       = None
+_bot_app    = None
+_callbacks  = {}
 
 _token_cache = {"token": None, "expires_at": None}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔑  REDIS KEYS (isoladas com prefixo "sp:" pra não colidir com o bot)
+# 🔑  REDIS KEYS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _sp_pix_key(uid):
-    """Dados do PIX pendente do usuário."""
     return f"sp:pix:{uid}"
 
 def _sp_id_to_uid_key(identifier):
-    """Mapeia identifier SyncPay → uid do Telegram."""
     return f"sp:id2uid:{identifier}"
 
 def _sp_paid_key(uid):
-    """Marca que o usuário já pagou."""
     return f"sp:paid:{uid}"
 
 def _sp_notified_key(uid, date_str):
-    """Evita notificação duplicada de confirmação."""
     return f"sp:notified:{uid}:{date_str}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -103,14 +98,9 @@ def _sp_notified_key(uid, date_str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _get_token() -> str:
-    """
-    Retorna o Bearer Token da SyncPay.
-    Gera um novo token apenas quando o anterior expirar (token válido 1 hora).
-    """
     agora = datetime.utcnow()
 
     if _token_cache["token"] and _token_cache["expires_at"]:
-        # Renova 5 minutos antes de expirar para evitar rejeição
         if agora < _token_cache["expires_at"] - timedelta(minutes=5):
             return _token_cache["token"]
 
@@ -129,7 +119,6 @@ def _get_token() -> str:
 
     _token_cache["token"] = data["access_token"]
 
-    # expires_at vem como ISO 8601 UTC, ex: "2025-06-22T02:49:47.440458Z"
     expires_str = data["expires_at"].replace("Z", "+00:00")
     _token_cache["expires_at"] = datetime.fromisoformat(expires_str).replace(tzinfo=None)
 
@@ -142,14 +131,6 @@ def _get_token() -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
-    """
-    Cria uma cobrança PIX na SyncPay para o uid informado.
-
-    Retorna: { "pix_code": str, "identifier": str }
-
-    A webhook_url que é passada aponta para /webhook/syncpay deste módulo.
-    O identifier é salvo no Redis para identificar o pagamento no webhook.
-    """
     token = _get_token()
     webhook_url = f"{WEBHOOK_BASE_URL}{SYNCPAY_WEBHOOK_PATH}"
 
@@ -159,8 +140,6 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
         "webhook_url": webhook_url,
         "client": {
             "name": nome_cliente or "Cliente",
-            # CPF placeholder — a SyncPay aceita 00000000000 para testes
-            # Em produção, colete o CPF do usuário antes de gerar o PIX
             "cpf": "00000000000",
             "email": f"user{uid}@sophiabot.com",
             "phone": "11999999999",
@@ -177,13 +156,11 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
         timeout=15,
     )
     resp.raise_for_status()
-    resultado = resp.json()  # { message, pix_code, identifier }
+    resultado = resp.json()
 
     identifier = resultado["identifier"]
     pix_code   = resultado["pix_code"]
 
-    # ── Persiste no Redis ─────────────────────────────────────────────────────
-    # 1. Dados do PIX vinculados ao uid (para reenvio se usuário clicar de novo)
     _r.setex(
         _sp_pix_key(uid),
         timedelta(minutes=PIX_VALIDADE_MINUTOS),
@@ -194,7 +171,6 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
             "created_at": datetime.utcnow().isoformat(),
         })
     )
-    # 2. Mapeamento identifier → uid (para o webhook encontrar o usuário)
     _r.setex(
         _sp_id_to_uid_key(identifier),
         timedelta(hours=2),
@@ -205,11 +181,7 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
     return {"pix_code": pix_code, "identifier": identifier}
 
 
-def _get_pix_pendente(uid: int) -> dict | None:
-    """
-    Retorna os dados do PIX pendente se ainda não expirou.
-    Retorna None se não houver PIX ou se já expirou.
-    """
+def _get_pix_pendente(uid: int):
     data = _r.get(_sp_pix_key(uid))
     if not data:
         return None
@@ -224,9 +196,6 @@ def _get_pix_pendente(uid: int) -> dict | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    """
-    Manda o código PIX formatado para o usuário no chat do Telegram.
-    """
     preco = _callbacks.get("PRECO_VIP", "R$ 12,90")
     pix_code = pix_data["pix_code"]
 
@@ -244,7 +213,6 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
     await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
     await asyncio.sleep(0.5)
 
-    # Código em bloco separado para facilitar copiar no celular
     await bot.send_message(chat_id=chat_id, text=f"`{pix_code}`", parse_mode="Markdown")
 
     await asyncio.sleep(0.5)
@@ -265,29 +233,14 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯  SUBSTITUTO DE send_teaser_and_apex
-#     Idêntico ao original, mas o botão usa callback_data="pagar_vip"
-#     em vez de url=canal_vip — isso permite gerar o PIX na hora do clique
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_teaser_com_pix(bot, chat_id: int, uid: int):
-    """
-    Drop-in replacement para send_teaser_and_apex.
-
-    Diferença única: o botão usa callback_data="pagar_vip" em vez de
-    abrir o link do canal. Assim, quando o usuário clicar, o bot gera
-    o PIX dinamicamente e manda o código no chat.
-
-    Importe este módulo e reatribua:
-        send_teaser_and_apex  = syncpay_integration.send_teaser_com_pix
-        send_teaser_and_pitch = syncpay_integration.send_teaser_com_pix
-    """
-    # ── Imports tardios para evitar circular import ───────────────────────────
-    # Usamos o módulo principal apenas para funções auxiliares de controle
-    # (can_offer_vip, get_ab_group etc.) que não dependem deste módulo.
     try:
-        import IA_SEM_CAPI as bot_main
+        import importlib
+        bot_main = importlib.import_module("sophia_bot_v7.2_clean")
     except ImportError:
-        logger.error("[SyncPay] Não consegui importar IA_SEM_CAPI")
+        logger.error("[SyncPay] Não consegui importar sophia_bot_v7.2_clean")
         return False
 
     try:
@@ -296,7 +249,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         fotos_teaser    = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
         preco           = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 12,90"))
 
-        # Verificação antes de enviar (respeita cooldowns e limites)
         can_offer, reason = bot_main.can_offer_vip(uid)
         if not can_offer:
             logger.info(f"[SyncPay] 🚫 Teaser bloqueado para {uid}: {reason}")
@@ -309,12 +261,10 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         bot_main.increment_vip_offers(uid)
         bot_main.reset_msgs_since_offer(uid)
 
-        # 1. Intro
         intro = random.choice(bot_main.TEASER_INTRO_MESSAGES[ab_group])
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-        # 2. Fotos teaser (3–4 aleatórias)
         num_photos = random.randint(3, 4)
         selected   = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
 
@@ -330,7 +280,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 
         await asyncio.sleep(3)
 
-        # 3. Pitch com urgência dinâmica
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
@@ -344,7 +293,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
             f"{urgencia}"
         )
 
-        # ── DIFERENÇA CHAVE: callback_data em vez de url ──────────────────────
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
         ]])
@@ -374,19 +322,14 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _pagar_vip_callback(update: Update, context):
-    """
-    Chamado quando o usuário clica no botão callback_data="pagar_vip".
-    Gera (ou reusa) o PIX e manda o código no chat.
-    """
     query = update.callback_query
-    await query.answer()  # fecha o "loading" do botão
+    await query.answer()
 
     uid     = query.from_user.id
     chat_id = query.message.chat_id
     bot     = context.bot
 
     try:
-        # Verifica se já tem PIX pendente não expirado (evita gerar duplicado)
         pix_pendente = _get_pix_pendente(uid)
 
         if pix_pendente:
@@ -399,14 +342,13 @@ async def _pagar_vip_callback(update: Update, context):
             await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
             return
 
-        # Gera novo PIX
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
 
         try:
-            import IA_SEM_CAPI as bot_main
+            import importlib
+            bot_main = importlib.import_module("sophia_bot_v7.2_clean")
             nome = query.from_user.full_name or "Cliente"
             preco_str = _callbacks.get("PRECO_VIP", "12.90")
-            # Remove "R$", espaços e troca vírgula por ponto
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
                          .replace(",", ".").strip()
@@ -419,9 +361,9 @@ async def _pagar_vip_callback(update: Update, context):
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
-        # Registra no funil
         try:
-            import IA_SEM_CAPI as bot_main
+            import importlib
+            bot_main = importlib.import_module("sophia_bot_v7.2_clean")
             bot_main.set_clicked_vip(uid)
             bot_main.track_funnel(uid, "clicked_vip")
         except Exception:
@@ -449,20 +391,9 @@ async def _pagar_vip_callback(update: Update, context):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _register_webhook_route(flask_app):
-    """
-    Registra a rota /webhook/syncpay no Flask.
-    A SyncPay chamará esta rota quando o status da transação mudar.
-    """
 
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
     def syncpay_webhook():
-        """
-        Recebe eventos da SyncPay.
-        Quando status == 'completed', libera o VIP do usuário e notifica no Telegram.
-
-        ⚠️ A SyncPay tem timeout de 5 segundos — respondemos imediatamente
-           e processamos em background.
-        """
         try:
             data      = flask_request.get_json(silent=True) or {}
             transacao = data.get("data", {})
@@ -474,31 +405,20 @@ def _register_webhook_route(flask_app):
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
 
             if status == "completed" and identifier:
-                # Roda o processamento sem bloquear a resposta
                 asyncio.run_coroutine_threadsafe(
                     _processar_pagamento_confirmado(identifier, amount),
                     _loop
                 )
 
-            # Responde imediatamente (< 5s)
             return jsonify({}), 200
 
         except Exception as e:
             logger.error(f"[SyncPay Webhook] Erro: {e}")
-            return jsonify({}), 200  # sempre 200 pra SyncPay não retentar em loop
+            return jsonify({}), 200
 
 
 async def _processar_pagamento_confirmado(identifier: str, amount):
-    """
-    Chamado quando a SyncPay confirma o pagamento (status=completed).
-
-    1. Descobre qual uid fez o pagamento via Redis
-    2. Marca VIP como pago
-    3. Libera mensagens bônus
-    4. Notifica o usuário no Telegram
-    """
     try:
-        # Busca uid pelo identifier
         uid_raw = _r.get(_sp_id_to_uid_key(identifier))
         if not uid_raw:
             logger.warning(f"[SyncPay] ⚠️  identifier={identifier} sem uid no Redis (já expirou?)")
@@ -507,7 +427,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         uid = int(uid_raw)
         logger.info(f"[SyncPay] ✅ Pagamento CONFIRMADO: uid={uid} identifier={identifier} valor=R${amount}")
 
-        # Evita processar o mesmo pagamento duas vezes
         notif_key = _sp_notified_key(uid, date.today().isoformat())
         if _r.exists(notif_key):
             logger.info(f"[SyncPay] ⚠️  Pagamento já processado para uid={uid} hoje")
@@ -516,7 +435,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
 
-        # ── Atualiza estado do usuário no bot ─────────────────────────────────
         set_clicked_vip = _callbacks.get("set_clicked_vip")
         add_bonus_msgs  = _callbacks.get("add_bonus_msgs")
         save_message    = _callbacks.get("save_message")
@@ -526,12 +444,11 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             set_clicked_vip(uid)
 
         if add_bonus_msgs:
-            add_bonus_msgs(uid, 9999)  # mensagens ilimitadas para VIP
+            add_bonus_msgs(uid, 9999)
 
         if save_message:
             save_message(uid, "system", f"💎 PAGAMENTO CONFIRMADO via SyncPay (id={identifier})")
 
-        # ── Notifica o usuário ────────────────────────────────────────────────
         canal_vip = _callbacks.get("CANAL_VIP_LINK", "")
         if get_router:
             try:
@@ -563,7 +480,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 reply_markup=keyboard
             )
 
-        # Remove o PIX pendente (já pago)
         _r.delete(_sp_id_to_uid_key(identifier))
         _r.delete(_sp_pix_key(uid))
 
@@ -578,24 +494,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def init(flask_app, bot_app, event_loop, redis_conn, callbacks: dict):
-    """
-    Inicializa a integração SyncPay.
-
-    Parâmetros:
-        flask_app   : objeto Flask (app)  do IA_SEM_CAPI.py
-        bot_app     : objeto Application (application) do IA_SEM_CAPI.py
-        event_loop  : loop asyncio (loop) do IA_SEM_CAPI.py
-        redis_conn  : conexão Redis (r) do IA_SEM_CAPI.py
-        callbacks   : dict com as funções e variáveis do bot principal:
-            {
-                "set_clicked_vip" : set_clicked_vip,
-                "add_bonus_msgs"  : add_bonus_msgs,
-                "save_message"    : save_message,
-                "get_router"      : get_router,
-                "CANAL_VIP_LINK"  : CANAL_VIP_LINK,
-                "PRECO_VIP"       : PRECO_VIP,
-            }
-    """
     global _r, _loop, _bot_app, _callbacks
 
     if not SYNCPAY_CLIENT_ID or not SYNCPAY_CLIENT_SECRET:
@@ -609,11 +507,8 @@ def init(flask_app, bot_app, event_loop, redis_conn, callbacks: dict):
     _bot_app   = bot_app
     _callbacks = callbacks
 
-    # 1. Registra a rota webhook no Flask
     _register_webhook_route(flask_app)
 
-    # 2. Registra o callback handler "pagar_vip" no bot do Telegram
-    #    (antes dos outros handlers genéricos — por isso group=-1)
     bot_app.add_handler(
         CallbackQueryHandler(_pagar_vip_callback, pattern="^pagar_vip$"),
         group=-1
@@ -632,10 +527,8 @@ def init(flask_app, bot_app, event_loop, redis_conn, callbacks: dict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def usuario_pagou(uid: int) -> bool:
-    """Verifica se o uid já fez pagamento confirmado via SyncPay."""
     return bool(_r and _r.exists(_sp_paid_key(uid)))
 
 
-def pix_pendente(uid: int) -> dict | None:
-    """Retorna dados do PIX pendente do usuário, ou None se não houver."""
+def pix_pendente(uid: int):
     return _get_pix_pendente(uid)
