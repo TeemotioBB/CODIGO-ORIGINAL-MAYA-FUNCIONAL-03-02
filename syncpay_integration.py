@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 SYNCPAY_CLIENT_ID     = "423ab714-71b3-4ee1-8f28-602415b2bf92"
 SYNCPAY_CLIENT_SECRET = "65ea61dd-eb51-4ce1-b3e0-fc2fcd838b6b"
-SYNCPAY_BASE_URL      = "https://api.syncpay.com.br"
+SYNCPAY_BASE_URL      = "https://api.syncpay.com.br/api/partner/v1"
 WEBHOOK_BASE_URL      = os.getenv("WEBHOOK_BASE_URL", "")
 SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
 
@@ -83,7 +83,7 @@ def _get_token() -> str:
     logger.info("[SyncPay] 🔄 Gerando novo token de autenticação...")
 
     resp = requests.post(
-        f"{SYNCPAY_BASE_URL}/api/partner/v1/auth-token",
+        f"{SYNCPAY_BASE_URL}/auth-token",
         json={
             "client_id": SYNCPAY_CLIENT_ID,
             "client_secret": SYNCPAY_CLIENT_SECRET,
@@ -123,7 +123,7 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
     }
 
     resp = requests.post(
-        f"{SYNCPAY_BASE_URL}/api/partner/v1/cash-in",
+        f"{SYNCPAY_BASE_URL}/cash-in",
         json=payload,
         headers={
             "Authorization": f"Bearer {token}",
