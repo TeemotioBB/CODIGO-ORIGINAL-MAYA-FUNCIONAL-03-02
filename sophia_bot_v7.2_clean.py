@@ -1890,7 +1890,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-
     if is_blacklisted(uid):
         return
 
@@ -1907,6 +1906,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_return(uid, context.bot, update.effective_chat.id)
         update_last_activity(uid)
 
+    # Remarketing
     remarketing_sent_key = f"remarketing_dm_sent:{uid}:{date.today()}"
     if r.exists(f"saw_free_invite:{uid}") and not clicked_vip(uid) and not r.exists(remarketing_sent_key):
         _router = get_router()
@@ -1917,7 +1917,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"E aí amor, saudade? 😈 Ainda dá tempo de garantir o VIP por {_preco} — clica no botão!",
             f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → clica abaixo 👇"
         ]
-        # ✅ SYNCPAY: callback_data em vez de url
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
         ]])
@@ -1932,7 +1931,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
 
-                if text:
+        # ====================== DETECÇÃO DE APEGO ======================
+        if text:
             save_message(uid, "user", text)
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
@@ -1943,6 +1943,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
 
+        # ====================== TRATAMENTO DE FOTO ======================
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
@@ -1957,13 +1958,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # ==================== v8.5 - MODO HÍBRIDO (FOTO) ====================
                 if was_vip_just_offered(uid):
                     msgs_since = get_msgs_since_offer(uid)
-                    
                     if msgs_since <= 4:
-                        # Primeiras 4 mensagens após o PIX: Grok continua respondendo
                         grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                         await update.message.reply_text(grok_response["response"])
                     else:
-                        # Depois da 4ª mensagem: respostas curtas (economia de tokens)
                         response_text = random.choice([
                             "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
                             "Hmmm... mandou foto gostosa hein? 😏 Me avisa quando o PIX cair que eu te mostro muito mais 💦",
@@ -1973,9 +1971,66 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await update.message.reply_text(response_text)
                         grok_response = {"response": response_text, "offer_teaser": False}
                 else:
-                    # Modo normal (antes do PIX)
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                     await update.message.reply_text(grok_response["response"])
+                # =================================================================
+
+                if grok_response.get("offer_teaser", False):
+                    can_offer, reason = can_offer_vip(uid)
+                    if can_offer:
+                        await asyncio.sleep(2)
+                        await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
+                return
+            else:
+                await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
+                return
+
+        # ====================== MENSAGEM DE TEXTO NORMAL ======================
+        if is_first_contact(uid):
+            track_funnel(uid, "first_message")
+
+        current_count = today_count(uid)
+        bonus = get_bonus_msgs(uid)
+        total = LIMITE_DIARIO + bonus
+
+        if current_count >= total:
+            # (seu código de limite continua igual)
+            last_chance_key = f"last_chance:{uid}:{date.today()}"
+            if not r.exists(last_chance_key):
+                # ... (mantém o código de última chance que você já tem)
+                return
+
+        if bonus > 0:
+            use_bonus_msg(uid)
+        else:
+            increment(uid)
+
+        await check_and_send_limit_warning(uid, context, update.effective_chat.id)
+
+        # ====================== CHAMADA DA IA (HÍBRIDO) ======================
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+            await asyncio.sleep(2)
+        except:
+            pass
+
+        if was_vip_just_offered(uid):
+            msgs_since = get_msgs_since_offer(uid)
+            if msgs_since <= 4:
+                grok_response = await grok.reply(uid, text)
+                await update.message.reply_text(grok_response["response"])
+            else:
+                response_text = random.choice([
+                    "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
+                    "Hmmm... tá pensando no VIP né? 😏 Me avisa quando pagar que eu te mostro tudo 💦",
+                    "Ainda tô aqui te esperando amor... quer que eu te mande mais uma foto enquanto você paga? 🔥",
+                    "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
+                ])
+                await update.message.reply_text(response_text)
+                grok_response = {"response": response_text, "offer_teaser": False}
+        else:
+            grok_response = await grok.reply(uid, text)
+            await update.message.reply_text(grok_response["response"])
                 # =================================================================
 
                 if grok_response.get("offer_teaser", False):
