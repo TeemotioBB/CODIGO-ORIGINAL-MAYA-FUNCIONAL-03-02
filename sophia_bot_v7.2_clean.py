@@ -1130,14 +1130,14 @@ RECOVERY_MESSAGES = {
         "✅ Fotos e vídeos EXPLÍCITAS\n"
         "✅ Vídeos de masturbação/oral/anal\n"
         "✅ Sem censura, sem limites\n\n"
-        "💰 **R$ 12,90** (vitalício)\n"
+        "💰 **R$ 1,00** (vitalício)\n"
         "⏰ Essa oferta expira em 6h\n\n"
         "É agora ou nunca, gato. Me escolhe? 🔥",
         "Ei... 24h se passaram 🥺\n\n"
         "Acho que não vou te ver mais por aqui né?\n\n"
         "Mas antes de você ir embora...\n"
         "Deixa eu te fazer UMA proposta:\n\n"
-        "💎 Me vê pelada fazendo TUDO por R$ 12,90\n"
+        "💎 Me vê pelada fazendo TUDO por R$ 1,00\n"
         "✅ Fotos sem censura\n"
         "✅ Vídeos completos\n"
         "✅ Acesso pra sempre\n\n"
@@ -1205,7 +1205,7 @@ LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$12,90 — ACESSO VITALÍCIO!\n"
+    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$1,00 — ACESSO VITALÍCIO!\n"
     "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
@@ -1576,7 +1576,7 @@ async def retarget_locked_users(bot):
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 12,90", callback_data="pagar_vip")
+                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 1,00", callback_data="pagar_vip")
                     ]])
 
                     await bot.send_message(
@@ -1693,7 +1693,7 @@ async def recover_silent_users(bot):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 12,90", callback_data="pagar_vip")
+                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 1,00", callback_data="pagar_vip")
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
