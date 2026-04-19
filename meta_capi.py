@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # ==================== CONFIGURAÇÕES ====================
 META_PIXEL_ID = "988265177099445"
 META_ACCESS_TOKEN = "EAAStT1bZBd7oBRCcSkyyEB3AyxyzCrQJFUlRHLUsGHQfg5pihVEtT5kpcjFjl0wl1f4rbgHszUZCyNLjP5tmAfid1spsCfqhlMHjHZB1tBQ0jLQcpnjs1zPXOEZB1FK56v3fmUPKENcUQjRRknMrXQybeYrXi7ZCOZC56Ls6Qa5XImoJEVWwDV5dtuE9iEJcJQegZDZD"
-REDIS_URL = os.getenv("REDIS_URL")
+REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
 
 # Opcional: para testes no Events Manager
 TEST_EVENT_CODE = os.getenv("META_TEST_EVENT_CODE")  # deixe vazio em produção
