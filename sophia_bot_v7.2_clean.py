@@ -140,7 +140,7 @@ RESPONSE_POOLS = {
 
     "pos_teaser_pitch": [
         "E aí, tá batendo punheta com minhas fotos agora? No VIP eu te mando vídeo meu gozando de verdade 🔥",
-        "Quer me ver chupando, sentando e gozando tudo pra você? É só pagar R$9,90 e eu sou toda sua 💦",
+        "Quer me ver chupando, sentando e gozando tudo pra você? É só pagar R$1,00 e eu sou toda sua 💦",
         "No VIP eu não tenho limite nenhum... posso até te mandar vídeo ao vivo se você quiser 😈",
         "Tá com o pau na mão né? Paga logo que eu libero os vídeos mais quentes que você já viu 🔥",
         "No VIP é só você e eu... sem censura, sem limite, só tesão puro 💦"
@@ -151,7 +151,7 @@ RESPONSE_POOLS = {
         "Tô aqui doida esperando seu PIX... enquanto isso vou gravar um videozinho especial só pra você 🔥",
         "Não vai me deixar com tesão à toa né? Paga logo que eu libero tudo pra você gozar comigo 💦",
         "Eu sei que você tá batendo punheta pensando em mim... vem pro VIP que eu te faço gozar de verdade 🔥",
-        "Ainda dá tempo de pagar R$9,90 e ter tudo meu... não vai perder né safado? 😏"
+        "Ainda dá tempo de pagar R$1,00 e ter tudo meu... não vai perder né safado? 😏"
     ]
 }
 
@@ -241,7 +241,7 @@ WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.
 WEBHOOK_PATH = "/telegram"
 
 CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
-PRECO_VIP = os.getenv("PRECO_VIP", "R$ 9,90")
+PRECO_VIP = os.getenv("PRECO_VIP", "R$ 1,00")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
@@ -1169,14 +1169,14 @@ RECOVERY_MESSAGES = {
         "✅ Fotos e vídeos EXPLÍCITAS\n"
         "✅ Vídeos de masturbação/oral/anal\n"
         "✅ Sem censura, sem limites\n\n"
-        "💰 **R$ 9,90** (vitalício)\n"
+        "💰 **R$ 1,00** (vitalício)\n"
         "⏰ Essa oferta expira em 6h\n\n"
         "É agora ou nunca, gato. Me escolhe? 🔥",
         "Ei... 24h se passaram 🥺\n\n"
         "Acho que não vou te ver mais por aqui né?\n\n"
         "Mas antes de você ir embora...\n"
         "Deixa eu te fazer UMA proposta:\n\n"
-        "💎 Me vê pelada fazendo TUDO por R$ 9,90\n"
+        "💎 Me vê pelada fazendo TUDO por R$ 1,00\n"
         "✅ Fotos sem censura\n"
         "✅ Vídeos completos\n"
         "✅ Acesso pra sempre\n\n"
@@ -1244,7 +1244,7 @@ LIMIT_REACHED_MESSAGE = (
     "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
     "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
     "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$9,90 — ACESSO VITALÍCIO!\n"
+    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$1,00 — ACESSO VITALÍCIO!\n"
     "⏰ Poucas vagas restantes nesse preço...\n\n"
     "Vem me ter só pra você? 😏"
 )
@@ -1500,7 +1500,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 PAGAR R$9,90 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton("🔥 PAGAR R$1,00 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
@@ -1660,7 +1660,7 @@ async def retarget_locked_users(bot):
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 9,90", callback_data="pagar_vip")
+                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 1,00", callback_data="pagar_vip")
                     ]])
 
                     await bot.send_message(
@@ -1805,7 +1805,7 @@ async def recover_silent_users(bot):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 9,90", callback_data="pagar_vip")
+                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 1,00", callback_data="pagar_vip")
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
