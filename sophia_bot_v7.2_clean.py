@@ -240,7 +240,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtr
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://web-production-606aff.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 
-CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/Mayaoficial_bot")
+CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/+uaHpsD8KvQk0OWEx")
 PRECO_VIP = os.getenv("PRECO_VIP", "R$ 1,00")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
