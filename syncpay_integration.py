@@ -391,13 +391,15 @@ def _register_webhook_route(flask_app):
             status = transacao.get("status")
             amount = transacao.get("final_amount") or transacao.get("amount")
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
-            
-            # Aceita tanto "completed" quanto "WAITING_FOR_APPROVAL"
-            if status in ["completed", "WAITING_FOR_APPROVAL"] and identifier:
+
+            # ✅ CORREÇÃO: só libera VIP quando o pagamento realmente for concluído
+            if status == "completed" and identifier:
                 asyncio.run_coroutine_threadsafe(
                     _processar_pagamento_confirmado(identifier, amount),
                     _loop
                 )
+            else:
+                logger.info(f"[SyncPay] Status ignorado (ainda não pago): {status}")
             return jsonify({}), 200
         except Exception as e:
             logger.error(f"[SyncPay Webhook] Erro: {e}")
