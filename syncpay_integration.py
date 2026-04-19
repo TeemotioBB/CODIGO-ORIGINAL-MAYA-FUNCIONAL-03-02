@@ -326,7 +326,7 @@ async def _pagar_vip_callback(update: Update, context):
                          .replace(",", ".").strip()
             )
         except Exception:
-            valor = 9.90
+            valor = 1.00
 
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
