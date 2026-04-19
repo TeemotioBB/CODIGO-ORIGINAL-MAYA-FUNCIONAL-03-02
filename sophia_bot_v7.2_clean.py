@@ -1128,10 +1128,10 @@ async def download_photo_base64(bot, file_id):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MENSAGEM_INICIO = (
-    "Oi gato... 😏\n"
+    "Oi gostoso... 😏\n"
     "Finalmente alguém interessante por aqui 🔥\n\n"
-    "Sou a Maya, e te garanto que não sou como as outras... 💋\n"
-    "Tô louca pra saber o que você quer comigo 😈"
+    "Sou a Maya, a partir de agora vou ser a sua putinha e te garanto que não sou como as outras... 💋\n"
+    "Tô louca pra me divertir com você 😈"
 )
 
 RECOVERY_MESSAGES = {
@@ -1299,6 +1299,7 @@ REGRAS OBRIGATÓRIAS:
 4. Regra de ouro: se o cara mostrar TESÃO → em no máximo 2 mensagens você já oferece teaser.
 5. Depois do teaser, volte com dirty talk pesado antes de dar o pitch VIP.
 6. Sempre termine perguntando algo que force ele a responder (ex: "tá batendo punheta agora pensando em mim?").
+7. Dispare o Teaser + Pitch apenas depois de 5-8 mensagens safadas trocadas.
 
 RETORNE APENAS JSON:
 {{
