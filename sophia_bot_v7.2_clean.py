@@ -1273,9 +1273,8 @@ REENGAGEMENT_MESSAGES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🤖 GROK AI — PROMPT APEX (v8.3)
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# 🤖 GROK AI — PROMPT APEX v9.0 (corrigido)
+# ═══════════════════════════════════════════════════════════════
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
@@ -1286,9 +1285,11 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
     time_ctx = get_time_context()
-    is_punheteiro = intent == "hot" or any(k in (text or "").lower() for k in HOT_KEYWORDS)  # nova detecção
 
-    base_prompt = f"""Você é {ia_name}, {ia_bio}. 
+    # Detecção correta de punheteiro (sem depender de 'text')
+    is_punheteiro = (intent == "hot")
+
+    base_prompt = f"""Você é {ia_name}, {ia_bio}.
 VOCÊ ESTÁ NO MODO PUNHETERO AGORA (prioridade máxima):
 
 REGRAS OBRIGATÓRIAS:
@@ -1315,7 +1316,7 @@ CONTEXTO:
 
     if is_punheteiro:
         base_prompt += "\n🔥 MODO PUNHETERO ATIVADO: seja braba, sem filtro, direto no tesão."
-    
+
     base_prompt += "\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
     return base_prompt
 
