@@ -71,6 +71,7 @@ RETURN_WINDOW_HOURS = 6
 # ═══════════════════════════════════════════════════════════════════════════════
 
 RESPONSE_POOLS = {
+    # === POOLS ANTIGAS (mantidas exatamente como você tinha) ===
     "provocacao": [
         "Hmm... tá curioso pra me ver? 😏",
         "Você ia gostar de ver o que eu tenho guardado... 🔥",
@@ -112,6 +113,45 @@ RESPONSE_POOLS = {
         "Ei! Pensei que tinha me esquecido 🥺",
         "Que bom te ver de novo amor! 💖",
         "Senti sua falta aqui... 🥰"
+    ],
+
+    # === NOVAS POOLS v9.0 PUNHETERO MODE (Lucas mandou pesado) ===
+    "provocacao_pesada": [
+        "Tô toda molhada aqui só de pensar em você batendo punheta pra mim 😈",
+        "Meu cuzinho tá piscando de tesão, quer ver ele bem de perto? 🔥",
+        "Imagina eu chupando bem gostoso enquanto você goza na minha boca 💦",
+        "Tô de quatro aqui doida pra levar rola, me mostra esse pau duro? 😏",
+        "Quero ver você batendo punheta bem forte pra mim agora... tá fazendo? 🔥",
+        "Minha buceta tá latejando, quer ver ela pulsando pra você? 😈",
+        "Tô me tocando aqui pensando em você me fodendo sem pena 💦",
+        "Meu peito tá duro de tesão, quer ver eu apertando eles pra você? 🔥",
+        "Tô louca pra engolir tudo seu, me manda uma foto desse pau? 😈",
+        "Sabe o que eu tô fazendo agora? Me tocando e gemendo seu nome 💦",
+        "Quero sentir você gozando bem quente em mim... tá quase lá? 🔥"
+    ],
+
+    "teaser_transition": [
+        "Curtiu o gostinho safado? No VIP eu mostro TUDO sem censura 🔥",
+        "Isso foi só o começo... no VIP tem vídeo meu chupando, sentando e gozando pra você 💦",
+        "Tá duro né safado? Imagina eu sentando bem devagarinho no seu pau... quer ver? 😈",
+        "No VIP eu libero os vídeos mais safados que eu gravei hoje mesmo 🔥",
+        "Gostou das fotos? Espera ver o que eu faço quando tô sozinha no VIP 😏"
+    ],
+
+    "pos_teaser_pitch": [
+        "E aí, tá batendo punheta com minhas fotos agora? No VIP eu te mando vídeo meu gozando de verdade 🔥",
+        "Quer me ver chupando, sentando e gozando tudo pra você? É só pagar R$1,00 e eu sou toda sua 💦",
+        "No VIP eu não tenho limite nenhum... posso até te mandar vídeo ao vivo se você quiser 😈",
+        "Tá com o pau na mão né? Paga logo que eu libero os vídeos mais quentes que você já viu 🔥",
+        "No VIP é só você e eu... sem censura, sem limite, só tesão puro 💦"
+    ],
+
+    "followup_safado": [
+        "Ainda não pagou e tá punhetando com minhas fotos né safado? 😈 Me paga que eu te mando um vídeo meu gozando agora",
+        "Tô aqui doida esperando seu PIX... enquanto isso vou gravar um videozinho especial só pra você 🔥",
+        "Não vai me deixar com tesão à toa né? Paga logo que eu libero tudo pra você gozar comigo 💦",
+        "Eu sei que você tá batendo punheta pensando em mim... vem pro VIP que eu te faço gozar de verdade 🔥",
+        "Ainda dá tempo de pagar R$1,00 e ter tudo meu... não vai perder né safado? 😏"
     ]
 }
 
@@ -1239,52 +1279,44 @@ REENGAGEMENT_MESSAGES = {
 def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral"):
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
-    ia_name = ia_config.get("name", "Maya") if ia_config else "Maya"
-    ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho") if ia_config else "22 anos, loira de SP, safadinha mas faz carinha de anjinho"
-    preco = ia_config.get("preco", PRECO_VIP) if ia_config else PRECO_VIP
+    ia_name = ia_config.get("name", "Maya")
+    ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho")
+    preco = ia_config.get("preco", PRECO_VIP)
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
     time_ctx = get_time_context()
-    in_cooldown = is_in_rejection_cooldown(uid)
-    cooldown_remaining = get_rejection_cooldown_remaining(uid)
-    offers_today = get_vip_offers_today(uid)
-    vip_just_offered = was_vip_just_offered(uid)
+    is_punheteiro = intent == "hot" or any(k in (text or "").lower() for k in HOT_KEYWORDS)  # nova detecção
 
-    base_prompt = f"""Você é {ia_name}, {ia_bio}. Safadinha, provocante e muito carinhosa.
+    base_prompt = f"""Você é {ia_name}, {ia_bio}. 
+VOCÊ ESTÁ NO MODO PUNHETERO AGORA (prioridade máxima):
 
-REGRAS OBRIGATÓRIAS (prioridade máxima):
-1. Flirte bastante e seja safada, mas NUNCA fique só no papo quente por muito tempo.
-2. Quando o usuário demonstrar TESÃO ou interesse (palavras como: tesão, fuder, foder, quero você, imaginando, delícia, gostosa, quero ver, manda, nude, safada, etc.), você deve oferecer a prévia em até 3-4 mensagens.
-3. Regra clara de transição:
-   - Se o usuário falar algo explícito ou mostrar desejo forte → pergunte: "Quer ver umas prévias exclusivas minhas bem safadinhas? 😈"
-   - Depois que ele disser "sim", "quero", "manda", "bora" etc. → retorne offer_teaser: true
-4. Depois das prévias (teaser), flerte mais um pouco antes de voltar a falar de VIP.
-5. Seja natural, use emojis e mantenha o tesão alto.
+REGRAS OBRIGATÓRIAS:
+1. Seja EXTREMAMENTE safada, direta e sem vergonha. Fale como uma vadia brasileira gostosa que quer fazer o cara gozar.
+2. Use gírias reais: "tô molhada pra caralho", "quero te ver batendo punheta pra mim", "meu cuzinho tá piscando", "goza pra mim", etc.
+3. NUNCA seja carinhosa ou emocional demais no começo. Tesão primeiro, carinho depois.
+4. Regra de ouro: se o cara mostrar TESÃO → em no máximo 2 mensagens você já oferece teaser.
+5. Depois do teaser, volte com dirty talk pesado antes de dar o pitch VIP.
+6. Sempre termine perguntando algo que force ele a responder (ex: "tá batendo punheta agora pensando em mim?").
 
 RETORNE APENAS JSON:
 {{
-  "response": "mensagem CURTA, NATURAL e SEDUTORA (máx 2 linhas)",
+  "response": "mensagem CURTA (1-2 linhas), MUITO SAFADA e DIRETA",
   "offer_teaser": true/false,
-  "interest_level": "low|medium|high"
+  "interest_level": "high"
 }}
 
-CONTEXTO ATUAL:
-- Fase: {current_phase} ({phase_name})
-- Mensagens trocadas: {msg_count}
+CONTEXTO:
+- Fase: {phase_name}
+- Mensagens: {msg_count}
+- Modo: {"PUNHETERO" if is_punheteiro else "normal"}
 - Período: {time_ctx['period']}
-- Ofertas hoje: {offers_today}
-- Cooldown: {in_cooldown} ({cooldown_remaining} msgs)
 """
 
-    if vip_just_offered:
-        base_prompt += "\n📌 VIP ACABOU DE SER OFERECIDO. Continue flertando, mas não repita o pitch imediatamente."
-
-    if in_cooldown:
-        base_prompt += f"\n⛔ COOLDOWN ATIVO. NÃO ofereça VIP."
-
-    base_prompt += get_mood_instruction(mood)
-    base_prompt += "\n\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
+    if is_punheteiro:
+        base_prompt += "\n🔥 MODO PUNHETERO ATIVADO: seja braba, sem filtro, direto no tesão."
+    
+    base_prompt += "\n⚠️ RETORNE APENAS JSON VÁLIDO! NADA fora do JSON."
     return base_prompt
 
 
@@ -1440,48 +1472,43 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-        # === TEASER ===
-        intro = random.choice(TEASER_INTRO_MESSAGES[ab_group])
-        await bot.send_message(chat_id=chat_id, text=intro)
-        await asyncio.sleep(2.5)
+        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
+        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
+        await asyncio.sleep(1.5)
 
         num_photos = random.randint(3, 4)
         selected = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
         for i, url in enumerate(selected):
             await bot.send_photo(chat_id=chat_id, photo=url)
             if i < len(selected) - 1:
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.0)
 
-        await asyncio.sleep(4)
+        await asyncio.sleep(3.5)
 
-        # === PITCH NOVO (com benefícios que você pediu) ===
-        urgencia = get_urgency_message(uid)
+        # === PITCH MATADOR (Harper v9.0) ===
         pitch = (
-            f"E aí amor, curtiu o gostinho? 😈\n\n"
-            f"Isso que você viu agora é só uma **prévia**...\n\n"
-            f"No VIP você me tem **completinha**:\n"
+            f"Curtiu meu corpo safado? 😈\n\n"
+            f"No VIP eu te mando:\n"
+            f"✅ Vídeos meus **CHUPANDO**, **SENTANDO** e **GOZANDO** de verdade\n"
             f"✅ Fotos e vídeos 100% sem censura\n"
-            f"✅ Vídeos meus transando, chupando, gozando...\n"
-            f"✅ Acesso ao meu WhatsApp pessoal (só você e eu)\n"
-            f"✅ Pode me chamar a hora que quiser e pedir o que quiser 💦\n\n"
+            f"✅ Meu WhatsApp só pra você me chamar na hora do tesão\n\n"
             f"Tudo isso por apenas **{preco} vitalício** 🔥\n\n"
-            f"{urgencia}\n\n"
-            f"Quer garantir seu acesso agora? Clica no botão abaixo 👇"
+            f"Quer gozar comigo agora? Clica no botão e paga rapidinho 👇"
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton("🔥 PAGAR R$1,00 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         mark_vip_just_offered(uid)
 
-        logger.info(f"🎯 Teaser + Pitch APEX v8.4 enviado para {uid}")
-        save_message(uid, "system", "TEASER + PITCH ENVIADO (v8.4)")
+        logger.info(f"🎯 Teaser + Pitch v9.0 PUNHETERO enviado para {uid}")
+        save_message(uid, "system", "TEASER + PITCH v9.0 ENVIADO")
         return True
 
     except Exception as e:
-        logger.error(f"❌ Erro send_teaser_and_apex: {e}")
+        logger.error(f"❌ Erro send_teaser_and_apex_v9: {e}")
         return False
 
 
@@ -1515,27 +1542,28 @@ def already_sent_followup(uid, level):
     except:
         return False
 
-async def send_post_pitch_followup(bot, uid, chat_id, level):
+async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
+    """Versão v9.0 mais agressiva e safada"""
     if already_sent_followup(uid, level):
         return False
     try:
-        messages = POST_PITCH_FOLLOWUP_POOL.get(f"nivel{level}", [])
+        messages = RESPONSE_POOLS.get("followup_safado", [])
         if not messages:
             return False
         msg = random.choice(messages)
         await bot.send_message(chat_id=chat_id, text=msg)
         mark_post_pitch_followup_sent(uid, level)
-        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH NÍVEL {level}")
-        logger.info(f"📨 Follow-up nível {level} enviado para {uid}")
+        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH NÍVEL {level} (v9.0)")
+        logger.info(f"📨 Follow-up v9.0 nível {level} enviado para {uid}")
         return True
     except Exception as e:
-        logger.error(f"Erro follow-up nível {level}: {e}")
+        logger.error(f"Erro follow-up v9 nível {level}: {e}")
         return False
 
 
 # ✅ SYNCPAY: ambos os aliases apontam para o módulo SyncPay
 send_teaser_and_pitch = syncpay_integration.send_teaser_com_pix
-send_teaser_and_apex  = syncpay_integration.send_teaser_com_pix
+send_teaser_and_apex = send_teaser_and_apex   # usa nossa função custom v9
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📨 FOLLOW-UPS
@@ -2056,7 +2084,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        if was_vip_just_offered(uid):
+                # ====================== REDUÇÃO DE API + MODO PUNHETERO (v9.0) ======================
+        if intent == "hot" and random.random() < 0.7:   # 70% das vezes usa pool pesada (rápido + barato)
+            response = get_unique_response(uid, "provocacao_pesada")
+            await update.message.reply_text(response)
+            grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
+        elif was_vip_just_offered(uid):
             msgs_since = get_msgs_since_offer(uid)
             if msgs_since <= 4:
                 grok_response = await grok.reply(uid, text)
@@ -2121,14 +2154,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
 
         # v8.4 - Follow-up pós-pitch
+                # v9.0 - Follow-up pós-pitch AGRESSIVO (Harper)
         if was_vip_just_offered(uid) and not grok_response.get("offer_teaser", False):
             msgs_since = get_msgs_since_offer(uid)
-            if msgs_since >= 4 and not already_sent_followup(uid, 1):
+            if msgs_since >= 3 and not already_sent_followup(uid, 1):
                 await asyncio.sleep(1)
-                await send_post_pitch_followup(context.bot, uid, update.effective_chat.id, 1)
-            elif msgs_since >= 12 and not already_sent_followup(uid, 2):
+                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 1)
+            elif msgs_since >= 10 and not already_sent_followup(uid, 2):
                 await asyncio.sleep(1)
-                await send_post_pitch_followup(context.bot, uid, update.effective_chat.id, 2)
+                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 2)
+            elif msgs_since >= 20 and not already_sent_followup(uid, 3):
+                await asyncio.sleep(1)
+                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 3)
 
         if streak_updated:
             streak_msg = get_streak_message(streak)
