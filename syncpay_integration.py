@@ -11,6 +11,8 @@ import logging
 import random
 import importlib.util
 import requests
+import time                    # ← ADICIONE ESTA LINHA AQUI
+
 from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -292,22 +294,18 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 📲  CALLBACK HANDLER — usuário clicou em "GERAR PIX AGORA"
+# 📲 CALLBACK HANDLER — usuário clicou em "GERAR PIX AGORA"
 # ═══════════════════════════════════════════════════════════════════════════════
-
 async def _pagar_vip_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
-
-    uid     = query.from_user.id
+    uid = query.from_user.id
     chat_id = query.message.chat_id
-    bot     = context.bot
-
+    bot = context.bot
     try:
         pix_pendente = _get_pix_pendente(uid)
-
         if pix_pendente:
-            logger.info(f"[SyncPay] ♻️  Reusando PIX pendente: uid={uid}")
+            logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid}")
             await bot.send_message(
                 chat_id=chat_id,
                 text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:",
@@ -317,8 +315,7 @@ async def _pagar_vip_callback(update: Update, context):
             return
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
-
-        nome      = query.from_user.full_name or "Cliente"
+        nome = query.from_user.full_name or "Cliente"
         preco_str = _callbacks.get("PRECO_VIP", "1,00")
         try:
             valor = float(
@@ -331,6 +328,35 @@ async def _pagar_vip_callback(update: Update, context):
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
+        # ====================== APEX EVENTS - META CAPI ======================
+        event_data = {
+            "event": "payment_created",
+            "timestamp": int(time.time()),
+            "bot_id": 123456789,
+            "customer": {
+                "chat_id": uid,
+                "profile_name": query.from_user.full_name or "",
+                "username": query.from_user.username or ""
+            },
+            "origin": {
+                "ip": "",
+                "country": "Brazil"
+            },
+            "transaction": {
+                "internal_transaction_id": pix_data["identifier"],
+                "sale_code": f"SALE-{uid}-{int(time.time())}",
+                "category": "Assinatura Premium",
+                "plan_name": "Plano Normal",
+                "plan_value": int(valor * 100),
+                "currency": "BRL",
+                "payment_platform": "syncpay",
+                "payment_method": "pix"
+            },
+            "tracking": {}
+        }
+        await _r.publish("apex:events", json.dumps(event_data))
+        # =====================================================================
+
         try:
             bot_main = _load_bot_main()
             bot_main.set_clicked_vip(uid)
@@ -342,10 +368,7 @@ async def _pagar_vip_callback(update: Update, context):
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
         await bot.send_message(
             chat_id=chat_id,
-            text=(
-                "😔 Tive um probleminha pra gerar o PIX...\n"
-                "Me chama de novo em instantes que resolvo! 💕"
-            )
+            text="😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
         )
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
@@ -390,24 +413,63 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
     try:
         uid_raw = _r.get(_sp_id_to_uid_key(identifier))
         if not uid_raw:
-            logger.warning(f"[SyncPay] ⚠️  identifier={identifier} sem uid no Redis (já expirou?)")
+            logger.warning(f"[SyncPay] ⚠️ identifier={identifier} sem uid no Redis (já expirou?)")
             return
-
         uid = int(uid_raw)
         logger.info(f"[SyncPay] ✅ Pagamento CONFIRMADO: uid={uid} identifier={identifier} valor=R${amount}")
 
         notif_key = _sp_notified_key(uid, date.today().isoformat())
         if _r.exists(notif_key):
-            logger.info(f"[SyncPay] ⚠️  Pagamento já processado para uid={uid} hoje")
+            logger.info(f"[SyncPay] ⚠️ Pagamento já processado para uid={uid} hoje")
             return
 
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
 
+        # ====================== APEX EVENTS - META CAPI ======================
+        event_data = {
+            "event": "payment_approved",
+            "timestamp": int(time.time()),
+            "bot_id": 123456789,
+            "customer": {
+                "chat_id": uid,
+                "profile_name": "",
+                "username": ""
+            },
+            "origin": {
+                "ip": "",
+                "country": "Brazil",
+                "state": "",
+                "city": ""
+            },
+            "transaction": {
+                "internal_transaction_id": identifier,
+                "external_transaction_id": identifier,
+                "sale_code": f"SALE-{uid}-{int(time.time())}",
+                "category": "Assinatura Premium",
+                "plan_name": "Plano Normal",
+                "plan_value": int(float(amount) * 100),
+                "plan_duration": "vitalicio",
+                "currency": "BRL",
+                "payment_pointer": "",
+                "payment_platform": "syncpay",
+                "payment_method": "pix"
+            },
+            "tracking": {
+                "click_id": "",
+                "slug": "",
+                "utm_source": "",
+                "utm_medium": "",
+                "utm_campaign": ""
+            }
+        }
+        await _r.publish("apex:events", json.dumps(event_data))
+        # =====================================================================
+
         set_clicked_vip = _callbacks.get("set_clicked_vip")
-        add_bonus_msgs  = _callbacks.get("add_bonus_msgs")
-        save_message    = _callbacks.get("save_message")
-        get_router      = _callbacks.get("get_router")
+        add_bonus_msgs = _callbacks.get("add_bonus_msgs")
+        save_message = _callbacks.get("save_message")
+        get_router = _callbacks.get("get_router")
 
         if set_clicked_vip:
             set_clicked_vip(uid)
@@ -425,7 +487,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 pass
 
         bot = _bot_app.bot
-
         await bot.send_message(
             chat_id=uid,
             text=(
@@ -436,7 +497,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             ),
             parse_mode="Markdown"
         )
-
         if canal_vip:
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("💎 ACESSAR VIP AGORA", url=canal_vip)
@@ -445,7 +505,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 
         _r.delete(_sp_id_to_uid_key(identifier))
         _r.delete(_sp_pix_key(uid))
-
         logger.info(f"[SyncPay] 🎉 VIP liberado e usuário notificado: uid={uid}")
 
     except Exception as e:
