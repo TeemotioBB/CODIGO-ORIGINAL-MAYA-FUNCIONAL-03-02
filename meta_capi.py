@@ -13,8 +13,8 @@ from redis.asyncio import Redis
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURAÇÕES ====================
-META_PIXEL_ID = os.getenv("META_PIXEL_ID")
-META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
+META_PIXEL_ID = "988265177099445"
+META_ACCESS_TOKEN = "EAAStT1bZBd7oBRCcSkyyEB3AyxyzCrQJFUlRHLUsGHQfg5pihVEtT5kpcjFjl0wl1f4rbgHszUZCyNLjP5tmAfid1spsCfqhlMHjHZB1tBQ0jLQcpnjs1zPXOEZB1FK56v3fmUPKENcUQjRRknMrXQybeYrXi7ZCOZC56Ls6Qa5XImoJEVWwDV5dtuE9iEJcJQegZDZD"
 REDIS_URL = os.getenv("REDIS_URL")
 
 # Opcional: para testes no Events Manager
