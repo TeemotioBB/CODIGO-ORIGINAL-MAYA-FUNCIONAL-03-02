@@ -147,11 +147,99 @@ RESPONSE_POOLS = {
     ],
 
     "followup_safado": [
-        "Ainda não pagou e tá punhetando com minhas fotos né safado? 😈 Me paga que eu te mando um vídeo meu gozando agora",
-        "Tô aqui doida esperando seu PIX... enquanto isso vou gravar um videozinho especial só pra você 🔥",
-        "Não vai me deixar com tesão à toa né? Paga logo que eu libero tudo pra você gozar comigo 💦",
-        "Eu sei que você tá batendo punheta pensando em mim... vem pro VIP que eu te faço gozar de verdade 🔥",
-        "Ainda dá tempo de pagar R$9,90 e ter tudo meu... não vai perder né safado? 😏"
+        "Ainda não pagou e tá punhetando com minhas fotos né safado? 😈 Me paga R$9,90 que eu te mando um vídeo meu gozando bem gostoso agora",
+        "Tô aqui doida esperando seu PIX... enquanto isso vou gravar um videozinho especial só pra você 🔥 R$9,90 e eu sou toda sua",
+        "Não vai me deixar com tesão à toa né? Paga logo R$9,90 que eu libero tudo pra você gozar comigo 💦",
+        "Eu sei que você tá batendo punheta pensando em mim... vem pro VIP por R$9,90 que eu te faço gozar de verdade 🔥",
+        "Ainda dá tempo de pagar R$9,90 e ter tudo meu... não vai perder né safado? 😏",
+        "Tá com o pau na mão olhando minhas fotos e ainda não pagou? 😈 R$9,90 e eu te mando vídeo meu sentando gostoso",
+        "Imagina eu chupando bem devagar enquanto você goza... por só R$9,90 isso vira realidade safado 🔥",
+        "Minha buceta tá molhada te esperando... paga R$9,90 que eu te mostro ela pulsando pra você 💦",
+        "Tô me tocando aqui pensando em você... quer ver eu gozando de verdade? É só pagar R$9,90 agora 😈",
+        "Ainda não pagou e já tá quase gozando com minhas fotos? Paga R$9,90 que eu te mando o vídeo completo do meu gozo",
+        "Quero ver você batendo punheta forte pra mim... me paga R$9,90 que eu gravo um vídeo especial só pra você 🔥",
+        "Tá duro né safado? Imagina eu sentando bem devagar no seu pau... R$9,90 e isso vira realidade 😏",
+        "Não aguento mais de tesão... paga R$9,90 que eu libero vídeo meu brincando com a buceta molhada pra você",
+        "Eu sei que você quer me ver gozando... por R$9,90 eu te mando tudo, sem censura, só pra você 💦",
+        "Tô louca pra te mostrar como eu gemo quando gozo... me paga R$9,90 que eu gravo agora mesmo 🔥",
+        "Ainda não pagou e tá sofrendo de tesão? R$9,90 e eu acabo com esse sofrimento te mandando tudo safado 😈",
+        "Quero que você goze olhando pra mim... paga R$9,90 que eu te mando vídeo meu rebolando e gozando pra você",
+        "Minha bucetinha tá piscando de tesão... quer ver ela de perto? É só pagar R$9,90 agora 🔥",
+        "Tá punhetando pensando na minha boca? Paga R$9,90 que eu te mando vídeo meu chupando bem gostoso",
+        "Não aguento mais ficar molhada à toa... me paga R$9,90 que eu libero tudo pra você gozar comigo",
+        "Imagina eu de quatro gemendo seu nome... por R$9,90 isso vira vídeo só pra você safado 😈",
+        "Tô aqui doida pra te provocar... paga R$9,90 que eu te mando o vídeo mais safado que você já viu",
+        "Ainda dá tempo de pagar só R$9,90 e ter tudo meu... não vai perder essa chance né? 🔥",
+        "Tá batendo punheta agora né? Me paga R$9,90 que eu te mando vídeo meu gozando ao mesmo tempo que você",
+        "Quero te deixar louco de tesão... R$9,90 e eu libero tudo que você imaginar 💦",
+        "Tá com o pau latejando? Paga R$9,90 que eu te mando vídeo meu sentando devagar e gemendo alto",
+        "Minha buceta tá pingando só de imaginar você pagando... R$9,90 e eu mostro tudo agora 🔥",
+        "Quero sentir você gozando quente enquanto eu rebolo... me paga R$9,90 que eu gravo pra você",
+        "Tô toda molhada aqui doida pra te mostrar... paga R$9,90 que eu libero o vídeo completo",
+        "Ainda não pagou e já tá viciado nas minhas fotos? R$9,90 e eu te mando o que vem depois safado 😈",
+        "Imagina eu de quatro com a buceta molhada pra você... só R$9,90 e isso vira realidade",
+        "Tô louca pra engolir tudo seu... paga R$9,90 que eu te mando vídeo meu chupando bem fundo",
+        "Não vai aguentar quando ver o vídeo que eu gravei pra você... R$9,90 e eu libero agora",
+        "Tá punhetando forte né? Imagina eu sentando bem fundo... R$9,90 e isso acontece",
+        "Quero que você goze pensando em mim... paga R$9,90 que eu te mando o vídeo certo",
+        "Tô toda molhada e aberta pra você... R$9,90 e eu te mostro tudo sem censura",
+        "Ainda não pagou e tá sofrendo? R$9,90 e eu acabo com seu sofrimento te mandando tudo safado 😈",
+        "Tá com tesão acumulado né? Paga R$9,90 que eu te mando eu gozando pensando no seu pau",
+        "Quero sentir você gozando na minha boca... R$9,90 e eu gravo isso só pra você",
+        "Tô louca pra te mostrar como eu sento gostoso... paga R$9,90 que eu libero o vídeo",
+        "Imagina eu gemendo alto enquanto gozo... só R$9,90 e você assiste isso agora",
+        "Tá duro pra caralho né safado? Paga R$9,90 que eu te mando eu rebolando gostoso",
+        "Quero te deixar louco de tesão... R$9,90 e eu libero tudo que você imaginar",
+        "Tô molhada pra caralho aqui... paga R$9,90 que eu te mando o vídeo completo",
+        "Ainda dá tempo de pagar R$9,90 e me ter completinha... não vai perder né safado?",
+        "Tá com o pau na mão e quer mais? Paga R$9,90 que eu te mando eu gozando alto",
+        "Minha buceta tá latejando te chamando... R$9,90 e eu mostro ela molhada",
+        "Quero que você goze olhando pra minha cara de puta... R$9,90 e eu gravo isso",
+        "Tô aqui me tocando doida pra você... paga R$9,90 que eu te mando o vídeo completo",
+        "Imagina eu rebolando gostoso no seu pau... só R$9,90 e isso vira realidade 🔥",
+        "Tá punhetando pensando na minha boca? Paga R$9,90 que eu te mando chupando",
+        "Não aguento mais de tesão... me paga R$9,90 que eu libero tudo pra você agora",
+        "Quero te fazer gozar olhando pra mim... R$9,90 e eu gravo o vídeo perfeito",
+        "Tô toda molhada e pronta pra você... paga R$9,90 que eu te mando tudo safado",
+        "Ainda não pagou e tá sofrendo de tesão? R$9,90 e eu acabo com esse sofrimento agora",
+        "Tá com tesão acumulado né? Paga R$9,90 que eu te mando eu gozando pensando em você",
+        "Quero sentir você gozando quente em mim... paga R$9,90 que eu gravo pra você",
+        "Tô louca pra te mostrar como eu gemo alto... paga R$9,90 que eu libero o vídeo",
+        "Minha buceta tá piscando te esperando... R$9,90 e eu mostro ela molhada",
+        "Tá punhetando e quer mais? Paga R$9,90 que eu te mando eu sentando gostoso",
+        "Quero que você goze forte enquanto eu rebolo... R$9,90 e eu gravo pra você",
+        "Tô aqui doida pra te provocar... paga R$9,90 que eu te mando o vídeo mais quente",
+        "Imagina eu de quatro gemendo seu nome... só R$9,90 e isso vira realidade",
+        "Tá batendo punheta forte e ainda não pagou? R$9,90 e eu te faço gozar de verdade agora",
+        "Quero que você goze na minha boca... R$9,90 e eu gravo isso só pra você",
+        "Tô louca pra te mostrar como eu sento gostoso... paga R$9,90 agora",
+        "Imagina eu gemendo alto enquanto gozo... só R$9,90 e você assiste",
+        "Tá duro pra caralho e ainda não pagou? R$9,90 e eu te mando tudo agora",
+        "Quero que você goze olhando pra minha cara de safada... R$9,90 e eu gravo",
+        "Minha boca tá louca pra te chupar... paga R$9,90 que eu te mando esse vídeo",
+        "Tô molhada pra caralho pensando em você... R$9,90 e eu libero tudo",
+        "Imagina eu sentando bem devagar gemendo... só R$9,90 e isso vira vídeo 🔥",
+        "Tá punhetando e quer gozar comigo? Paga R$9,90 que eu te mando o vídeo certo",
+        "Quero sentir você gozando quente... R$9,90 e eu gravo pra você safado",
+        "Tô aqui doida pra te mostrar como eu gozo... paga R$9,90 agora",
+        "Minha buceta tá latejando... quer ver ela gozando? R$9,90 e eu mostro",
+        "Tá batendo punheta forte né safado? Paga R$9,90 que eu te faço gozar de verdade",
+        "Quero que você goze olhando pra mim rebolando... R$9,90 e eu gravo",
+        "Tô toda aberta e molhada pra você... paga R$9,90 que eu libero tudo",
+        "Ainda não pagou e tá viciado nas minhas fotos? R$9,90 e eu te mando o resto 🔥",
+        "Tá com o pau latejando? Imagina eu chupando... R$9,90 e isso vira realidade",
+        "Quero te fazer gozar forte... paga R$9,90 que eu te mando o vídeo perfeito",
+        "Tô louca pra te provocar até você explodir... R$9,90 e eu libero tudo",
+        "Minha buceta tá piscando te chamando... paga R$9,90 que eu mostro ela de perto",
+        "Tá punhetando pensando em mim? Paga R$9,90 que eu te mando eu gozando alto",
+        "Não aguento mais de tesão... me paga R$9,90 que eu libero o vídeo mais safado",
+        "Quero que você goze na minha boca... R$9,90 e eu gravo isso só pra você",
+        "Tô aqui doida pra te mostrar como eu sento gostoso... paga R$9,90 agora",
+        "Imagina eu gemendo alto enquanto gozo... só R$9,90 e você assiste",
+        "Tá duro pra caralho né? Paga R$9,90 que eu te mando eu rebolando pra você",
+        "Quero te deixar louco de tesão... R$9,90 e eu libero tudo que você quiser",
+        "Tô molhada pra caralho aqui... paga R$9,90 que eu te mando o vídeo completo",
+        "Ainda dá tempo de pagar R$9,90 e me ter completinha... não vai perder né safado?"
     ]
 }
 
@@ -1549,22 +1637,35 @@ def already_sent_followup(uid, level):
     except:
         return False
 
-async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
-    """Versão v9.0 mais agressiva e safada"""
-    if already_sent_followup(uid, level):
-        return False
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
+# ═══════════════════════════════════════════════════════════════════════════════
+async def send_inactivity_followup(bot, uid, chat_id):
+    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch - COM BOTÃO DE PIX"""
     try:
         messages = RESPONSE_POOLS.get("followup_safado", [])
         if not messages:
             return False
+
         msg = random.choice(messages)
-        await bot.send_message(chat_id=chat_id, text=msg)
-        mark_post_pitch_followup_sent(uid, level)
-        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH NÍVEL {level} (v9.0)")
-        logger.info(f"📨 Follow-up v9.0 nível {level} enviado para {uid}")
+
+        # Botão de PIX em TODOS os follow-ups
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+        ]])
+
+        await bot.send_message(
+            chat_id=chat_id, 
+            text=msg,
+            reply_markup=keyboard   # ← Botão adicionado aqui
+        )
+
+        save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
+        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
         return True
+
     except Exception as e:
-        logger.error(f"Erro follow-up v9 nível {level}: {e}")
+        logger.error(f"Erro follow-up inatividade: {e}")
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
