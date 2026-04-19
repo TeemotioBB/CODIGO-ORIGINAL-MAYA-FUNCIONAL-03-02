@@ -392,8 +392,8 @@ def _register_webhook_route(flask_app):
             amount = transacao.get("final_amount") or transacao.get("amount")
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
 
-            # ✅ CORREÇÃO: só libera VIP quando o pagamento realmente for concluído
-            if status == "completed" and identifier:
+            # ✅ CORRIGIDO: aceita PAID_OUT (status real de pagamento aprovado no SyncPay)
+            if status in ["completed", "WAITING_FOR_APPROVAL", "PAID_OUT"] and identifier:
                 asyncio.run_coroutine_threadsafe(
                     _processar_pagamento_confirmado(identifier, amount),
                     _loop
