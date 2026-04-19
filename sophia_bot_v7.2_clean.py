@@ -1503,7 +1503,10 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         mark_vip_just_offered(uid)
-
+        
+        # Marca o momento do pitch para controlar inatividade
+        r.setex(f"post_pitch_time:{uid}", timedelta(hours=12), datetime.now().isoformat())
+        
         logger.info(f"🎯 Teaser + Pitch v9.0 PUNHETERO enviado para {uid}")
         save_message(uid, "system", "TEASER + PITCH v9.0 ENVIADO")
         return True
@@ -1559,6 +1562,24 @@ async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
         return True
     except Exception as e:
         logger.error(f"Erro follow-up v9 nível {level}: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
+# ═══════════════════════════════════════════════════════════════════════════════
+async def send_inactivity_followup(bot, uid, chat_id):
+    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch"""
+    try:
+        messages = RESPONSE_POOLS.get("followup_safado", [])
+        if not messages:
+            return False
+        msg = random.choice(messages)
+        await bot.send_message(chat_id=chat_id, text=msg)
+        save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
+        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
+        return True
+    except Exception as e:
+        logger.error(f"Erro follow-up inatividade: {e}")
         return False
 
 
@@ -1685,6 +1706,34 @@ async def retargeting_scheduler(bot):
         except Exception as e:
             logger.error(f"Erro retargeting scheduler: {e}")
         await asyncio.sleep(21600)
+
+async def post_pitch_inactivity_scheduler(bot):
+    """Scheduler que envia follow-up a cada 15 minutos de inatividade após o pitch"""
+    while True:
+        try:
+            users = get_all_active_users()
+            now = datetime.now()
+            
+            for uid in users:
+                # Só usuários que receberam o pitch
+                if not r.exists(f"post_pitch_time:{uid}"):
+                    continue
+                
+                hours_inactive = get_hours_since_activity(uid)
+                if not hours_inactive or hours_inactive < 0.25:  # menos de 15 minutos
+                    continue
+                
+                # Envia a cada 15 minutos de silêncio
+                if hours_inactive % 0.25 < 0.05:  # aproximadamente a cada 15 min
+                    last_sent_key = f"last_inactivity_followup:{uid}"
+                    if not r.exists(last_sent_key):
+                        await send_inactivity_followup(bot, uid, chat_id=uid)
+                        r.setex(last_sent_key, timedelta(minutes=15), "1")  # cooldown de 15 min
+                        
+            await asyncio.sleep(300)  # verifica a cada 5 minutos
+        except Exception as e:
+            logger.error(f"Erro scheduler inatividade: {e}")
+            await asyncio.sleep(60)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
@@ -2630,6 +2679,7 @@ async def startup_sequence():
 
         asyncio.create_task(engagement_scheduler(application.bot))
         asyncio.create_task(retargeting_scheduler(application.bot))
+        asyncio.create_task(post_pitch_inactivity_scheduler(application.bot))
         asyncio.create_task(recovery_scheduler(application.bot))
 
         me = await application.bot.get_me()
