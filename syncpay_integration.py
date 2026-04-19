@@ -352,7 +352,7 @@ async def _pagar_vip_callback(update: Update, context):
                 },
                 "tracking": {}
             }
-            _r.publish("apex:events", json.dumps(event_data))   # ← SEM await
+            _r.publish("apex:events", json.dumps(event_data))
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
         # =========================================================================
@@ -463,7 +463,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 "utm_campaign": ""
             }
         }
-        _r.publish("apex:events", json.dumps(event_data))   # ← SEM await
+        _r.publish("apex:events", json.dumps(event_data))
         # =====================================================================
 
         set_clicked_vip = _callbacks.get("set_clicked_vip")
