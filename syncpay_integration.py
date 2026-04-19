@@ -183,7 +183,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         f"2️⃣ Vá em PIX → *Copia e Cola* (ou QR Code)\n"
         f"3️⃣ Cole o código abaixo ⬇️\n"
         f"4️⃣ Confirme e pronto! ✅\n\n"
-        f"*Código PIX (copia e cola):*"
+        f"*Código PIX (copia e cola) CLIQUE NO CÓDIGO ABAIXO PARA COPIAR:*"
     )
 
     await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
