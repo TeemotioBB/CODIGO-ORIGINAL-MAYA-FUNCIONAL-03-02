@@ -2694,6 +2694,16 @@ async def startup_sequence():
         asyncio.create_task(post_pitch_inactivity_scheduler(application.bot))
         asyncio.create_task(recovery_scheduler(application.bot))
 
+
+        # ====================== META CAPI TRACKER ======================
+        try:
+            from meta_capi import start_capi_tracker
+            await start_capi_tracker()
+            logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
+        except Exception as e:
+            logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
+        # ============================================================
+
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
         logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
