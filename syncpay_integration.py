@@ -379,31 +379,26 @@ async def _pagar_vip_callback(update: Update, context):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🌐  WEBHOOK SYNCPAY — Flask route
+# 🌐 WEBHOOK SYNCPAY — Flask route
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def _register_webhook_route(flask_app):
-
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
     def syncpay_webhook():
         try:
-            data      = flask_request.get_json(silent=True) or {}
+            data = flask_request.get_json(silent=True) or {}
             transacao = data.get("data", {})
-
             identifier = transacao.get("id")
-            status     = transacao.get("status")
-            amount     = transacao.get("final_amount") or transacao.get("amount")
-
+            status = transacao.get("status")
+            amount = transacao.get("final_amount") or transacao.get("amount")
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
-
-            if status == "completed" and identifier:
+            
+            # Aceita tanto "completed" quanto "WAITING_FOR_APPROVAL"
+            if status in ["completed", "WAITING_FOR_APPROVAL"] and identifier:
                 asyncio.run_coroutine_threadsafe(
                     _processar_pagamento_confirmado(identifier, amount),
                     _loop
                 )
-
             return jsonify({}), 200
-
         except Exception as e:
             logger.error(f"[SyncPay Webhook] Erro: {e}")
             return jsonify({}), 200
