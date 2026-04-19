@@ -2198,12 +2198,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Erro reenvio botão VIP: {e}")
 
+                # ====================== CONTROLE ANTI-REPETIÇÃO DE PITCH/TEASER ======================
         should_offer = grok_response.get("offer_teaser", False)
+
+        # Bloqueio forte: depois que já ofereceu o pitch, só permite novo teaser após 8 mensagens
         if should_offer:
-            can_offer, reason = can_offer_vip(uid)
-            if can_offer:
-                await asyncio.sleep(2)
-                await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
+            if was_vip_just_offered(uid):
+                msgs_since_pitch = get_msgs_since_offer(uid)
+                if msgs_since_pitch < 8:   # ← Aumentei o cooldown
+                    should_offer = False
+                    logger.info(f"[ANTI-REPETIÇÃO] Pitch bloqueado - apenas {msgs_since_pitch} mensagens desde o último offer")
+
+            if should_offer:
+                can_offer, reason = can_offer_vip(uid)
+                if can_offer:
+                    await asyncio.sleep(2)
+                    await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
 
         # v8.4 - Follow-up pós-pitch
                 # v9.0 - Follow-up pós-pitch AGRESSIVO (Harper)
