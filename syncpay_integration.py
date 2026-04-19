@@ -302,6 +302,7 @@ async def _pagar_vip_callback(update: Update, context):
     uid = query.from_user.id
     chat_id = query.message.chat_id
     bot = context.bot
+
     try:
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
@@ -317,6 +318,7 @@ async def _pagar_vip_callback(update: Update, context):
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
         nome = query.from_user.full_name or "Cliente"
         preco_str = _callbacks.get("PRECO_VIP", "1,00")
+
         try:
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
@@ -328,34 +330,34 @@ async def _pagar_vip_callback(update: Update, context):
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
-        # ====================== APEX EVENTS - META CAPI ======================
-        event_data = {
-            "event": "payment_created",
-            "timestamp": int(time.time()),
-            "bot_id": 123456789,
-            "customer": {
-                "chat_id": uid,
-                "profile_name": query.from_user.full_name or "",
-                "username": query.from_user.username or ""
-            },
-            "origin": {
-                "ip": "",
-                "country": "Brazil"
-            },
-            "transaction": {
-                "internal_transaction_id": pix_data["identifier"],
-                "sale_code": f"SALE-{uid}-{int(time.time())}",
-                "category": "Assinatura Premium",
-                "plan_name": "Plano Normal",
-                "plan_value": int(valor * 100),
-                "currency": "BRL",
-                "payment_platform": "syncpay",
-                "payment_method": "pix"
-            },
-            "tracking": {}
-        }
-        await _r.publish("apex:events", json.dumps(event_data))
-        # =====================================================================
+        # ====================== META CAPI - payment_created ======================
+        try:
+            event_data = {
+                "event": "payment_created",
+                "timestamp": int(time.time()),
+                "bot_id": 123456789,
+                "customer": {
+                    "chat_id": uid,
+                    "profile_name": query.from_user.full_name or "",
+                    "username": query.from_user.username or ""
+                },
+                "origin": {"ip": "", "country": "Brazil"},
+                "transaction": {
+                    "internal_transaction_id": pix_data["identifier"],
+                    "sale_code": f"SALE-{uid}-{int(time.time())}",
+                    "category": "Assinatura Premium",
+                    "plan_name": "Plano Normal",
+                    "plan_value": int(valor * 100),
+                    "currency": "BRL",
+                    "payment_platform": "syncpay",
+                    "payment_method": "pix"
+                },
+                "tracking": {}
+            }
+            await _r.publish("apex:events", json.dumps(event_data))
+        except Exception as capi_err:
+            logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
+        # =========================================================================
 
         try:
             bot_main = _load_bot_main()
