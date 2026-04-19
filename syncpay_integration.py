@@ -302,7 +302,6 @@ async def _pagar_vip_callback(update: Update, context):
     uid = query.from_user.id
     chat_id = query.message.chat_id
     bot = context.bot
-
     try:
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
@@ -318,7 +317,6 @@ async def _pagar_vip_callback(update: Update, context):
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
         nome = query.from_user.full_name or "Cliente"
         preco_str = _callbacks.get("PRECO_VIP", "1,00")
-
         try:
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
@@ -354,7 +352,7 @@ async def _pagar_vip_callback(update: Update, context):
                 },
                 "tracking": {}
             }
-            await _r.publish("apex:events", json.dumps(event_data))
+            _r.publish("apex:events", json.dumps(event_data))   # ← SEM await
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
         # =========================================================================
@@ -465,7 +463,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 "utm_campaign": ""
             }
         }
-        await _r.publish("apex:events", json.dumps(event_data))
+        _r.publish("apex:events", json.dumps(event_data))   # ← SEM await
         # =====================================================================
 
         set_clicked_vip = _callbacks.get("set_clicked_vip")
