@@ -2013,14 +2013,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
                 return
 
-        # ====================== MENSAGEM DE TEXTO NORMAL ======================
+                # ====================== MENSAGEM DE TEXTO NORMAL ======================
         if is_first_contact(uid):
             track_funnel(uid, "first_message")
 
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = LIMITE_DIARIO + bonus
-
         if current_count >= total:
             last_chance_key = f"last_chance:{uid}:{date.today()}"
             if not r.exists(last_chance_key):
@@ -2048,7 +2047,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
-
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
             ]])
@@ -2077,15 +2075,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
 
-        # ====================== CHAMADA DA IA (HÍBRIDO) ======================
+        # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
+        text = update.message.text or ""   # garante que 'text' existe
+        intent = detect_intent(text) if text else "neutral"
+
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
             await asyncio.sleep(2)
         except:
             pass
 
-                # ====================== REDUÇÃO DE API + MODO PUNHETERO (v9.0) ======================
-        if intent == "hot" and random.random() < 0.7:   # 70% das vezes usa pool pesada (rápido + barato)
+        # ====================== REDUÇÃO DE API + MODO PUNHETERO (v9.0) ======================
+        if intent == "hot" and random.random() < 0.7:  # 70% das vezes usa pool pesada (rápido + barato)
             response = get_unique_response(uid, "provocacao_pesada")
             await update.message.reply_text(response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
