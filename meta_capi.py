@@ -35,33 +35,25 @@ def hash_value(value: str) -> str:
     return hashlib.sha256(str(value).strip().lower().encode('utf-8')).hexdigest()
 
 async def send_to_meta(event_name: str, apex_event: dict):
-    if not META_PIXEL_ID or not META_ACCESS_TOKEN:
-        logger.warning(f"⚠️ META CAPI não configurado para evento {event_name}")
-        return
-
     try:
         customer = apex_event.get("customer", {})
         transaction = apex_event.get("transaction", {})
-        tracking = apex_event.get("tracking", {})
+        # tracking = apex_event.get("tracking", {})   # ← removido
 
-        # Dados do usuário (Advanced Matching)
         user_data = {
             "external_id": [hash_value(customer.get("chat_id"))],
         }
         if customer.get("phone"):
             user_data["ph"] = [hash_value(customer.get("phone"))]
-        if customer.get("tax_id"):           # CPF
-            user_data["external_id"].append(hash_value(customer.get("tax_id")))
         if customer.get("full_name"):
             names = customer["full_name"].split()
             user_data["fn"] = [hash_value(names[0])]
             if len(names) > 1:
                 user_data["ln"] = [hash_value(" ".join(names[1:]))]
 
-        # Custom data da compra
         custom_data = {
             "currency": transaction.get("currency", "BRL"),
-            "value": float(transaction.get("plan_value", 0)) / 100,  # converte centavos
+            "value": float(transaction.get("plan_value", 0)) / 100,
         }
 
         payload = {
@@ -72,12 +64,6 @@ async def send_to_meta(event_name: str, apex_event: dict):
                 "event_id": f"{event_name}_{customer.get('chat_id')}_{apex_event.get('timestamp')}",
                 "user_data": user_data,
                 "custom_data": custom_data,
-                "tracking_data": {
-                    "click_id": tracking.get("click_id"),
-                    "utm_source": tracking.get("utm_source"),
-                    "utm_medium": tracking.get("utm_medium"),
-                    "utm_campaign": tracking.get("utm_campaign"),
-                }
             }],
             "access_token": META_ACCESS_TOKEN
         }
@@ -90,7 +76,7 @@ async def send_to_meta(event_name: str, apex_event: dict):
             async with session.post(url, json=payload) as resp:
                 result = await resp.json()
                 if resp.status == 200:
-                    logger.info(f"✅ META CAPI → {event_name} enviado | User {customer.get('chat_id')} | R${custom_data['value']}")
+                    logger.info(f"✅ META CAPI → {event_name} enviado | User {customer.get('chat_id')}")
                 else:
                     logger.error(f"❌ META CAPI erro {resp.status}: {result}")
 
