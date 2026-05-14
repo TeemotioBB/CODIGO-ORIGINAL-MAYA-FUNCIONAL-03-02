@@ -11,7 +11,7 @@ import logging
 import random
 import importlib.util
 import requests
-import time                    # ← ADICIONE ESTA LINHA AQUI
+import time
 
 from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
@@ -70,6 +70,10 @@ def _sp_paid_key(uid):
 
 def _sp_notified_key(uid, date_str):
     return f"sp:notified:{uid}:{date_str}"
+
+def _sp_customer_key(uid):
+    """Chave para salvar dados do cliente no momento do PIX"""
+    return f"sp:customer:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔐  AUTENTICAÇÃO SYNCPAY
@@ -167,6 +171,37 @@ def _get_pix_pendente(uid: int):
         return json.loads(data)
     except Exception:
         return None
+
+
+def _salvar_customer(uid: int, tg_user) -> dict:
+    """
+    Salva os dados do usuário Telegram no Redis no momento do PIX.
+    Esses dados serão recuperados no webhook de confirmação,
+    onde o objeto tg_user não está mais disponível.
+    """
+    customer_data = {
+        "chat_id":       uid,
+        "full_name":     tg_user.full_name or "",       # ← campo correto para o CAPI
+        "username":      tg_user.username or "",
+        "language_code": tg_user.language_code or "pt-br",
+    }
+    _r.setex(
+        _sp_customer_key(uid),
+        timedelta(hours=2),
+        json.dumps(customer_data)
+    )
+    return customer_data
+
+
+def _recuperar_customer(uid: int) -> dict:
+    """Recupera os dados do cliente salvos no momento da geração do PIX."""
+    raw = _r.get(_sp_customer_key(uid))
+    if not raw:
+        return {"chat_id": uid, "full_name": "", "username": "", "language_code": "pt-br"}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"chat_id": uid, "full_name": "", "username": "", "language_code": "pt-br"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -296,12 +331,14 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📲 CALLBACK HANDLER — usuário clicou em "GERAR PIX AGORA"
 # ═══════════════════════════════════════════════════════════════════════════════
+
 async def _pagar_vip_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
-    uid = query.from_user.id
+    uid     = query.from_user.id
     chat_id = query.message.chat_id
-    bot = context.bot
+    bot     = context.bot
+
     try:
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
@@ -315,7 +352,9 @@ async def _pagar_vip_callback(update: Update, context):
             return
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
+
         nome = query.from_user.full_name or "Cliente"
+
         preco_str = _callbacks.get("PRECO_VIP", "9,90")
         try:
             valor = float(
@@ -326,36 +365,40 @@ async def _pagar_vip_callback(update: Update, context):
             valor = 9.90
 
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
+
+        # ── Salva dados do cliente no Redis para usar no webhook ──────────────
+        # (no webhook o objeto tg_user não está disponível)
+        customer_data = _salvar_customer(uid, query.from_user)
+
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
-        # ====================== META CAPI - payment_created ======================
+        # ── META CAPI — payment_created ───────────────────────────────────────
         try:
             event_data = {
-                "event": "payment_created",
+                "event":     "payment_created",
                 "timestamp": int(time.time()),
-                "bot_id": 123456789,
                 "customer": {
-                    "chat_id": uid,
-                    "profile_name": query.from_user.full_name or "",
-                    "username": query.from_user.username or ""
+                    "chat_id":       uid,
+                    "full_name":     customer_data["full_name"],    # ← corrigido
+                    "username":      customer_data["username"],
+                    "language_code": customer_data["language_code"],
                 },
-                "origin": {"ip": "", "country": "Brazil"},
                 "transaction": {
                     "internal_transaction_id": pix_data["identifier"],
-                    "sale_code": f"SALE-{uid}-{int(time.time())}",
-                    "category": "Assinatura Premium",
-                    "plan_name": "Plano Normal",
-                    "plan_value": int(valor * 100),
-                    "currency": "BRL",
+                    "sale_code":      f"SALE-{uid}-{int(time.time())}",
+                    "category":       "Assinatura Premium",
+                    "plan_name":      "Plano Normal",
+                    "plan_value":     int(valor * 100),
+                    "currency":       "BRL",
                     "payment_platform": "syncpay",
-                    "payment_method": "pix"
+                    "payment_method": "pix",
                 },
-                "tracking": {}
             }
             _r.publish("apex:events", json.dumps(event_data))
+            logger.info(f"[Meta CAPI] ✅ payment_created publicado: uid={uid}")
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
-        # =========================================================================
+        # ─────────────────────────────────────────────────────────────────────
 
         try:
             bot_main = _load_bot_main()
@@ -381,18 +424,18 @@ async def _pagar_vip_callback(update: Update, context):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🌐 WEBHOOK SYNCPAY — Flask route
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
     def syncpay_webhook():
         try:
-            data = flask_request.get_json(silent=True) or {}
-            transacao = data.get("data", {})
+            data       = flask_request.get_json(silent=True) or {}
+            transacao  = data.get("data", {})
             identifier = transacao.get("id")
-            status = transacao.get("status")
-            amount = transacao.get("final_amount") or transacao.get("amount")
+            status     = transacao.get("status")
+            amount     = transacao.get("final_amount") or transacao.get("amount")
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
 
-            # ✅ CORREÇÃO FINAL: só libera VIP quando o pagamento for realmente aprovado
             if status in ["completed", "PAID_OUT"] and identifier:
                 asyncio.run_coroutine_threadsafe(
                     _processar_pagamento_confirmado(identifier, amount),
@@ -423,50 +466,43 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
 
-        # ====================== APEX EVENTS - META CAPI ======================
-        event_data = {
-            "event": "payment_approved",
-            "timestamp": int(time.time()),
-            "bot_id": 123456789,
-            "customer": {
-                "chat_id": uid,
-                "profile_name": "",
-                "username": ""
-            },
-            "origin": {
-                "ip": "",
-                "country": "Brazil",
-                "state": "",
-                "city": ""
-            },
-            "transaction": {
-                "internal_transaction_id": identifier,
-                "external_transaction_id": identifier,
-                "sale_code": f"SALE-{uid}-{int(time.time())}",
-                "category": "Assinatura Premium",
-                "plan_name": "Plano Normal",
-                "plan_value": int(float(amount) * 100),
-                "plan_duration": "vitalicio",
-                "currency": "BRL",
-                "payment_pointer": "",
-                "payment_platform": "syncpay",
-                "payment_method": "pix"
-            },
-            "tracking": {
-                "click_id": "",
-                "slug": "",
-                "utm_source": "",
-                "utm_medium": "",
-                "utm_campaign": ""
+        # ── Recupera dados do cliente salvos no momento do PIX ────────────────
+        customer_data = _recuperar_customer(uid)
+
+        # ── META CAPI — payment_approved ──────────────────────────────────────
+        try:
+            event_data = {
+                "event":     "payment_approved",
+                "timestamp": int(time.time()),
+                "customer": {
+                    "chat_id":       uid,
+                    "full_name":     customer_data["full_name"],    # ← agora tem dado
+                    "username":      customer_data["username"],
+                    "language_code": customer_data["language_code"],
+                },
+                "transaction": {
+                    "internal_transaction_id": identifier,
+                    "external_transaction_id": identifier,
+                    "sale_code":        f"SALE-{uid}-{int(time.time())}",
+                    "category":         "Assinatura Premium",
+                    "plan_name":        "Plano Normal",
+                    "plan_value":       int(float(amount) * 100),
+                    "plan_duration":    "vitalicio",
+                    "currency":         "BRL",
+                    "payment_platform": "syncpay",
+                    "payment_method":   "pix",
+                },
             }
-        }
-        _r.publish("apex:events", json.dumps(event_data))
-        # =====================================================================
+            _r.publish("apex:events", json.dumps(event_data))
+            logger.info(f"[Meta CAPI] ✅ payment_approved publicado: uid={uid} full_name='{customer_data['full_name']}'")
+        except Exception as capi_err:
+            logger.error(f"[Meta CAPI] Erro ao publicar payment_approved: {capi_err}")
+        # ─────────────────────────────────────────────────────────────────────
 
         set_clicked_vip = _callbacks.get("set_clicked_vip")
-        add_bonus_msgs = _callbacks.get("add_bonus_msgs")
-        save_message = _callbacks.get("save_message")
-        get_router = _callbacks.get("get_router")
+        add_bonus_msgs  = _callbacks.get("add_bonus_msgs")
+        save_message    = _callbacks.get("save_message")
+        get_router      = _callbacks.get("get_router")
 
         if set_clicked_vip:
             set_clicked_vip(uid)
@@ -500,8 +536,10 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             ]])
             await bot.send_message(chat_id=uid, text="👇", reply_markup=keyboard)
 
+        # Limpa chaves temporárias
         _r.delete(_sp_id_to_uid_key(identifier))
         _r.delete(_sp_pix_key(uid))
+        _r.delete(_sp_customer_key(uid))   # ← limpa dados do cliente também
         logger.info(f"[SyncPay] 🎉 VIP liberado e usuário notificado: uid={uid}")
 
     except Exception as e:
