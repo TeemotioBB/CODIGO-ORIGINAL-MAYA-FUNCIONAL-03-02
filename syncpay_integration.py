@@ -275,20 +275,22 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-        num_photos = random.randint(3, 4)
-        selected   = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
-
-        for i, photo_url in enumerate(selected):
+        # Envia fotos de forma mais robusta
+        fotos_enviadas = 0
+        for i, photo_url in enumerate(fotos_teaser[:4]):  # máximo 4 fotos
             try:
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.6)
                 await bot.send_photo(chat_id=chat_id, photo=photo_url)
-                if i < len(selected) - 1:
-                    await asyncio.sleep(1)
+                fotos_enviadas += 1
+                await asyncio.sleep(1)
             except Exception as e:
-                logger.error(f"[SyncPay] Erro enviando foto {i}: {e}")
+                logger.warning(f"[SyncPay] Pulando foto {i} (erro: {e})")
 
-        await asyncio.sleep(3)
+        if fotos_enviadas == 0:
+            logger.warning(f"[SyncPay] Nenhuma foto foi enviada para {uid}, mas continuando com o pitch")
+
+        await asyncio.sleep(2)
 
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
@@ -319,7 +321,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         logger.info(f"[SyncPay] 🎯 Teaser+pitch PIX enviado: uid={uid}")
         save_message = _callbacks.get("save_message")
         if save_message:
-            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado (#{bot_main.get_teaser_count(uid)})")
+            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado")
 
         return True
 
