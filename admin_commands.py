@@ -109,7 +109,6 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_ID
 
 
 async def resetall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_IDS, funcs):
-    """Reseta TUDO de um usuário — memória, fase, contadores, canal free, etc"""
     if update.effective_user.id not in ADMIN_IDS:
         return
     
@@ -121,22 +120,23 @@ async def resetall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN
         uid = int(context.args[0])
         r = funcs['get_redis']()
         
-        # Busca todas as chaves do usuário
-        keys = r.keys(f"*:{uid}") + r.keys(f"*:{uid}:*")
-        
         deleted = 0
-        for k in keys:
-            r.delete(k)
-            deleted += 1
+        patterns = [f"*{uid}*", f"*{uid}:*", f"*:{uid}"]
+        
+        for pattern in patterns:
+            keys = r.keys(pattern)
+            for k in keys:
+                r.delete(k)
+                deleted += 1
         
         await update.message.reply_text(
-            f"✅ Reset completo para {uid}\n"
-            f"🗑️ {deleted} chaves deletadas\n\n"
-            f"O usuário vai aparecer como novo lead no próximo /start"
+            f"✅ **RESET TOTAL** do usuário {uid}\n"
+            f"🗑️ {deleted} chaves removidas\n\n"
+            f"Teste enviando /start com essa conta."
         )
         
-    except ValueError:
-        await update.message.reply_text("❌ ID inválido!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro: {str(e)}")
 
 async def givebonus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_IDS, funcs):
     """Dá mensagens bônus para um usuário"""
