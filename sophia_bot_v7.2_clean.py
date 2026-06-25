@@ -2229,9 +2229,34 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
 
-        # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
+                # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
         text = update.message.text or ""   # garante que 'text' existe
         intent = detect_intent(text) if text else "neutral"
+
+        # ====================== NOVO: PEDIDO DIRETO DE CONTEÚDO EXPLÍCITO ======================
+        # Força o fluxo SyncPay (teaser + PIX no chat) quando o usuário pedir direto
+        direct_explicit_keywords = [
+            "mostra a buceta", "mostra buceta", "manda nude", "manda nudes",
+            "quero ver sua buceta", "quero ver a buceta", "mostra sua buceta",
+            "manda foto da buceta", "manda sua buceta", "quero ver tudo",
+            "me mostra tudo", "manda foto pelada", "manda vídeo pelada",
+            "quero ver você pelada", "mostra sua bucetinha", "mostra a bucetinha",
+            "manda foto da bucetinha", "quero ver sua bucetinha", "mostra tudinho",
+            "mostra sua xereca", "manda sua xoxota", "qual seu pix", "qual o pix",
+            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix"
+        ]
+        
+        text_lower = text.lower().strip()
+        is_direct_explicit_request = any(kw in text_lower for kw in direct_explicit_keywords)
+
+        if is_direct_explicit_request:
+            can_offer, reason = can_offer_vip(uid)
+            if can_offer:
+                logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
+                await send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
+                save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
+                return   # Sai do handler (não continua pro fluxo normal da IA)
+        # ========================================================================================
 
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
