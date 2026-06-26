@@ -387,7 +387,11 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://i.postimg.cc/0NghLJD3/image.png",
+    "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
+    "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
+    "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
+    "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg",
+    "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg",
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
@@ -2225,12 +2229,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
 
-                        # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
-        text = update.message.text or "" # garante que 'text' existe
+                # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
+        text = update.message.text or ""   # garante que 'text' existe
         intent = detect_intent(text) if text else "neutral"
 
-        # ====================== FORÇAR FLUXO DESEJADO (TEASER + PIX) ======================
-        # Este bloco garante que o fluxo que você quer sempre aconteça em pedidos explícitos
+        # ====================== NOVO: PEDIDO DIRETO DE CONTEÚDO EXPLÍCITO ======================
+        # Força o fluxo SyncPay (teaser + PIX no chat) quando o usuário pedir direto
         direct_explicit_keywords = [
             "mostra a buceta", "mostra buceta", "manda nude", "manda nudes",
             "quero ver sua buceta", "quero ver a buceta", "mostra sua buceta",
@@ -2239,21 +2243,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "quero ver você pelada", "mostra sua bucetinha", "mostra a bucetinha",
             "manda foto da bucetinha", "quero ver sua bucetinha", "mostra tudinho",
             "mostra sua xereca", "manda sua xoxota", "qual seu pix", "qual o pix",
-            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix",
-            "tô imaginando você pelada", "tô imaginando você nua", "tô imaginando",
-            "quero ver", "mostra mais", "manda foto", "manda vídeo"
+            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix"
         ]
-       
+        
         text_lower = text.lower().strip()
         is_direct_explicit_request = any(kw in text_lower for kw in direct_explicit_keywords)
 
-        if is_direct_explicit_request or (intent == "hot" and random.random() < 0.85):
+        if is_direct_explicit_request:
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
-                logger.info(f"🔥 Fluxo desejado ativado para {uid}")
+                logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
                 await send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
-                save_message(uid, "system", "TEASER + PIX FORÇADO (fluxo desejado)")
-                return  # Sai imediatamente (não continua pro fluxo normal da IA)
+                save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
+                return   # Sai do handler (não continua pro fluxo normal da IA)
         # ========================================================================================
 
         try:
@@ -2263,7 +2265,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         # ====================== REDUÇÃO DE API + MODO PUNHETERO (v9.0) ======================
-        if intent == "hot" and random.random() < 0.7: # 70% das vezes usa pool pesada (rápido + barato)
+        if intent == "hot" and random.random() < 0.7:  # 70% das vezes usa pool pesada (rápido + barato)
             response = get_unique_response(uid, "provocacao_pesada")
             await update.message.reply_text(response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
@@ -2286,7 +2288,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(grok_response["response"])
         # =====================================================================
 
-        # (O resto do seu código continua igual - CONFIRM_KEYWORDS, should_resend_button, etc.)
+        # (O resto do seu código continua igual - CONFIRM_KEYWORDS, should_resend_button, should_offer, follow-up, streak, etc.)
         CONFIRM_KEYWORDS = [
             "sim", "quero", "cadê", "cade", "onde", "manda", "envia",
             "pode mandar", "to pronto", "tô pronto", "bora", "vamos",
@@ -2297,6 +2299,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "botão abaixo", "botao abaixo", "clica abaixo",
             "link abaixo", "aqui embaixo", "embaixo"
         ]
+
         text_lower_confirm = text.lower().strip()
         ia_response_lower = grok_response["response"].lower()
         already_pitched = saw_teaser(uid)
@@ -2307,6 +2310,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             and not grok_response.get("offer_teaser", False)
             and (is_confirm or ia_mentioned_button)
         )
+
         if should_resend_button:
             try:
                 keyboard = InlineKeyboardMarkup([[
