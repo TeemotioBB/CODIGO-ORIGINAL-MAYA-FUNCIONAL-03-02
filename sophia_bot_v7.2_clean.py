@@ -387,16 +387,16 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://imgur.com/a/Wqc7RFD",
+    "https://i.imgur.com/8ibva8R.jpeg",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://imgur.com/a/Wqc7RFD"
-FOTO_BEM_VINDA = "https://imgur.com/a/Wqc7RFD"
+FOTO_LIMITE_ATINGIDO = "https://i.imgur.com/8ibva8R.jpeg"
+FOTO_BEM_VINDA = "https://i.imgur.com/8ibva8R.jpeg"
 
-VIDEO_BEM_VINDO = "https://imgur.com/a/Wqc7RFD"
+VIDEO_BEM_VINDO = "https://i.imgur.com/8ibva8R.jpeg"
 
-AUDIO_PT_1 = "https://imgur.com/a/Wqc7RFD"
-AUDIO_PT_2 = "https://imgur.com/a/Wqc7RFD"
+AUDIO_PT_1 = "https://i.imgur.com/8ibva8R.jpeg"
+AUDIO_PT_2 = "https://i.imgur.com/8ibva8R.jpeg"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
