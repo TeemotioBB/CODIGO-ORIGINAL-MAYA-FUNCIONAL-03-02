@@ -387,13 +387,13 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png",
+    "https://i.imgur.com/8ibva8R.jpeg",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png"
-FOTO_BEM_VINDA = "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png"
+FOTO_LIMITE_ATINGIDO = "https://i.imgur.com/8ibva8R.jpeg"
+FOTO_BEM_VINDA = "https://i.imgur.com/8ibva8R.jpeg"
 
-VIDEO_BEM_VINDO = "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png"
+VIDEO_BEM_VINDO = "https://i.imgur.com/8ibva8R.jpeg"
 
 AUDIO_PT_1 = "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png"
 AUDIO_PT_2 = "https://i.postimg.cc/R0Y4bm6R/Captura-de-tela-2023-07-16-125856.png"
