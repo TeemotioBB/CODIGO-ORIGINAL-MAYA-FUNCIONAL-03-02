@@ -1542,7 +1542,7 @@ grok = Grok()
 # 🎯 ENVIO DE TEASER + PITCH APEX VIP (v8.3)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def send_teaser_and_apex(bot, chat_id, uid):
+async def send_teaser_and_apex(bot, chat_id, uid, intro_text=None):
     try:
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
@@ -1560,8 +1560,9 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
-        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
+        # === TEASER COM TEXTO PERSONALIZADO ===
+        intro = intro_text if intro_text else "meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
+        await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(1.5)
 
         num_photos = random.randint(3, 4)
@@ -2153,6 +2154,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(grok_response["response"])
                 # =================================================================
 
+                # ====================== SAFETY NET (bloqueia sugestão de canal grátis) ======================
+                blocked_phrases = ["previas", "canal de prévias", "t.me/previas", "canal grátis", "gratuito", "de graça"]
+                if any(phrase in grok_response.get("response", "").lower() for phrase in blocked_phrases):
+                    logger.info(f"[SAFETY NET] Bloqueando sugestão de prévias para {uid}: {grok_response.get('response', '')}")
+                    await send_teaser_and_apex(
+                        context.bot,
+                        update.effective_chat.id,
+                        uid,
+                        intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
+                    )
+                    return
+                # ============================================================================================
+
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
                     if can_offer:
@@ -2232,14 +2246,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ====================== NOVO: PEDIDO DIRETO DE CONTEÚDO EXPLÍCITO ======================
         # Força o fluxo SyncPay (teaser + PIX no chat) quando o usuário pedir direto
         direct_explicit_keywords = [
+            # Conteúdo explícito
             "mostra a buceta", "mostra buceta", "manda nude", "manda nudes",
             "quero ver sua buceta", "quero ver a buceta", "mostra sua buceta",
             "manda foto da buceta", "manda sua buceta", "quero ver tudo",
             "me mostra tudo", "manda foto pelada", "manda vídeo pelada",
             "quero ver você pelada", "mostra sua bucetinha", "mostra a bucetinha",
             "manda foto da bucetinha", "quero ver sua bucetinha", "mostra tudinho",
-            "mostra sua xereca", "manda sua xoxota", "qual seu pix", "qual o pix",
-            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix"
+            "mostra sua xereca", "manda sua xoxota",
+
+            # Variações de PIX (expansão completa)
+            "qual seu pix", "qual o pix", "qual é seu pix", "qual é o pix",
+            "me passa o pix", "me passa seu pix", "me manda o pix", "me manda seu pix",
+            "manda o pix", "manda seu pix", "cade seu pix", "cadê o pix", "cadê seu pix",
+            "quero pagar", "como pago", "como faz pra pagar", "pix", "pagar",
+            "meu pix", "passa o pix", "passa seu pix", "manda o link do pix",
+            "qual a chave pix", "chave pix", "copia e cola", "qr code"
         ]
         
         text_lower = text.lower().strip()
@@ -2249,7 +2271,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
                 logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
-                await send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
+                await send_teaser_and_apex(
+                    context.bot,
+                    update.effective_chat.id,
+                    uid,
+                    intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
+                )
                 save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
                 return   # Sai do handler (não continua pro fluxo normal da IA)
         # ========================================================================================
@@ -2281,6 +2308,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = {"response": response_text, "offer_teaser": False}
         else:
             grok_response = await grok.reply(uid, text)
+
+            # ====================== SAFETY NET (bloqueia sugestão de canal grátis) ======================
+            blocked_phrases = ["previas", "canal de prévias", "t.me/previas", "canal grátis", "gratuito", "de graça"]
+            if any(phrase in grok_response["response"].lower() for phrase in blocked_phrases):
+                logger.info(f"[SAFETY NET] Bloqueando sugestão de prévias para {uid}: {grok_response['response']}")
+                # Força o teaser com a frase personalizada e interrompe o fluxo normal
+                await send_teaser_and_apex(
+                    context.bot,
+                    update.effective_chat.id,
+                    uid,
+                    intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
+                )
+                return
+            # ============================================================================================
+
             await update.message.reply_text(grok_response["response"])
         # =====================================================================
 
