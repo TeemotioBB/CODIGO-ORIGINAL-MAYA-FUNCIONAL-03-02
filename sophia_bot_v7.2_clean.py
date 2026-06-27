@@ -387,16 +387,16 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "AgACAgEAAxkBAAEDtddqPePSyPGkjfNAL_zkWyVoQN4jzgACvwxrGyrW8EUD908y_xmbNQEAAwIAA20AAzwE",
+    "https://imgur.com/a/Wqc7RFD",
 ]
 
-FOTO_LIMITE_ATINGIDO = "AgACAgEAAxkBAAEDtddqPePSyPGkjfNAL_zkWyVoQN4jzgACvwxrGyrW8EUD908y_xmbNQEAAwIAA20AAzwE"
-FOTO_BEM_VINDA = "AgACAgEAAxkBAAEDtddqPePSyPGkjfNAL_zkWyVoQN4jzgACvwxrGyrW8EUD908y_xmbNQEAAwIAA20AAzwE"
+FOTO_LIMITE_ATINGIDO = "https://imgur.com/a/Wqc7RFD"
+FOTO_BEM_VINDA = "https://imgur.com/a/Wqc7RFD"
 
-VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"
+VIDEO_BEM_VINDO = "https://imgur.com/a/Wqc7RFD"
 
-AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
-AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
+AUDIO_PT_1 = "https://imgur.com/a/Wqc7RFD"
+AUDIO_PT_2 = "https://imgur.com/a/Wqc7RFD"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
