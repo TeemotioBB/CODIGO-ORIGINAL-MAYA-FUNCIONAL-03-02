@@ -275,22 +275,46 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-        # Envia fotos de forma mais robusta
+                # ==================== ENVIO DE FOTOS TEASER (VERSÃO ROBUSTA) ====================
         fotos_enviadas = 0
-        for i, photo_url in enumerate(fotos_teaser[:4]):  # máximo 4 fotos
-            try:
-                await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-                await asyncio.sleep(0.6)
-                await bot.send_photo(chat_id=chat_id, photo=photo_url)
-                fotos_enviadas += 1
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.warning(f"[SyncPay] Pulando foto {i} (erro: {e})")
+
+        if fotos_teaser and len(fotos_teaser) > 0:
+            # Limita a no máximo 4 fotos
+            fotos_para_enviar = fotos_teaser[:4]
+
+            for i, photo_url in enumerate(fotos_para_enviar):
+                try:
+                    await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+                    await asyncio.sleep(0.5)
+
+                    logger.info(
+                        f"[SyncPay] Enviando foto {i+1}/{len(fotos_para_enviar)} "
+                        f"para {uid} | valor: {str(photo_url)[:30]}..."
+                    )
+
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo_url
+                    )
+
+                    fotos_enviadas += 1
+                    await asyncio.sleep(0.9)
+
+                except Exception as e:
+                    logger.warning(
+                        f"[SyncPay] Pulando foto {i+1} para {uid} → {e}"
+                    )
+        else:
+            logger.warning(
+                f"[SyncPay] Nenhuma foto disponível em fotos_teaser para {uid}"
+            )
 
         if fotos_enviadas == 0:
-            logger.warning(f"[SyncPay] Nenhuma foto foi enviada para {uid}, mas continuando com o pitch")
+            logger.warning(
+                f"[SyncPay] Nenhuma foto foi enviada para {uid}, mas continuando com o pitch"
+            )
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1.8)
 
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
