@@ -387,16 +387,20 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://i.imgur.com//8ibva8R.jpeg",
+    "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
+    "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
+    "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
+    "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg",
+    "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://i.imgur.com//8ibva8R.jpeg"
-FOTO_BEM_VINDA = "https://i.imgur.com//8ibva8R.jpeg"
+FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+FOTO_BEM_VINDA = "https://i.postimg.cc/0NghLJD3/image.png"
 
-VIDEO_BEM_VINDO = "https://i.imgur.com//8ibva8R.jpeg"
+VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"
 
-AUDIO_PT_1 = "https://i.imgur.com//8ibva8R.jpeg"
-AUDIO_PT_2 = "https://i.imgur.com//8ibva8R.jpeg"
+AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
+AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
