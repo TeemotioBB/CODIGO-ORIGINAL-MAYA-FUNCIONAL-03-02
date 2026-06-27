@@ -1560,10 +1560,9 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-        # === TEASER EXPLÍCITO v9.1 (direto no estilo que você pediu) ===
-        intro = "meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
-        await bot.send_message(chat_id=chat_id, text=intro)
-        await asyncio.sleep(1.8)
+        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
+        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
+        await asyncio.sleep(1.5)
 
         num_photos = random.randint(3, 4)
         selected = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
@@ -1572,22 +1571,21 @@ async def send_teaser_and_apex(bot, chat_id, uid):
             if i < len(selected) - 1:
                 await asyncio.sleep(1.0)
 
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(3.5)
 
-        # === PITCH PESADO PÓS-TEASER ===
+        # === PITCH MATADOR (Harper v9.0) ===
         pitch = (
-            f"E aí safado, curtiu o gostinho? 😈\n\n"
-            f"Isso foi só uma prévia... no VIP eu te mostro TUDO sem frescura:\n"
-            f"✅ Eu batendo punheta bem gostoso até gozar de verdade\n"
-            f"✅ Meu cuzinho piscando bem de pertinho\n"
-            f"✅ Vídeos meus chupando, sentando, gemendo e gozando pra você\n"
-            f"✅ Fotos e vídeos 100% sem censura + meu WhatsApp pessoal\n\n"
+            f"Curtiu meu corpo safado? 😈\n\n"
+            f"No VIP eu te mando:\n"
+            f"✅ Vídeos meus **CHUPANDO**, **SENTANDO** e **GOZANDO** de verdade\n"
+            f"✅ Fotos e vídeos 100% sem censura\n"
+            f"✅ Meu WhatsApp só pra você me chamar na hora do tesão\n\n"
             f"Tudo isso por apenas **{preco} vitalício** 🔥\n\n"
-            f"Quer me ver gozando de verdade agora? Clica no botão e paga rapidinho 👇"
+            f"Quer gozar comigo agora? Clica no botão e paga rapidinho 👇"
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA E LIBERAR TUDO 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton("🔥 PAGAR R$9,90 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
