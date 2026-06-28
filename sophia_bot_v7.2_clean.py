@@ -387,13 +387,13 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA",
+    "https://res.cloudinary.com/dcntx7fy1/image/upload/f_auto,q_auto/samples/people/bicycle.jpg",
 ]
 
-FOTO_LIMITE_ATINGIDO = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
-FOTO_BEM_VINDA = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
+FOTO_LIMITE_ATINGIDO = "https://res.cloudinary.com/dcntx7fy1/image/upload/f_auto,q_auto/samples/people/bicycle.jpg"
+FOTO_BEM_VINDA = "https://res.cloudinary.com/dcntx7fy1/image/upload/f_auto,q_auto/samples/people/bicycle.jpg"
 
-VIDEO_BEM_VINDO = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
+VIDEO_BEM_VINDO = "https://res.cloudinary.com/dcntx7fy1/image/upload/f_auto,q_auto/samples/people/bicycle.jpg"
 
 AUDIO_PT_1 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
 AUDIO_PT_2 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
