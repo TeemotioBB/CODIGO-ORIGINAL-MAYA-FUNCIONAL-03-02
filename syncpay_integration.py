@@ -275,46 +275,20 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-                # ==================== ENVIO DE FOTOS TEASER (VERSÃO FIXA) ====================
-        fotos_enviadas = 0
+        num_photos = random.randint(3, 4)
+        selected   = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
 
-        # Garante que estamos usando file_id (não URL)
-        fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
+        for i, photo_url in enumerate(selected):
+            try:
+                await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
+                await asyncio.sleep(0.5)
+                await bot.send_photo(chat_id=chat_id, photo=photo_url)
+                if i < len(selected) - 1:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"[SyncPay] Erro enviando foto {i}: {e}")
 
-        if fotos_teaser and len(fotos_teaser) > 0:
-            fotos_para_enviar = fotos_teaser[:3]  # máximo 3 fotos (melhor UX)
-            
-            for i, photo in enumerate(fotos_para_enviar):
-                try:
-                    await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
-                    await asyncio.sleep(0.5)
-                    
-                    # Log importante para debug
-                    logger.info(f"[Teaser] Enviando foto {i+1} para {uid}: {photo}")
-
-                    try:
-                        await bot.send_photo(chat_id=chat_id, photo=photo)
-                    except Exception as e_url:
-                        logger.warning(f"[Teaser] URL falhou ({e_url}); baixando manualmente: {photo}")
-                        import io, requests
-                        r_img = requests.get(photo, timeout=15)
-                        r_img.raise_for_status()
-                        bio = io.BytesIO(r_img.content)
-                        bio.name = "teaser.jpg"
-                        await bot.send_photo(chat_id=chat_id, photo=bio)
-
-                    fotos_enviadas += 1
-                    await asyncio.sleep(0.9)
-                    
-                except Exception as e:
-                    logger.error(f"[Teaser] Erro foto {i+1} para {uid} → {e}")
-        else:
-            logger.warning(f"[Teaser] Nenhuma foto disponível para {uid}")
-
-        if fotos_enviadas == 0:
-            logger.warning(f"[Teaser] Nenhuma foto enviada para {uid}, mas continuando com pitch")
-
-        await asyncio.sleep(1.8)
+        await asyncio.sleep(3)
 
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
@@ -345,7 +319,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         logger.info(f"[SyncPay] 🎯 Teaser+pitch PIX enviado: uid={uid}")
         save_message = _callbacks.get("save_message")
         if save_message:
-            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado")
+            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado (#{bot_main.get_teaser_count(uid)})")
 
         return True
 
