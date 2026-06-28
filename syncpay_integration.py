@@ -290,7 +290,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
                     await asyncio.sleep(0.5)
                     
                     # Log importante para debug
-                    logger.info(f"[Teaser] Enviando foto {i+1}/{len(fotos_para_enviar)} para {uid} | ID: {str(photo)[:40]}...")
+                    logger.info(f"[DEBUG] URL COMPLETA da foto {i+1} para {uid}: {photo}")
                     
                     await bot.send_photo(chat_id=chat_id, photo=photo)
                     fotos_enviadas += 1
