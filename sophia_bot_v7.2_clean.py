@@ -387,13 +387,13 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/Captura%20de%20tela%202023-07-16%20125856.png",
+    "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/Captura%20de%20tela%202023-07-16%20125856.png"
-FOTO_BEM_VINDA = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/Captura%20de%20tela%202023-07-16%20125856.png"
+FOTO_LIMITE_ATINGIDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
+FOTO_BEM_VINDA = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
 
-VIDEO_BEM_VINDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/Captura%20de%20tela%202023-07-16%20125856.png"
+VIDEO_BEM_VINDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
 
 AUDIO_PT_1 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
 AUDIO_PT_2 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
