@@ -290,9 +290,19 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
                     await asyncio.sleep(0.5)
                     
                     # Log importante para debug
-                    logger.info(f"[DEBUG] URL COMPLETA da foto {i+1} para {uid}: {photo}")
-                    
-                    await bot.send_photo(chat_id=chat_id, photo=photo)
+                    logger.info(f"[Teaser] Enviando foto {i+1} para {uid}: {photo}")
+
+                    try:
+                        await bot.send_photo(chat_id=chat_id, photo=photo)
+                    except Exception as e_url:
+                        logger.warning(f"[Teaser] URL falhou ({e_url}); baixando manualmente: {photo}")
+                        import io, requests
+                        r_img = requests.get(photo, timeout=15)
+                        r_img.raise_for_status()
+                        bio = io.BytesIO(r_img.content)
+                        bio.name = "teaser.jpg"
+                        await bot.send_photo(chat_id=chat_id, photo=bio)
+
                     fotos_enviadas += 1
                     await asyncio.sleep(0.9)
                     
