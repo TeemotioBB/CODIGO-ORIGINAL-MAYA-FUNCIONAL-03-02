@@ -275,44 +275,34 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         await bot.send_message(chat_id=chat_id, text=intro)
         await asyncio.sleep(2)
 
-                # ==================== ENVIO DE FOTOS TEASER (VERSÃO ROBUSTA) ====================
+                # ==================== ENVIO DE FOTOS TEASER (VERSÃO FIXA) ====================
         fotos_enviadas = 0
 
-        if fotos_teaser and len(fotos_teaser) > 0:
-            # Limita a no máximo 4 fotos
-            fotos_para_enviar = fotos_teaser[:4]
+        # Garante que estamos usando file_id (não URL)
+        fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
 
-            for i, photo_url in enumerate(fotos_para_enviar):
+        if fotos_teaser and len(fotos_teaser) > 0:
+            fotos_para_enviar = fotos_teaser[:3]  # máximo 3 fotos (melhor UX)
+            
+            for i, photo in enumerate(fotos_para_enviar):
                 try:
                     await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
                     await asyncio.sleep(0.5)
-
-                    logger.info(
-                        f"[SyncPay] Enviando foto {i+1}/{len(fotos_para_enviar)} "
-                        f"para {uid} | valor: {str(photo_url)[:30]}..."
-                    )
-
-                    await bot.send_photo(
-                        chat_id=chat_id,
-                        photo=photo_url
-                    )
-
+                    
+                    # Log importante para debug
+                    logger.info(f"[Teaser] Enviando foto {i+1}/{len(fotos_para_enviar)} para {uid} | ID: {str(photo)[:40]}...")
+                    
+                    await bot.send_photo(chat_id=chat_id, photo=photo)
                     fotos_enviadas += 1
                     await asyncio.sleep(0.9)
-
+                    
                 except Exception as e:
-                    logger.warning(
-                        f"[SyncPay] Pulando foto {i+1} para {uid} → {e}"
-                    )
+                    logger.error(f"[Teaser] Erro foto {i+1} para {uid} → {e}")
         else:
-            logger.warning(
-                f"[SyncPay] Nenhuma foto disponível em fotos_teaser para {uid}"
-            )
+            logger.warning(f"[Teaser] Nenhuma foto disponível para {uid}")
 
         if fotos_enviadas == 0:
-            logger.warning(
-                f"[SyncPay] Nenhuma foto foi enviada para {uid}, mas continuando com o pitch"
-            )
+            logger.warning(f"[Teaser] Nenhuma foto enviada para {uid}, mas continuando com pitch")
 
         await asyncio.sleep(1.8)
 
