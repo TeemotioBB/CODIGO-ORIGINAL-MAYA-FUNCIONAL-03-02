@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 # ⚙️  CONFIGURAÇÕES SYNCPAY
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SYNCPAY_CLIENT_ID     = "423ab714-71b3-4ee1-8f28-602415b2bf92"
-SYNCPAY_CLIENT_SECRET = "65ea61dd-eb51-4ce1-b3e0-fc2fcd838b6b"
+SYNCPAY_CLIENT_ID     = "c35edf16-e02e-4f02-bfb0-3d9d7fe6c763"
+SYNCPAY_CLIENT_SECRET = "b66ce961-9951-4534-9f4e-0f38ebe76148"
 SYNCPAY_BASE_URL      = "https://api.syncpayments.com.br/api/partner/v1"
 WEBHOOK_BASE_URL      = os.getenv("WEBHOOK_BASE_URL", "")
 SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
