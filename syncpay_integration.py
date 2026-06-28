@@ -209,7 +209,7 @@ def _recuperar_customer(uid: int) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco    = _callbacks.get("PRECO_VIP", "R$ 9,90")
+    preco    = _callbacks.get("PRECO_VIP", "R$ 9,00")
     pix_code = pix_data["pix_code"]
 
     mensagem = (
@@ -257,7 +257,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         get_router   = _callbacks.get("get_router")
         ia_config    = get_router().get_ia_config(uid=uid) if get_router else {}
         fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
-        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,90"))
+        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,00"))
 
         can_offer, reason = bot_main.can_offer_vip(uid)
         if not can_offer:
@@ -355,14 +355,14 @@ async def _pagar_vip_callback(update: Update, context):
 
         nome = query.from_user.full_name or "Cliente"
 
-        preco_str = _callbacks.get("PRECO_VIP", "9,90")
+        preco_str = _callbacks.get("PRECO_VIP", "9,00")
         try:
             valor = float(
                 preco_str.replace("R$", "").replace("R$ ", "")
                          .replace(",", ".").strip()
             )
         except Exception:
-            valor = 9.90
+            valor = 9.00
 
         pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
 
