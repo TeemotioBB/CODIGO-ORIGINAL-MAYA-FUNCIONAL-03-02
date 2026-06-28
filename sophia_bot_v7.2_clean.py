@@ -387,16 +387,20 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FOTOS_TEASER = [
-    "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png",
+    "https://i.postimg.cc/ZqT4SrB9/32b94b657e4f467897744e01432bc7fb.jpg",
+    "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
+    "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
+    "https://i.postimg.cc/7PcH2GdT/170bccb9b06a42d3a88d594757f85e88.jpg",
+    "https://i.postimg.cc/XJ1Vxpv2/00e2c81a4960453f8554baeea091145e.jpg",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
-FOTO_BEM_VINDA = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
+FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+FOTO_BEM_VINDA = "https://i.postimg.cc/0NghLJD3/image.png"
 
-VIDEO_BEM_VINDO = "https://raw.githubusercontent.com/TeemotioBB/sophia-assets/main/teaser1.png"
+VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDIhhpimNFnzssGJ8BSFE0onUYINKHnAACdQgAAo1pWUSKPuxK2bPRYjoE"
 
-AUDIO_PT_1 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
-AUDIO_PT_2 = "AgACAgEAAxkBAAErXwFqP-RnwYzUuFh3MbLF9uhjSrUD3QACNAxrG7jeAAFG8VKoCmiCG1QBAAMCAANzAAM8BA"
+AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
+AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
@@ -1542,7 +1546,7 @@ grok = Grok()
 # 🎯 ENVIO DE TEASER + PITCH APEX VIP (v8.3)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def send_teaser_and_apex(bot, chat_id, uid, intro_text=None):
+async def send_teaser_and_apex(bot, chat_id, uid):
     try:
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
@@ -1560,9 +1564,8 @@ async def send_teaser_and_apex(bot, chat_id, uid, intro_text=None):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-        # === TEASER COM TEXTO PERSONALIZADO ===
-        intro = intro_text if intro_text else "meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
-        await bot.send_message(chat_id=chat_id, text=intro)
+        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
+        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
         num_photos = random.randint(3, 4)
@@ -2154,19 +2157,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(grok_response["response"])
                 # =================================================================
 
-                # ====================== SAFETY NET (bloqueia sugestão de canal grátis) ======================
-                blocked_phrases = ["previas", "canal de prévias", "t.me/previas", "canal grátis", "gratuito", "de graça"]
-                if any(phrase in grok_response.get("response", "").lower() for phrase in blocked_phrases):
-                    logger.info(f"[SAFETY NET] Bloqueando sugestão de prévias para {uid}: {grok_response.get('response', '')}")
-                    await send_teaser_and_apex(
-                        context.bot,
-                        update.effective_chat.id,
-                        uid,
-                        intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
-                    )
-                    return
-                # ============================================================================================
-
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
                     if can_offer:
@@ -2246,22 +2236,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ====================== NOVO: PEDIDO DIRETO DE CONTEÚDO EXPLÍCITO ======================
         # Força o fluxo SyncPay (teaser + PIX no chat) quando o usuário pedir direto
         direct_explicit_keywords = [
-            # Conteúdo explícito
             "mostra a buceta", "mostra buceta", "manda nude", "manda nudes",
             "quero ver sua buceta", "quero ver a buceta", "mostra sua buceta",
             "manda foto da buceta", "manda sua buceta", "quero ver tudo",
             "me mostra tudo", "manda foto pelada", "manda vídeo pelada",
             "quero ver você pelada", "mostra sua bucetinha", "mostra a bucetinha",
             "manda foto da bucetinha", "quero ver sua bucetinha", "mostra tudinho",
-            "mostra sua xereca", "manda sua xoxota",
-
-            # Variações de PIX (expansão completa)
-            "qual seu pix", "qual o pix", "qual é seu pix", "qual é o pix",
-            "me passa o pix", "me passa seu pix", "me manda o pix", "me manda seu pix",
-            "manda o pix", "manda seu pix", "cade seu pix", "cadê o pix", "cadê seu pix",
-            "quero pagar", "como pago", "como faz pra pagar", "pix", "pagar",
-            "meu pix", "passa o pix", "passa seu pix", "manda o link do pix",
-            "qual a chave pix", "chave pix", "copia e cola", "qr code"
+            "mostra sua xereca", "manda sua xoxota", "qual seu pix", "qual o pix",
+            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix"
         ]
         
         text_lower = text.lower().strip()
@@ -2271,12 +2253,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
                 logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
-                await send_teaser_and_apex(
-                    context.bot,
-                    update.effective_chat.id,
-                    uid,
-                    intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
-                )
+                await send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
                 save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
                 return   # Sai do handler (não continua pro fluxo normal da IA)
         # ========================================================================================
@@ -2308,21 +2285,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = {"response": response_text, "offer_teaser": False}
         else:
             grok_response = await grok.reply(uid, text)
-
-            # ====================== SAFETY NET (bloqueia sugestão de canal grátis) ======================
-            blocked_phrases = ["previas", "canal de prévias", "t.me/previas", "canal grátis", "gratuito", "de graça"]
-            if any(phrase in grok_response["response"].lower() for phrase in blocked_phrases):
-                logger.info(f"[SAFETY NET] Bloqueando sugestão de prévias para {uid}: {grok_response['response']}")
-                # Força o teaser com a frase personalizada e interrompe o fluxo normal
-                await send_teaser_and_apex(
-                    context.bot,
-                    update.effective_chat.id,
-                    uid,
-                    intro_text="meu pix é pra quem me vê batendo essa punheta gostosa... tá afim de ver meu cuzinho piscando? 😈🔥"
-                )
-                return
-            # ============================================================================================
-
             await update.message.reply_text(grok_response["response"])
         # =====================================================================
 
