@@ -2816,10 +2816,10 @@ async def startup_sequence():
                 else:
                     raise
 
-        asyncio.create_task(engagement_scheduler(application.bot))
-        asyncio.create_task(retargeting_scheduler(application.bot))
-        asyncio.create_task(post_pitch_inactivity_scheduler(application.bot))
-        asyncio.create_task(recovery_scheduler(application.bot))
+        #asyncio.create_task(engagement_scheduler(application.bot))
+        #asyncio.create_task(retargeting_scheduler(application.bot))
+        #asyncio.create_task(post_pitch_inactivity_scheduler(application.bot))
+        #asyncio.create_task(recovery_scheduler(application.bot))
 
 
         # ====================== META CAPI TRACKER ======================
