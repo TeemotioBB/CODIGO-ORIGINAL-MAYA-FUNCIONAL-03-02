@@ -2253,7 +2253,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
                 logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
-                await send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
+                await syncpay_integration.send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
                 save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
                 return   # Sai do handler (não continua pro fluxo normal da IA)
         # ========================================================================================
