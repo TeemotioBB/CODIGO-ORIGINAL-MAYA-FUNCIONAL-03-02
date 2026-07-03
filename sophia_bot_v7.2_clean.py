@@ -1637,6 +1637,34 @@ def already_sent_followup(uid, level):
     except:
         return False
 
+def already_sent_followup(uid, level):
+    try:
+        return r.exists(f"postpitch_followup:{uid}:{level}")
+    except:
+        return False
+
+
+async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
+    """Envia follow-up pós-pitch de acordo com o nível (1, 2 ou 3)."""
+    try:
+        pool = POST_PITCH_FOLLOWUP_POOL.get(f"nivel{level}", [])
+        if not pool:
+            return False
+        if already_sent_followup(uid, level):
+            return False
+        msg = random.choice(pool)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+        ]])
+        await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+        mark_post_pitch_followup_sent(uid, level)
+        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH nível {level} enviado")
+        logger.info(f"Follow-up pós-pitch nível {level} enviado para {uid}")
+        return True
+    except Exception as e:
+        logger.error(f"Erro send_post_pitch_followup_v9: {e}")
+        return False
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
 # ═══════════════════════════════════════════════════════════════════════════════
