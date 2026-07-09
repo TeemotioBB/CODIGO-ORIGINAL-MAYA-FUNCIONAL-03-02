@@ -3611,65 +3611,33 @@ def require_auth():
 # 🎬 STARTUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def startup_sequence():
-    try:
-        logger.info("🚀 Iniciando Sophia Bot v8.3 APEX...")
-        router = init_router(redis_url=REDIS_URL, config_path="ias_config.json")
-        logger.info(f"✅ IA Router inicializado")
-        await application.initialize()
-        await application.start()
-        await asyncio.sleep(2)
-
-        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
-
-        for attempt in range(3):
+        async def startup_sequence():
             try:
-                await application.bot.delete_webhook(drop_pending_updates=True)
-                await asyncio.sleep(1)
-                success = await application.bot.set_webhook(url=webhook_url, allowed_updates=["message", "callback_query"])
-                if success:
-                    info = await application.bot.get_webhook_info()
-                    if info.url == webhook_url:
-                        logger.info(f"✅ Webhook configurado: {webhook_url}")
-                        break
-                if attempt < 2:
-                    await asyncio.sleep(3)
+                logger.info("🚀 Iniciando startup sequence...")
+
+                await application.initialize()
+                await application.start()
+
+                # Schedulers no MESMO event loop do bot.
+                # Evita erro: "bound to a different event loop"
+                loop.create_task(engagement_scheduler(application.bot))
+                loop.create_task(retargeting_scheduler(application.bot))
+                loop.create_task(post_pitch_inactivity_scheduler(application.bot))
+                loop.create_task(pending_pix_followup_scheduler(application.bot))
+                loop.create_task(recovery_scheduler(application.bot))
+
+                # ====================== META CAPI TRACKER ======================
+                try:
+                    from meta_capi import start_capi_tracker
+                    await start_capi_tracker()
+                    logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
+                except Exception as e:
+                    logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
+                # ============================================================
+
             except Exception as e:
-                logger.error(f"❌ Tentativa {attempt + 1} falhou: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(5)
-                else:
-                    raise
-
-        def start_schedulers():
-            sched_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(sched_loop)
-            sched_loop.create_task(engagement_scheduler(application.bot))
-            sched_loop.create_task(retargeting_scheduler(application.bot))
-            sched_loop.create_task(post_pitch_inactivity_scheduler(application.bot))
-            sched_loop.create_task(pending_pix_followup_scheduler(application.bot))
-            sched_loop.create_task(recovery_scheduler(application.bot))
-            sched_loop.run_forever()
-
-        threading.Thread(target=start_schedulers, daemon=True).start()
-
-
-        # ====================== META CAPI TRACKER ======================
-        try:
-            from meta_capi import start_capi_tracker
-            await start_capi_tracker()
-            logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
-        except Exception as e:
-            logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
-        # ============================================================
-
-        me = await application.bot.get_me()
-        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
-
-    except Exception as e:
-        logger.exception(f"💥 ERRO CRÍTICO: {e}")
-        raise
+                logger.exception(f"💥 ERRO CRÍTICO: {e}")
+                raise
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 MAIN
