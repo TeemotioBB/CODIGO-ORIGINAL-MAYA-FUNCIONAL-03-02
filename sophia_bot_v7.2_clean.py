@@ -418,7 +418,7 @@ VIDEOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
-FOTO_BEM_VINDA = "https://i.postimg.cc/TYBM0RGT/3b019ee22cba562c0dc506c0a6d88d3c.jpg"
+FOTO_BEM_VINDA = "BAACAgEAAxkBAAEDwG1qUB7WqTvvFdaQ_HujbiRIO9g4eQAC9QcAAtFNgEYpn7WJ4FAaPTwE"
 
 # Pode ser file_id de vídeo, link .mp4, file_id de foto ou link de foto.
 VIDEO_BEM_VINDO = ""
