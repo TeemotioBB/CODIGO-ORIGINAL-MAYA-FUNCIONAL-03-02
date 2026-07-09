@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -630,6 +631,14 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
     </div>
   </div>
 
+  <!-- acquisition -->
+  <div class="section-head"><h2>Aquisição · origem, CAC e lucro</h2></div>
+  <div class="card">
+    <div class="data-list as-table" id="acquisitionList">
+      <div class="empty">Carregando origens…</div>
+    </div>
+  </div>
+
   <!-- top users -->
   <div class="section-head"><h2>Top 20 usuários</h2></div>
   <div class="card">
@@ -766,6 +775,7 @@ async function loadAllData() {
     schedule(() => updateAlerts(state.data));
     schedule(() => generateAIInsights(state.data));
     schedule(() => updateCharts(state.data));
+    schedule(() => updateAcquisition(state.data));
     schedule(() => updateTopUsers(state.data));
     schedule(() => updateCooldown(state.data));
     schedule(() => updateDropoff(state.data));
@@ -1002,6 +1012,49 @@ function refreshCharts(d) {
   h.data.labels = d.hourly.labels;
   h.data.datasets[0].data = d.hourly.offers;
   h.update('none');
+}
+
+
+// ─── acquisition/origin table ────────────────────────────
+function updateAcquisition(d) {
+  const wrap = $('acquisitionList');
+  if (!wrap) return;
+  const rows = (d.acquisition || []).slice(0, 10);
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty">Sem dados de origem ainda. Use links /start com campanha.</div>';
+    return;
+  }
+
+  const cardRows = rows.map((r, i) => `
+    <div class="row-card">
+      <div class="row-card-head"><div><span class="rank">#${i + 1}</span> <span class="uid">${r.source}</span></div><span class="badge ${r.estimatedProfit >= 0 ? 'vip' : 'hot'}">${r.estimatedProfit >= 0 ? 'Lucro' : 'Prejuízo'}</span></div>
+      <div class="row-card-meta">
+        <span>Usuários <b>${r.users}</b></span>
+        <span>Pagos <b>${r.paid}</b></span>
+        <span>Conv. <b>${Number(r.conversionRate || 0).toFixed(1)}%</b></span>
+        <span>Custo <b>R$ ${Number(r.estimatedCost || 0).toFixed(2)}</b></span>
+        <span>Lucro <b>R$ ${Number(r.estimatedProfit || 0).toFixed(2)}</b></span>
+      </div>
+    </div>`).join('');
+
+  const tableRows = rows.map((r) => `
+    <tr>
+      <td><b>${r.source}</b></td>
+      <td class="mono">${r.users}</td>
+      <td class="mono">${r.sawTeaser}</td>
+      <td class="mono">${r.pixCreated}</td>
+      <td class="mono">${r.paid}</td>
+      <td class="mono">${Number(r.conversionRate || 0).toFixed(1)}%</td>
+      <td class="mono">R$ ${Number(r.estimatedCost || 0).toFixed(2)}</td>
+      <td class="mono">R$ ${Number(r.estimatedRevenue || 0).toFixed(2)}</td>
+      <td class="mono">R$ ${Number(r.estimatedProfit || 0).toFixed(2)}</td>
+    </tr>`).join('');
+
+  wrap.innerHTML = cardRows + `
+    <table>
+      <thead><tr><th>Origem</th><th>Users</th><th>Teaser</th><th>PIX</th><th>Pagos</th><th>Conv.</th><th>Custo</th><th>Receita</th><th>Lucro</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>`;
 }
 
 // ─── top users (responsive: cards mobile, table desktop) ─
@@ -1252,6 +1305,10 @@ function generateMockData() {
       { name: '1ª msg → Teaser',   users: 546, percent: 49.9, dropRate: '50.1', dropClass: 'hot',  status: 'Alto' },
       { name: 'Teaser → VIP',      users: 456, percent: 16.0, dropRate: '84.0', dropClass: 'hot',  status: 'Crítico' },
     ],
+    acquisition: [
+      { source: 'instagram', users: 420, sawTeaser: 260, pixCreated: 72, paid: 34, conversionRate: 8.1, estimatedCost: 252.00, estimatedRevenue: 306.00, estimatedProfit: 54.00 },
+      { source: 'tiktok', users: 280, sawTeaser: 150, pixCreated: 38, paid: 16, conversionRate: 5.7, estimatedCost: 168.00, estimatedRevenue: 144.00, estimatedProfit: -24.00 },
+    ],
   };
 }
 
@@ -1260,8 +1317,8 @@ let refreshTimer, convTimer;
 
 function startAutoRefresh() {
   stopAutoRefresh();
-  refreshTimer = setInterval(loadAllData, 30_000);
-  convTimer    = setInterval(loadConversations, 15_000);
+  refreshTimer = setInterval(loadAllData, 60_000);
+  convTimer    = setInterval(loadConversations, 30_000);
 }
 function stopAutoRefresh() {
   clearInterval(refreshTimer);
