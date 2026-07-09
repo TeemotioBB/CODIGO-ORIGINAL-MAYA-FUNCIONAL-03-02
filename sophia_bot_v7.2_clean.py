@@ -398,7 +398,7 @@ except Exception as e:
 # 🎨 ASSETS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FOTOS_TEASER = [
+VIDEOS_TEASER = [
     "AAMCAQADGQEAASv-EGpQGvRHhzaf1yF5uQNqH8FlIV68AAKYBgACWBCARuhmX1Lmj7UzAQAHbQADPAQ",
     "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
     "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
@@ -2252,6 +2252,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
         fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
+        videos_teaser = ia_config.get("videos_teaser", VIDEOS_TEASER)
         preco = ia_config.get("preco", PRECO_VIP)
 
         can_offer, reason = can_offer_vip(uid)
@@ -2265,17 +2266,32 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-                        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
+                # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
         await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
-        videos_teaser = ia_config.get("videos_teaser", VIDEOS_TEASER)
+        # Envia 2 fotos
+        if fotos_teaser:
+            num_photos = min(2, len(fotos_teaser))
+            selected_photos = random.sample(fotos_teaser, num_photos)
 
+            for i, photo_id in enumerate(selected_photos):
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_id,
+                    connect_timeout=15,
+                    read_timeout=20,
+                    write_timeout=20
+                )
+
+                await asyncio.sleep(1.0)
+
+        # Envia 1 vídeo
         if videos_teaser:
-            num_videos = min(3, len(videos_teaser))
-            selected = random.sample(videos_teaser, num_videos)
+            num_videos = min(1, len(videos_teaser))
+            selected_videos = random.sample(videos_teaser, num_videos)
 
-            for i, video_id in enumerate(selected):
+            for i, video_id in enumerate(selected_videos):
                 await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
                 await asyncio.sleep(0.7)
 
@@ -2287,8 +2303,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
                     write_timeout=20
                 )
 
-                if i < len(selected) - 1:
-                    await asyncio.sleep(1.2)
+                await asyncio.sleep(1.2)
 
         await asyncio.sleep(3.5)
 
