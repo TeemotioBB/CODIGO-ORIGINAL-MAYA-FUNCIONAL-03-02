@@ -2288,7 +2288,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
         # Envia 1 vídeo
         if videos_teaser:
-            num_videos = min(1, len(videos_teaser))
+            num_videos = min(2, len(videos_teaser))
             selected_videos = random.sample(videos_teaser, num_videos)
 
             for i, video_id in enumerate(selected_videos):
