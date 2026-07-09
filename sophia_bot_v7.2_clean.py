@@ -415,9 +415,7 @@ VIDEO_BEM_VINDO = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4
 # Coloque aqui os FILE_IDs do Telegram, separados por vírgula, ou edite a lista abaixo.
 # Exemplo Railway env: FREE_TEASER_VIDEO_IDS=BAACAgEAAxk...,BAACAgEAAxk...
 FREE_TEASER_VIDEO_IDS = [
-    v.strip()
-    for v in os.getenv("FREE_TEASER_VIDEO_IDS", "").split(",")
-    if v.strip()
+    "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
 ]
 
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
