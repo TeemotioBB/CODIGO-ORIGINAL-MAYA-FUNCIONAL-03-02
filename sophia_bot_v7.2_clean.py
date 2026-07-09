@@ -2267,29 +2267,30 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-                # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
+                        # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
         await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
         videos_teaser = ia_config.get("videos_teaser", VIDEOS_TEASER)
 
-        num_videos = min(3, len(videos_teaser))
-        selected = random.sample(videos_teaser, num_videos)
+        if videos_teaser:
+            num_videos = min(3, len(videos_teaser))
+            selected = random.sample(videos_teaser, num_videos)
 
-        for i, video_id in enumerate(selected):
-            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
-            await asyncio.sleep(0.7)
+            for i, video_id in enumerate(selected):
+                await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+                await asyncio.sleep(0.7)
 
-            await bot.send_video(
-                chat_id=chat_id,
-                video=video_id,
-                connect_timeout=15,
-                read_timeout=20,
-                write_timeout=20
-            )
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=video_id,
+                    connect_timeout=15,
+                    read_timeout=20,
+                    write_timeout=20
+                )
 
-            if i < len(selected) - 1:
-                await asyncio.sleep(1.2)
+                if i < len(selected) - 1:
+                    await asyncio.sleep(1.2)
 
         await asyncio.sleep(3.5)
 
