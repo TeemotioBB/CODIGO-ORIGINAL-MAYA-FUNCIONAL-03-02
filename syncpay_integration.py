@@ -305,7 +305,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(bot_main.get_cta_label(uid) if hasattr(bot_main, "get_cta_label") else "🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
         ]])
 
         await bot.send_message(
@@ -371,14 +371,6 @@ async def _pagar_vip_callback(update: Update, context):
         customer_data = _salvar_customer(uid, query.from_user)
 
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
-
-        # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
-        try:
-            track_source_event = _callbacks.get("track_source_event")
-            if track_source_event:
-                track_source_event(uid, "pix_created")
-        except Exception as track_err:
-            logger.error(f"[Tracking] Erro pix_created: {track_err}")
 
         # ── META CAPI — payment_created ───────────────────────────────────────
         try:
@@ -473,14 +465,6 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
-
-        # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
-        try:
-            track_source_event = _callbacks.get("track_source_event")
-            if track_source_event:
-                track_source_event(uid, "payment_approved", amount=float(amount or 0))
-        except Exception as track_err:
-            logger.error(f"[Tracking] Erro payment_approved: {track_err}")
 
         # ── Recupera dados do cliente salvos no momento do PIX ────────────────
         customer_data = _recuperar_customer(uid)
