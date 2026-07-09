@@ -97,8 +97,8 @@
       ],
 
       "videos_teaser": [
-        "video:SEU_VIDEO_ID_AMANDA_1",
-        "video:SEU_VIDEO_ID_AMANDA_2"
+        "SEU_VIDEO_ID_AMANDA_1",
+        "SEU_VIDEO_ID_AMANDA_2"
       ],
 
       "foto_limite_atingido": "https://i.postimg.cc/0ND51hdJ/d64eb059_c010_4d09_8bb4_6b1cbdf692c2.jpg",
