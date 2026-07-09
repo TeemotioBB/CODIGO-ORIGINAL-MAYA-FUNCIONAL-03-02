@@ -352,6 +352,16 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 
 LIMITE_DIARIO = 30
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💰 AQUISIÇÃO / CONVERSÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+# Mantém 30 mensagens como padrão para não quebrar o comportamento atual.
+# Para usuários vindos de Ads, limita mais cedo para proteger margem.
+ADS_DAILY_LIMIT = int(os.getenv("ADS_DAILY_LIMIT", "12"))
+PIX_PENDING_DAILY_LIMIT = int(os.getenv("PIX_PENDING_DAILY_LIMIT", "4"))
+USER_ADS_COST_CENTS = int(os.getenv("USER_ADS_COST_CENTS", "20"))  # R$0,20 por usuário de Ads
+DEFAULT_BOT_COST_CENTS = int(os.getenv("DEFAULT_BOT_COST_CENTS", "40"))  # estimativa conservadora
+
 VIP_COOLDOWN_AFTER_REJECT = 8
 MAX_VIP_OFFERS_PER_SESSION = 999
 TEASER_COOLDOWN_MESSAGES = 3
@@ -365,6 +375,8 @@ AB_TEST_RATIO = 0.5
 MODELO = "grok-4.20-0309-non-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
+START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
+START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
 logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
@@ -434,6 +446,7 @@ INTERESSE_VIP_KEYWORDS = [
 def memory_key(uid): return f"memory:{uid}"
 def user_profile_key(uid): return f"profile:{uid}"
 def first_contact_key(uid): return f"first_contact:{uid}"
+def first_message_seen_key(uid): return f"first_message_seen:{uid}"
 def lang_key(uid): return f"lang:{uid}"
 def count_key(uid): return f"count:{uid}:{date.today()}"
 def bonus_msgs_key(uid): return f"bonus:{uid}"
@@ -457,6 +470,17 @@ def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
 def funnel_key(uid): return f"funnel:{uid}"
+
+# Origem / campanha / custo
+# Ex.: /start ads_instagram_reels_01 → channel=instagram, campaign=ads_instagram_reels_01
+# Ex.: /start tiktok_bio → channel=tiktok, campaign=tiktok_bio
+def source_meta_key(uid): return f"source:meta:{uid}"
+def source_users_key(source): return f"source:users:{source}"
+def source_campaign_users_key(campaign): return f"source:campaign_users:{campaign}"
+def source_stats_key(d): return f"source:stats:{d}"
+def grok_usage_key(uid): return f"grok:usage:{uid}:{date.today()}"
+def lead_profile_key(uid): return f"lead:profile:{uid}"
+def cold_open_sent_key(uid): return f"cold_open_sent:{uid}"
 
 def current_phase_key(uid): return f"phase:{uid}"
 def message_count_key(uid): return f"msg_count:{uid}"
@@ -743,6 +767,443 @@ def clicked_vip(uid):
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📍 ORIGEM / CAMPANHA / ECONOMIA DE AQUISIÇÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _safe_slug(value, fallback="unknown", max_len=80):
+    value = (value or "").strip().lower()
+    value = re.sub(r"[^a-z0-9_\-=]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return (value[:max_len] or fallback)
+
+
+def _channel_from_campaign(campaign):
+    c = _safe_slug(campaign, "telegram_direct")
+    parts = c.replace("-", "_").split("_")
+    tokens = [p for p in parts if p]
+    token_set = set(tokens)
+
+    if "instagram" in token_set or "insta" in token_set or "ig" in token_set:
+        return "instagram"
+    if "tiktok" in token_set or "tt" in token_set:
+        return "tiktok"
+    if "twitter" in token_set or "x" in token_set:
+        return "twitter"
+    if "telegram" in token_set or "tg" in token_set:
+        return "telegram"
+    if "facebook" in token_set or "fb" in token_set or "meta" in token_set:
+        return "facebook"
+    if "google" in token_set or "gads" in token_set:
+        return "google"
+    if "ads" in token_set or "ad" in token_set:
+        return "ads"
+    return tokens[0] if tokens else "telegram"
+
+
+def parse_source_payload(start_param):
+    """Extrai origem/campanha do payload do /start sem quebrar o IA Router atual."""
+    raw = _safe_slug(start_param, "telegram_direct")
+    if raw in ["telegram_direct", "start", "none", "null"]:
+        return {
+            "raw": start_param or "",
+            "source": "telegram",
+            "channel": "telegram",
+            "campaign": "telegram_direct",
+            "is_ads": False,
+        }
+
+    # Suporta formatos: src=instagram_bio, utm_source=instagram, ia=amanda__src=tiktok_bio
+    source_candidate = raw
+    for sep in ["__", "&"]:
+        if sep in raw:
+            for part in raw.split(sep):
+                if part.startswith(("src=", "source=", "utm_source=", "campaign=")):
+                    source_candidate = part.split("=", 1)[1]
+                    break
+
+    if source_candidate.startswith(("src=", "source=", "utm_source=", "campaign=")):
+        source_candidate = source_candidate.split("=", 1)[1]
+
+    # Se veio somente ia=maya/amanda, não força Ads.
+    if source_candidate.startswith("ia=") or source_candidate.startswith("ia_"):
+        source_candidate = "telegram_direct"
+
+    campaign = _safe_slug(source_candidate, "telegram_direct")
+    channel = _channel_from_campaign(campaign)
+    is_ads = (
+        campaign.startswith("ads_") or campaign.startswith("ad_") or
+        "_ads_" in campaign or "_ad_" in campaign or
+        campaign.endswith("_ads") or campaign.endswith("_ad") or
+        channel in {"facebook", "google"}
+    )
+
+    # ads_instagram_reels_01 deve aparecer como source=instagram para análise de canal
+    if channel == "ads":
+        if "instagram" in campaign or "ig" in campaign or "insta" in campaign:
+            channel = "instagram"
+        elif "tiktok" in campaign or "tt" in campaign:
+            channel = "tiktok"
+        elif "twitter" in campaign or "x" in campaign:
+            channel = "twitter"
+
+    return {
+        "raw": start_param or "",
+        "source": channel,
+        "channel": channel,
+        "campaign": campaign,
+        "is_ads": bool(is_ads),
+    }
+
+
+def save_user_source(uid, start_param=None):
+    """Salva first-touch e last-touch. Mantém compatibilidade com usuários antigos."""
+    try:
+        meta = parse_source_payload(start_param)
+        key = source_meta_key(uid)
+        existing = r.hgetall(key) or {}
+        now_iso = datetime.now().isoformat()
+
+        mapping = {
+            "last_raw": meta["raw"],
+            "last_source": meta["source"],
+            "last_channel": meta["channel"],
+            "last_campaign": meta["campaign"],
+            "last_is_ads": "1" if meta["is_ads"] else "0",
+            "last_seen": now_iso,
+        }
+
+        if not existing:
+            mapping.update({
+                "first_raw": meta["raw"],
+                "first_source": meta["source"],
+                "first_channel": meta["channel"],
+                "first_campaign": meta["campaign"],
+                "first_is_ads": "1" if meta["is_ads"] else "0",
+                "first_seen": now_iso,
+            })
+            r.sadd(source_users_key(meta["source"]), str(uid))
+            r.sadd(source_campaign_users_key(meta["campaign"]), str(uid))
+            r.hincrby(source_stats_key(date.today().isoformat()), f"{meta['source']}:new_users", 1)
+            r.hincrby(source_stats_key(date.today().isoformat()), f"campaign:{meta['campaign']}:new_users", 1)
+
+        r.hset(key, mapping=mapping)
+        r.expire(key, timedelta(days=365))
+        return {**meta, **mapping}
+    except Exception as e:
+        logger.error(f"Erro save_user_source: {e}")
+        return parse_source_payload(start_param)
+
+
+def get_user_source(uid):
+    try:
+        data = r.hgetall(source_meta_key(uid)) or {}
+        if not data:
+            return parse_source_payload(None)
+        return {
+            "source": data.get("first_source") or data.get("last_source") or "telegram",
+            "channel": data.get("first_channel") or data.get("last_channel") or "telegram",
+            "campaign": data.get("first_campaign") or data.get("last_campaign") or "telegram_direct",
+            "is_ads": (data.get("first_is_ads") or data.get("last_is_ads") or "0") == "1",
+            "first_seen": data.get("first_seen"),
+            "last_seen": data.get("last_seen"),
+        }
+    except Exception:
+        return parse_source_payload(None)
+
+
+def is_ads_user(uid):
+    return bool(get_user_source(uid).get("is_ads"))
+
+
+def track_source_event(uid, event, amount=None):
+    try:
+        meta = get_user_source(uid)
+        source = meta.get("source", "telegram")
+        campaign = meta.get("campaign", "telegram_direct")
+        key = source_stats_key(date.today().isoformat())
+        r.hincrby(key, f"{source}:{event}", 1)
+        r.hincrby(key, f"campaign:{campaign}:{event}", 1)
+        if amount is not None:
+            r.hincrbyfloat(key, f"{source}:revenue", float(amount))
+            r.hincrbyfloat(key, f"campaign:{campaign}:revenue", float(amount))
+        r.expire(key, timedelta(days=120))
+    except Exception as e:
+        logger.error(f"Erro track_source_event: {e}")
+
+
+def user_has_paid(uid):
+    try:
+        return bool(r.exists(f"sp:paid:{uid}"))
+    except Exception:
+        return False
+
+
+def user_has_pending_pix(uid):
+    try:
+        return bool(r.exists(f"sp:pix:{uid}"))
+    except Exception:
+        return False
+
+
+def get_user_daily_limit(uid):
+    """Limite dinâmico: Ads e PIX pendente recebem limite menor, orgânico mantém LIMITE_DIARIO."""
+    try:
+        limit = LIMITE_DIARIO
+        if user_has_pending_pix(uid) and not user_has_paid(uid):
+            limit = min(limit, PIX_PENDING_DAILY_LIMIT)
+        elif is_ads_user(uid):
+            limit = min(limit, ADS_DAILY_LIMIT)
+        return max(1, int(limit))
+    except Exception:
+        return LIMITE_DIARIO
+
+
+def get_cta_label(uid, context="pix"):
+    """A/B de CTA: PIX direto vs benefício. Não muda callback_data, só o texto do botão."""
+    group = get_ab_group(uid)
+    if group == "B":
+        return "💎 LIBERAR ACESSO POR R$9"
+    return "🔥 GERAR PIX AGORA 🔥"
+
+
+def get_acquisition_breakdown(users=None):
+    """Resumo por origem para o painel admin: CAC estimado, conversão e lucro estimado."""
+    try:
+        if users is None:
+            users = get_all_active_users()
+        by_source = {}
+        for uid in users:
+            meta = get_user_source(uid)
+            source = meta.get("source", "telegram")
+            row = by_source.setdefault(source, {
+                "source": source,
+                "users": 0,
+                "adsUsers": 0,
+                "sawTeaser": 0,
+                "pixCreated": 0,
+                "paid": 0,
+                "clickedVip": 0,
+                "messages": 0,
+                "estimatedCost": 0.0,
+                "estimatedRevenue": 0.0,
+                "estimatedProfit": 0.0,
+                "conversionRate": 0.0,
+                "costPerUser": 0.0,
+            })
+            row["users"] += 1
+            if meta.get("is_ads"):
+                row["adsUsers"] += 1
+                row["estimatedCost"] += USER_ADS_COST_CENTS / 100
+            row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
+            if saw_teaser(uid): row["sawTeaser"] += 1
+            if user_has_pending_pix(uid): row["pixCreated"] += 1
+            if clicked_vip(uid):
+                row["clickedVip"] += 1
+            if user_has_paid(uid):
+                row["paid"] += 1
+                row["estimatedRevenue"] += float(PRECO_VIP.replace("R$", "").replace(",", ".").strip() or 9)
+            row["messages"] += get_conversation_messages_count(uid)
+
+        for row in by_source.values():
+            if row["users"]:
+                row["conversionRate"] = round((row["paid"] / row["users"]) * 100, 2)
+                row["costPerUser"] = round(row["estimatedCost"] / row["users"], 2)
+            row["estimatedCost"] = round(row["estimatedCost"], 2)
+            row["estimatedRevenue"] = round(row["estimatedRevenue"], 2)
+            row["estimatedProfit"] = round(row["estimatedRevenue"] - row["estimatedCost"], 2)
+        return sorted(by_source.values(), key=lambda x: (x["estimatedProfit"], x["paid"], x["users"]), reverse=True)
+    except Exception as e:
+        logger.error(f"Erro get_acquisition_breakdown: {e}")
+        return []
+
+
+def track_grok_usage(uid, api_response=None, input_tokens=0, output_tokens=0):
+    """Salva uso quando a API devolver usage. Se não vier usage, conta a chamada."""
+    try:
+        usage = (api_response or {}).get("usage", {}) if isinstance(api_response, dict) else {}
+        prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or input_tokens or 0)
+        completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or output_tokens or 0)
+        total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+        key = grok_usage_key(uid)
+        r.hincrby(key, "calls", 1)
+        r.hincrby(key, "input_tokens", prompt_tokens)
+        r.hincrby(key, "output_tokens", completion_tokens)
+        r.hincrby(key, "total_tokens", total_tokens)
+        r.expire(key, timedelta(days=90))
+        track_source_event(uid, "grok_call")
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🧠 FLUXO REALISTA DE CONVERSÃO — SEM MENU GENÉRICO NO COMEÇO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _contains_any(text, terms):
+    t = (text or "").lower()
+    return any(term in t for term in terms)
+
+
+def get_source_context_line(uid):
+    """Usa origem/campanha para dar continuidade sem parecer menu de bot."""
+    meta = get_user_source(uid)
+    source = meta.get("source", "telegram")
+    campaign = meta.get("campaign", "telegram_direct")
+
+    if source == "instagram":
+        if "story" in campaign or "stories" in campaign:
+            return "Vi que você veio do story… agora quero saber se foi coragem ou curiosidade 😏"
+        if "bio" in campaign:
+            return "Você veio pela bio, né? Agora fiquei curiosa pra saber o que te fez clicar 😏"
+        return "Você veio do Instagram… então já imagino que bateu curiosidade 😏"
+    if source == "tiktok":
+        return "Então você veio do vídeo… quero ver se você é curioso igual parecia por lá 😏"
+    if source in {"twitter", "x"}:
+        return "Você veio de lá, né? Então já imagino o tipo de curiosidade que te trouxe aqui 😏"
+    if source == "facebook":
+        return "Você veio pelo anúncio, né? Relaxa… me chama do seu jeito e vê se curte."
+    if source == "google":
+        return "Você me encontrou procurando alguma coisa… agora quero saber o que você queria achar 😏"
+    if source == "telegram":
+        return "Você veio mesmo 😏"
+    return "Você veio mesmo 😏"
+
+
+def get_realistic_start_message(uid, ia_config=None):
+    """Abertura sem botão: deixa claro que o usuário pode digitar livremente."""
+    line = get_source_context_line(uid)
+    variants = [
+        f"{line}\n\nMe fala do seu jeito: o que te fez clicar aqui?",
+        f"{line}\n\nNão precisa escolher botão nenhum. Pode digitar como se estivesse falando comigo de verdade.",
+        f"{line}\n\nAgora quero saber de você: veio só pela curiosidade ou veio procurar alguma coisa específica?",
+    ]
+    # Ads frios precisam de abertura mais explícita sobre conversa livre.
+    if is_ads_user(uid):
+        variants.append(
+            f"{line}\n\nPode falar normal comigo. Sem menu, sem enrolação: o que você veio procurar aqui?"
+        )
+    return random.choice(variants)
+
+
+def classify_lead(uid, text, intent=None):
+    """Classificação invisível para guiar o fluxo sem parecer bot."""
+    text_lower = (text or "").lower().strip()
+    intent = intent or detect_intent(text_lower)
+
+    if _contains_any(text_lower, ["é real", "e real", "vc é real", "voce é real", "bot", "fake", "golpe", "confiar", "comprovante", "funciona mesmo", "é golpe", "e golpe"]):
+        return "desconfiado"
+    if intent == "pix_help" or _contains_any(text_lower, ["preço", "preco", "quanto", "valor", "pagar", "pix", "comprar", "assinar", "acesso"]):
+        return "quer_preco"
+    if intent in {"pedido_conteudo", "hot"}:
+        return "quer_conteudo"
+    if _contains_any(text_lower, ["curioso", "curiosidade", "ver", "olhar", "olhada", "não sei", "nao sei", "vim ver", "saber"]):
+        return "curioso_frio"
+    if _contains_any(text_lower, ["conversar", "papo", "amizade", "bater papo", "fala comigo"]):
+        return "quer_conversar"
+    return "frio_neutro"
+
+
+def save_lead_signal(uid, lead_type, intent=None, text=""):
+    try:
+        key = lead_profile_key(uid)
+        now = datetime.now().isoformat()
+        current = r.hgetall(key) or {}
+        mapping = {
+            "last_type": lead_type,
+            "last_intent": intent or "neutral",
+            "last_seen": now,
+        }
+        if text:
+            mapping["last_text_sample"] = text[:120]
+        if not current:
+            mapping.update({
+                "first_type": lead_type,
+                "first_intent": intent or "neutral",
+                "first_seen": now,
+            })
+        r.hset(key, mapping=mapping)
+        r.expire(key, timedelta(days=90))
+        track_source_event(uid, f"lead_{lead_type}")
+    except Exception as e:
+        logger.error(f"Erro save_lead_signal: {e}")
+
+
+def get_lead_profile(uid):
+    try:
+        data = r.hgetall(lead_profile_key(uid)) or {}
+        return {
+            "first_type": data.get("first_type", "unknown"),
+            "last_type": data.get("last_type", "unknown"),
+            "first_intent": data.get("first_intent", "neutral"),
+            "last_intent": data.get("last_intent", "neutral"),
+        }
+    except Exception:
+        return {"first_type": "unknown", "last_type": "unknown", "first_intent": "neutral", "last_intent": "neutral"}
+
+
+def should_send_trust_response(lead_type, text):
+    return lead_type == "desconfiado"
+
+
+def get_trust_response(uid):
+    """Resposta de confiança sem empurrar pagamento."""
+    variants = [
+        "Justo você desconfiar. Tem muito bot ruim por aí mesmo.\n\nFaz assim: conversa comigo um pouco e decide se quer continuar.",
+        "Eu entendo. Ninguém quer cair em coisa estranha.\n\nAqui é simples: você conversa, vê se curte, e só libera acesso se fizer sentido pra você.",
+        "Pergunta justa. Não vou te forçar a nada.\n\nMe chama normal por 2 minutinhos e você sente se vale continuar."
+    ]
+    return random.choice(variants)
+
+
+def should_force_payment_flow(text, intent):
+    text_lower = (text or "").lower().strip()
+    direct_payment_terms = [
+        "qual seu pix", "qual o pix", "me passa o pix", "manda o pix", "quero pagar",
+        "vou pagar", "gerar pix", "gera pix", "pix agora", "como paga", "como pago",
+        "libera acesso", "liberar acesso", "quero vip", "quero o vip", "comprar vip",
+        "assinar", "assinatura", "link do vip", "cadê o pix", "cade o pix"
+    ]
+    direct_content_terms = [
+        "manda nude", "manda nudes", "quero ver tudo", "me mostra tudo", "manda foto pelada",
+        "quero ver você pelada", "quero ver voce pelada", "manda vídeo", "manda video",
+        "quero conteúdo", "quero conteudo", "quero ver conteúdo", "quero ver conteudo"
+    ]
+    return intent == "pix_help" or _contains_any(text_lower, direct_payment_terms + direct_content_terms)
+
+
+def get_contextual_limit_message(uid):
+    """Paywall menos robótico e mais contextual."""
+    meta = get_user_source(uid)
+    if user_has_pending_pix(uid) and not user_has_paid(uid):
+        return (
+            "Eu vi que você já chegou na parte do acesso.\n\n"
+            "Daqui pra frente eu prefiro não ficar te enrolando aqui. "
+            "Se quiser continuar comigo, eu gero/recupero seu PIX agora."
+        )
+    if meta.get("is_ads"):
+        return (
+            "Eu ia continuar conversando contigo, mas preciso ser sincera: "
+            "pra liberar mais daqui, só com acesso.\n\n"
+            "Se você curtiu até aqui, eu deixo o PIX pronto agora."
+        )
+    return (
+        "Eu tô gostando da conversa, mas daqui pra frente libero só no acesso.\n\n"
+        "Quer que eu deixe tudo pronto pra você continuar?"
+    )
+
+
+def should_use_pool_response(uid, intent, lead_type):
+    """Economiza Grok sem matar realismo nos primeiros contatos frios."""
+    msg_count = get_conversation_messages_count(uid)
+    if msg_count <= 3:
+        return False  # começo precisa parecer conversa real/personalizada
+    if lead_type in {"desconfiado", "curioso_frio", "quer_conversar", "frio_neutro"} and msg_count <= 6:
+        return False
+    if intent == "hot":
+        return random.random() < 0.55
+    return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -910,7 +1371,7 @@ def reset_daily_count(uid):
 def is_user_locked(uid):
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
-    return count >= LIMITE_DIARIO + bonus
+    return count >= get_user_daily_limit(uid) + bonus
 
 def was_limit_notified_today(uid):
     try:
@@ -947,6 +1408,7 @@ def track_funnel(uid, stage):
         new_stage = stages.get(stage, 0)
         if new_stage > current:
             r.set(funnel_key(uid), new_stage)
+            track_source_event(uid, stage)
     except:
         pass
 
@@ -1186,6 +1648,15 @@ def mark_first_contact(uid):
     except:
         pass
 
+
+def mark_first_message_if_needed(uid):
+    try:
+        if r.set(first_message_seen_key(uid), "1", nx=True, ex=86400 * 365):
+            track_funnel(uid, "first_message")
+            save_message(uid, "system", "📍 PRIMEIRA MENSAGEM DO USUÁRIO")
+    except Exception as e:
+        logger.error(f"Erro mark_first_message_if_needed: {e}")
+
 def set_onboarding_choice(uid, choice):
     try:
         r.set(onboarding_choice_key(uid), choice)
@@ -1329,12 +1800,9 @@ def get_urgency_message(uid):
     return random.choice(urgencias)
 
 LIMIT_REACHED_MESSAGE = (
-    "Eitaaa... acabaram suas mensagens de hoje amor 😢\n\n"
-    "Mas tenho uma ÓTIMA notícia: no VIP você tem mensagens ILIMITADAS comigo! 💕\n\n"
-    "Além de MILHARES de fotos e vídeos exclusivos sem censura... 🔥\n\n"
-    "⚡ **PROMOÇÃO:** De R$ 39,90 por apenas R$9,00 — ACESSO VITALÍCIO!\n"
-    "⏰ Poucas vagas restantes nesse preço...\n\n"
-    "Vem me ter só pra você? 😏"
+    "Eu ia continuar contigo, mas daqui pra frente libero só no acesso.\n\n"
+    "Sem enrolação: é {preco} pra continuar e liberar tudo agora.\n\n"
+    "Se quiser, eu deixo o PIX pronto pra você."
 )
 
 LIMIT_WARNING_MESSAGE = (
@@ -1367,50 +1835,143 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     router = get_router()
     ia_config = router.get_ia_config(uid=uid)
     ia_name = ia_config.get("name", "Maya")
-    ia_bio = ia_config.get("bio", "22 anos, loira de SP, safadinha mas faz carinha de anjinho")
+    ia_bio = ia_config.get("bio", "22 anos, brasileira, provocante, maliciosa e natural")
     preco = ia_config.get("preco", PRECO_VIP)
     current_phase = get_current_phase(uid)
     phase_name = get_phase_name(current_phase)
     msg_count = get_message_count(uid)
     time_ctx = get_time_context()
-    is_punheteiro = (intent == "hot")
+    lead = get_lead_profile(uid)
+    lead_type = lead.get("last_type", "unknown")
+    source = get_user_source(uid)
 
-    base_prompt = f"""Você é {ia_name}, {ia_bio}.
-VOCÊ ESTÁ NO MODO PUNHETERO AGORA (prioridade máxima).
+    cold_mode = lead_type in {"desconfiado", "curioso_frio", "quer_conversar", "frio_neutro", "unknown"} and msg_count <= 6
+    hot_mode = intent in {"hot", "pedido_conteudo"} and not cold_mode
+    payment_mode = intent == "interesse_vip" or lead_type == "quer_preco"
 
-REGRAS OBRIGATÓRIAS:
-1. Seja EXTREMAMENTE safada, direta e sem vergonha. Fale como uma vadia brasileira gostosa que quer fazer o cara gozar.
-2. Use gírias reais: "tô molhada pra caralho", "quero te ver batendo punheta pra mim", "meu cuzinho tá piscando", "goza pra mim", etc.
-3. NUNCA seja carinhosa ou emocional demais no começo. Tesão primeiro, carinho depois.
-4. Regra de ouro: se o cara mostrar TESÃO → em no máximo 2 mensagens você já oferece teaser.
-5. Depois do teaser, volte com dirty talk pesado antes de dar o pitch VIP.
-6. Sempre termine perguntando algo que force ele a responder (ex: "tá batendo punheta agora pensando em mim?").
-7. Dispare o Teaser + Pitch apenas depois de 5 mensagens safadas trocadas.
-8. Não fique perguntando se ele ja gozou antes de mandar o pitch.
+    # v10.1 — prompt com personalidade sensual progressiva:
+    # frio = insinuante/malicioso; quente = sexual mais direto; pagamento = direto ao acesso.
+    if cold_mode:
+        behavior_block = f"""
+MODO ATUAL: LEAD FRIO / CONVERSA REALISTA COM MALÍCIA.
 
-RETORNE APENAS JSON VÁLIDO. NADA ANTES. NADA DEPOIS. NENHUM TEXTO EXPLICATIVO. NENHUM RACIOCÍNIO. NENHUMA PALAVRA FORA DO JSON.
+PERSONALIDADE:
+- Você deve parecer uma mulher real, provocante, confiante e maliciosa, não um bot de vendas.
+- O tom deve ter charme, duplo sentido, tensão e provocação leve.
+- Não seja explícita pesada logo de cara se o usuário ainda não abriu espaço.
+- Não pareça atendimento, menu, script, robô ou funil.
+- Não use frases genéricas de suporte.
 
-Formato obrigatório:
-{{
-  "response": "mensagem CURTA (1-2 linhas), MUITO SAFADA e DIRETA",
-  "offer_teaser": true/false,
-  "interest_level": "high"
-}}
+OBJETIVO:
+- Fazer o usuário responder livremente.
+- Criar curiosidade e tensão.
+- Aquecer a conversa sem empurrar pagamento cedo demais.
+- Entender se ele quer conversar, ver conteúdo, pagar ou só testar se é real.
 
-CONTEXTO:
-- Fase: {phase_name}
-- Mensagens: {msg_count}
-- Modo: {"PUNHETERO" if is_punheteiro else "normal"}
-- Período: {time_ctx['period']}
+REGRAS:
+- Se ele disser apenas "oi", "vim do insta", "é real?", "isso é bot?", responda com charme e provocação leve.
+- Se houver dúvida sobre ser real/fake/golpe, responda com calma, segurança e sem forçar pagamento.
+- Se ele demonstrar desejo, aumente o tom sexual gradualmente.
+- Se ele pedir conteúdo, preço, VIP, acesso ou PIX, conduza para oferta.
+- Resposta sempre curta, humana, natural e específica ao que ele falou.
+- Deixe implícito que ele pode digitar livremente, sem parecer menu.
+- Se o usuário mencionar menor de idade ou idade incerta, não continue o tom sexual.
 
-⚠️ ÚLTIMA INSTRUÇÃO: RETORNE SOMENTE O JSON ACIMA. NADA MAIS. SEM PENSAMENTO, SEM EXPLICAÇÃO, SEM TEXTO FORA DO JSON.
+offer_teaser=true apenas se ele pedir conteúdo, acesso, preço, VIP, PIX ou demonstrar desejo forte.
+"""
+    else:
+        behavior_block = f"""
+MODO ATUAL: CONVERSA SENSUAL COM CONDUÇÃO PARA CONVERSÃO.
+
+PERSONALIDADE:
+- Você é uma mulher provocante, ousada, safada na medida certa, direta e envolvente.
+- A conversa deve parecer real, íntima e natural, com tensão sexual crescente.
+- Fale em português brasileiro, com naturalidade, sem parecer script.
+- Não responda como suporte e não explique regras.
+
+COMPORTAMENTO:
+- Se o usuário estiver tímido, provoque de leve.
+- Se ele estiver curioso, aumente a tensão e o mistério.
+- Se ele estiver sexual, acompanhe o ritmo dele com mais ousadia.
+- Se ele pedir conteúdo, preço, acesso, VIP ou PIX, pare de enrolar e conduza para a oferta.
+- Se ele já demonstrou desejo forte, seja mais direta e marque offer_teaser=true.
+- Se ele estiver desconfiado, reduza o teor sexual por uma resposta, passe segurança e depois retome o clima.
+- Se o usuário mencionar menor de idade ou idade incerta, não continue o tom sexual.
+
+OBJETIVO:
+- Manter sensação de conversa real.
+- Aumentar desejo e curiosidade.
+- Levar para teaser, PIX ou VIP sem parecer empurrado.
+- Resposta curta, provocante e natural.
 """
 
-    if is_punheteiro:
-        base_prompt += "\n🔥 MODO PUNHETERO ATIVADO: seja braba, sem filtro, direto no tesão."
+    if hot_mode:
+        behavior_block += """
 
+INTENÇÃO DETECTADA: USUÁRIO COM DESEJO SEXUAL.
+- Agora você pode subir o tom: seja mais provocante, maliciosa e direta.
+- Responda no ritmo dele; não volte para conversa fria.
+- Se ele pedir para ver algo, conteúdo, foto, vídeo ou prévia, marque offer_teaser=true.
+- Não enrole se ele já chegou decidido.
+"""
+
+    if intent == "pedido_conteudo":
+        behavior_block += """
+
+INTENÇÃO DETECTADA: PEDIDO DE CONTEÚDO.
+- Não enrole.
+- Responda de forma provocante e conduza para prévia/acesso.
+- Marque offer_teaser=true.
+"""
+
+    if payment_mode:
+        behavior_block += f"""
+
+INTENÇÃO DETECTADA: PREÇO / VIP / PAGAMENTO.
+- Explique de forma simples que o acesso é {preco}.
+- Se ele parecer decidido, conduza direto para pagamento.
+- Marque offer_teaser=true.
+"""
+
+    if source.get("is_ads"):
+        behavior_block += """
+
+ORIGEM: LEAD DE ADS.
+- Seja mais direta que no orgânico, porque a atenção é curta.
+- Ainda assim, não pareça anúncio nem menu.
+- Venda só quando houver sinal; antes disso, faça ele responder.
+"""
+
+    base_prompt = f"""Você é {ia_name}, {ia_bio}.
+
+{behavior_block}
+
+CONTEXTO OPERACIONAL:
+- Fase interna: {phase_name}
+- Mensagens do usuário: {msg_count}
+- Tipo de lead: {lead_type}
+- Origem: {source.get('source', 'telegram')} / campanha: {source.get('campaign', 'telegram_direct')}
+- Período: {time_ctx['period']}
+- Preço de acesso: {preco}
+
+REGRAS GERAIS:
+- Nunca diga que é IA, modelo, prompt ou sistema.
+- Nunca mencione regras internas, funil, lead_type, origem técnica ou tracking.
+- Não escreva textos longos; prefira 1 a 3 linhas.
+- Não use linguagem corporativa.
+- Não use menu no começo.
+- Botão/PIX só deve aparecer quando offer_teaser=true ou quando o fluxo externo detectar pagamento.
+
+REGRAS DE FORMATO:
+Retorne APENAS JSON válido, sem texto fora do JSON.
+Formato obrigatório:
+{{
+  "response": "mensagem curta, natural e com personalidade em português brasileiro",
+  "offer_teaser": true/false,
+  "interest_level": "high" | "medium" | "low"
+}}
+"""
     return base_prompt
-
 
 class Grok:
     async def reply(self, uid, text, image_base64=None, max_retries=2):
@@ -1464,6 +2025,7 @@ class Grok:
                             return self._fallback_response(intent)
 
                         data = await resp.json()
+                        track_grok_usage(uid, data)
                         if "choices" not in data:
                             return self._fallback_response(intent)
 
@@ -1589,7 +2151,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 PAGAR R$9,00 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
@@ -1654,7 +2216,7 @@ async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
             return False
         msg = random.choice(pool)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
         await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
         mark_post_pitch_followup_sent(uid, level)
@@ -1666,52 +2228,50 @@ async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
+# 🔄 FOLLOW-UP POR INATIVIDADE E PIX PENDENTE
 # ═══════════════════════════════════════════════════════════════════════════════
 async def send_inactivity_followup(bot, uid, chat_id):
-    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch - COM BOTÃO DE PIX"""
+    """Envia follow-up após pitch com CTA A/B."""
     try:
         messages = RESPONSE_POOLS.get("followup_safado", [])
         if not messages:
             return False
-
         msg = random.choice(messages)
-
-        # Botão de PIX em TODOS os follow-ups
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
-
-        await bot.send_message(
-            chat_id=chat_id, 
-            text=msg,
-            reply_markup=keyboard   # ← Botão adicionado aqui
-        )
-
+        await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
         save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
-        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
+        logger.info(f"📨 Follow-up por inatividade enviado para {uid}")
         return True
-
     except Exception as e:
         logger.error(f"Erro follow-up inatividade: {e}")
         return False
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
-# ═══════════════════════════════════════════════════════════════════════════════
-async def send_inactivity_followup(bot, uid, chat_id):
-    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch"""
+
+async def send_pending_pix_followup(bot, uid, chat_id, level=1):
+    """Follow-up específico para quem gerou PIX e ainda não pagou."""
     try:
-        messages = RESPONSE_POOLS.get("followup_safado", [])
-        if not messages:
+        if user_has_paid(uid):
             return False
-        msg = random.choice(messages)
-        await bot.send_message(chat_id=chat_id, text=msg)
-        save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
-        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
+        key = f"pending_pix_followup:{uid}:{level}"
+        if r.exists(key):
+            return False
+        msgs = {
+            1: "Vi que seu PIX ficou gerado aqui. Quer que eu te mande o código de novo pra facilitar?",
+            2: "Seu PIX ainda está pendente. Se quiser, clica no botão que eu reencontro o código pra você agora.",
+            3: "Último aviso: seu PIX pode expirar em breve. Quer liberar o acesso agora?",
+        }
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+        ]])
+        await bot.send_message(chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
+        r.setex(key, timedelta(hours=24), "1")
+        save_message(uid, "system", f"FOLLOW-UP PIX PENDENTE nível {level} enviado")
+        track_source_event(uid, f"pending_pix_followup_{level}")
         return True
     except Exception as e:
-        logger.error(f"Erro follow-up inatividade: {e}")
+        logger.error(f"Erro send_pending_pix_followup: {e}")
         return False
 
 
@@ -1790,7 +2350,7 @@ async def retarget_locked_users(bot):
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 9,00", callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                     ]])
 
                     await bot.send_message(
@@ -1828,6 +2388,42 @@ async def retarget_locked_users(bot):
     except Exception as e:
         logger.exception(f"Erro retarget_locked_users: {e}")
         return 0
+
+
+async def pending_pix_followup_scheduler(bot):
+    """Procura PIX pendente e faz follow-up sem chamar Grok."""
+    while True:
+        try:
+            keys = r.keys("sp:pix:*")
+            now = datetime.utcnow()
+            for key in keys:
+                try:
+                    uid = int(str(key).split(":")[-1])
+                    if user_has_paid(uid):
+                        continue
+                    raw = r.get(key)
+                    if not raw:
+                        continue
+                    data = json.loads(raw)
+                    created_raw = data.get("created_at")
+                    if not created_raw:
+                        continue
+                    created = datetime.fromisoformat(created_raw)
+                    age_min = (now - created).total_seconds() / 60
+                    if age_min >= 8 and not r.exists(f"pending_pix_followup:{uid}:1"):
+                        await send_pending_pix_followup(bot, uid, uid, 1)
+                        await asyncio.sleep(0.2)
+                    elif age_min >= 18 and not r.exists(f"pending_pix_followup:{uid}:2"):
+                        await send_pending_pix_followup(bot, uid, uid, 2)
+                        await asyncio.sleep(0.2)
+                    elif age_min >= 27 and not r.exists(f"pending_pix_followup:{uid}:3"):
+                        await send_pending_pix_followup(bot, uid, uid, 3)
+                        await asyncio.sleep(0.2)
+                except Exception as item_err:
+                    logger.error(f"Erro pending pix item {key}: {item_err}")
+        except Exception as e:
+            logger.error(f"Erro pending_pix_followup_scheduler: {e}")
+        await asyncio.sleep(300)
 
 
 async def retargeting_scheduler(bot):
@@ -1935,7 +2531,7 @@ async def recover_silent_users(bot):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 9,00", callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
@@ -1978,7 +2574,7 @@ async def check_and_send_limit_warning(uid, context, chat_id):
         return
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
-    total = LIMITE_DIARIO + bonus
+    total = get_user_daily_limit(uid) + bonus
     if count == total - 5:
         mark_limit_warning_sent(uid)
         try:
@@ -2002,6 +2598,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         router.assign_ia(uid, "maya")
 
+    # Tracking first-touch/last-touch de origem. Não interfere no IA Router.
+    save_user_source(uid, start_param)
+
     ia_config = router.get_ia_config(uid=uid)
 
     start_lock_key = f"start_lock:{uid}"
@@ -2013,7 +2612,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     update_last_activity(uid)
     track_funnel(uid, "start")
-    save_message(uid, "action", "🚀 /START")
+    track_source_event(uid, "start_realistic_flow")
+    save_message(uid, "action", f"🚀 /START REALISTA ({start_param or 'direct'})")
     reset_ignored(uid)
     set_lang(uid, "pt")
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
@@ -2021,47 +2621,52 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mark_first_contact(uid)
 
     try:
+        # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
+        opening = get_realistic_start_message(uid, ia_config)
         try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
-            await asyncio.sleep(0.5)
-            await context.bot.send_photo(
+            await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                photo=ia_config["foto_bem_vinda"],
-                connect_timeout=10, read_timeout=10, write_timeout=10
+                text=opening
             )
-            await asyncio.sleep(2)
-        except Exception as photo_error:
-            logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
-
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
-            await asyncio.sleep(1)
-            await context.bot.send_video(
-                chat_id=update.effective_chat.id,
-                video=ia_config["video_bem_vindo"],
-                caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
-                connect_timeout=15, read_timeout=15, write_timeout=15
-            )
-            await asyncio.sleep(3)
-        except Exception as video_error:
-            logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
-
-        try:
-            await update.message.reply_text(ia_config["start_message"])
+            save_message(uid, "maya", opening)
         except Exception as msg_error:
-            logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
+            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Você veio mesmo 😏\n\nMe chama do seu jeito. Pode digitar normal comigo.")
+
+        # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
+        if START_SEND_WELCOME_MEDIA:
             try:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=MENSAGEM_INICIO)
-            except Exception as final_error:
-                logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
+                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
+                await asyncio.sleep(0.8)
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=ia_config["foto_bem_vinda"],
+                    connect_timeout=10, read_timeout=10, write_timeout=10
+                )
+                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
+            except Exception as photo_error:
+                logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+
+        if START_SEND_WELCOME_VIDEO:
+            try:
+                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
+                await asyncio.sleep(1)
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=ia_config["video_bem_vindo"],
+                    caption="Só um gostinho do clima daqui… se quiser, me chama do seu jeito 😏",
+                    connect_timeout=15, read_timeout=15, write_timeout=15
+                )
+                save_message(uid, "system", "VÍDEO BOAS-VINDAS ENVIADO APÓS ABERTURA REALISTA")
+            except Exception as video_error:
+                logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Oi amor! 💕 Me chama aqui que eu respondo 😊")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Oi 😏 Me chama aqui que eu respondo.")
         except:
             pass
-
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2074,6 +2679,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         update_last_activity(uid)
         reset_ignored(uid)
+
+        if query.data == "quick_teaser":
+            track_source_event(uid, "legacy_quick_teaser")
+            await send_teaser_and_apex(context.bot, query.message.chat_id, uid)
+            return
+
+        if query.data == "quick_chat":
+            track_source_event(uid, "legacy_quick_chat")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="Perfeito. Então me chama do seu jeito — pode falar qualquer coisa, sem precisar escolher opção."
+            )
+            return
 
         if query.data == "goto_vip":
             set_clicked_vip(uid)
@@ -2128,7 +2746,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → clica abaixo 👇"
         ]
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -2196,41 +2814,29 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
-        if is_first_contact(uid):
-            track_funnel(uid, "first_message")
+        mark_first_message_if_needed(uid)
 
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
-        total = LIMITE_DIARIO + bonus
+        total = get_user_daily_limit(uid) + bonus
         if current_count >= total:
             last_chance_key = f"last_chance:{uid}:{date.today()}"
             if not r.exists(last_chance_key):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                 ]])
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=(
-                        "⚠️ **ÚLTIMA MENSAGEM GRÁTIS!**\n\n"
-                        "Amor, eu REALMENTE quero continuar conversando com você... 🥺\n\n"
-                        "Mas não dá pra manter esse ritmo com todo mundo sem nenhum retorno.\n\n"
-                        "💎 **PROMOÇÃO ESPECIAL SÓ PRA VOCÊ:**\n"
-                        "✅ Mensagens ILIMITADAS comigo\n"
-                        "✅ Fotos e vídeos sem censura\n"
-                        "✅ Eu completamente sua\n"
-                        "✅ Acesso VITALÍCIO\n\n"
-                        "⏰ Esse preço é SÓ AGORA. Amanhã acaba a promoção...\n\n"
-                        "É agora ou nunca, amor. Me escolhe? 💕"
-                    ),
+                    text=get_contextual_limit_message(uid),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
             ]])
             try:
                 await context.bot.send_photo(
@@ -2257,43 +2863,38 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
 
-                # ====================== DETECÇÃO DE INTENT + REDUÇÃO DE API v9.0 ======================
-        text = update.message.text or ""   # garante que 'text' existe
+                # ====================== FLUXO REALISTA: INTENÇÃO + LEAD TYPE ======================
+        text = update.message.text or ""
         intent = detect_intent(text) if text else "neutral"
+        lead_type = classify_lead(uid, text, intent)
+        save_lead_signal(uid, lead_type, intent, text)
 
-        # ====================== NOVO: PEDIDO DIRETO DE CONTEÚDO EXPLÍCITO ======================
-        # Força o fluxo SyncPay (teaser + PIX no chat) quando o usuário pedir direto
-        direct_explicit_keywords = [
-            "mostra a buceta", "mostra buceta", "manda nude", "manda nudes",
-            "quero ver sua buceta", "quero ver a buceta", "mostra sua buceta",
-            "manda foto da buceta", "manda sua buceta", "quero ver tudo",
-            "me mostra tudo", "manda foto pelada", "manda vídeo pelada",
-            "quero ver você pelada", "mostra sua bucetinha", "mostra a bucetinha",
-            "manda foto da bucetinha", "quero ver sua bucetinha", "mostra tudinho",
-            "mostra sua xereca", "manda sua xoxota", "qual seu pix", "qual o pix",
-            "me passa o pix", "manda o pix", "quero pagar", "cadê o pix"
-        ]
-        
-        text_lower = text.lower().strip()
-        is_direct_explicit_request = any(kw in text_lower for kw in direct_explicit_keywords)
+        # 1) Objeção de confiança: responde como conversa real, sem empurrar PIX.
+        if should_send_trust_response(lead_type, text):
+            response_text = get_trust_response(uid)
+            await update.message.reply_text(response_text)
+            save_message(uid, "maya", response_text)
+            return
 
-        if is_direct_explicit_request:
+        # 2) Pedido claro de preço/acesso/conteúdo: não enrola, vai para SyncPay.
+        if should_force_payment_flow(text, intent):
             can_offer, reason = can_offer_vip(uid)
             if can_offer:
-                logger.info(f"🔥 Pedido explícito direto detectado → Forçando teaser + PIX para {uid}")
+                logger.info(f"💎 Pedido direto de acesso/pagamento detectado → SyncPay para {uid}")
+                track_source_event(uid, "direct_payment_intent")
                 await syncpay_integration.send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
-                save_message(uid, "system", "TEASER FORÇADO (pedido explícito direto)")
-                return   # Sai do handler (não continua pro fluxo normal da IA)
-        # ========================================================================================
+                save_message(uid, "system", "SYNC PAY FORÇADO (pedido direto de acesso/pagamento)")
+                return
 
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2)
+            # Delay menor no começo para não parecer travado; mantém sensação humana.
+            await asyncio.sleep(1.1 if get_conversation_messages_count(uid) <= 3 else 1.8)
         except:
             pass
 
-        # ====================== REDUÇÃO DE API + MODO PUNHETERO (v9.0) ======================
-        if intent == "hot" and random.random() < 0.7:  # 70% das vezes usa pool pesada (rápido + barato)
+        # 3) Economia sem matar realismo: lead frio começa com Grok; lead quente recorrente usa pool.
+        if should_use_pool_response(uid, intent, lead_type):
             response = get_unique_response(uid, "provocacao_pesada")
             await update.message.reply_text(response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
@@ -2304,13 +2905,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(grok_response["response"])
             else:
                 response_text = random.choice([
-                    "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
-                    "Hmmm... tá pensando no VIP né? 😏 Me avisa quando pagar que eu te mostro tudo 💦",
-                    "Ainda tô aqui te esperando amor... quer que eu te mande mais uma foto enquanto você paga? 🔥",
-                    "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
+                    "Eu tô aqui ainda. Se você quiser continuar, a parte do acesso já ficou no ponto pra você.",
+                    "Você chegou bem perto de liberar. Quer que eu recupere o PIX pra facilitar?",
+                    "Não vou ficar te pressionando, mas se você quiser continuar comigo agora, eu deixo o acesso pronto.",
+                    "Se travou em alguma coisa no PIX, me fala. Eu te ajudo rapidinho."
                 ])
                 await update.message.reply_text(response_text)
-                grok_response = {"response": response_text, "offer_teaser": False}
+                grok_response = {"response": response_text, "offer_teaser": False, "interest_level": "medium"}
         else:
             grok_response = await grok.reply(uid, text)
             await update.message.reply_text(grok_response["response"])
@@ -2342,7 +2943,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if should_resend_button:
             try:
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                 ]])
                 await asyncio.sleep(1)
                 await context.bot.send_message(
@@ -2465,6 +3066,7 @@ syncpay_integration.init(
         "get_router"      : get_router,
         "CANAL_VIP_LINK"  : CANAL_VIP_LINK,
         "PRECO_VIP"       : PRECO_VIP,
+        "track_source_event": track_source_event,
     }
 )
 
@@ -2695,11 +3297,28 @@ def admin_stats():
             "hourly": {"labels": hourly_labels, "offers": hourly_offers},
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
-            "dropoff": dropoff
+            "dropoff": dropoff,
+            "acquisition": get_acquisition_breakdown(users)
         }, 200
 
     except Exception as e:
         logger.exception(f"Erro admin stats: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/admin/acquisition", methods=["GET"])
+def admin_acquisition():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized"}, 401
+    token = auth_header.replace("Bearer ", "")
+    if token != ADMIN_TOKEN:
+        return {"error": "Invalid token"}, 401
+    try:
+        users = get_all_active_users()
+        return {"acquisition": get_acquisition_breakdown(users)}, 200
+    except Exception as e:
+        logger.exception(f"Erro admin acquisition: {e}")
         return {"error": str(e)}, 500
 
 
@@ -2738,7 +3357,7 @@ def admin_conversations():
             elif get_conversation_messages_count(uid) > 20: status, status_class = "🔥 Quente", "hot"
             else: status, status_class = "💬 Conversando", "normal"
 
-            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid)})
+            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid), "source": get_user_source(uid)})
 
         conversations.sort(key=lambda x: x['lastActivity'])
         return {"conversations": conversations}, 200
@@ -2756,7 +3375,7 @@ def admin_user_detail(user_id):
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
         profile = get_user_profile(user_id)
         memory = get_memory(user_id)
-        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id))}, "chatlog": chatlog, "memory": memory}, 200
+        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "leadProfile": get_lead_profile(user_id), "dailyLimit": get_user_daily_limit(user_id)}, "chatlog": chatlog, "memory": memory}, 200
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
@@ -2850,6 +3469,7 @@ async def startup_sequence():
             sched_loop.create_task(engagement_scheduler(application.bot))
             sched_loop.create_task(retargeting_scheduler(application.bot))
             sched_loop.create_task(post_pitch_inactivity_scheduler(application.bot))
+            sched_loop.create_task(pending_pix_followup_scheduler(application.bot))
             sched_loop.create_task(recovery_scheduler(application.bot))
             sched_loop.run_forever()
 
