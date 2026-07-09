@@ -408,9 +408,9 @@ VIDEOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
-FOTO_BEM_VINDA = "https://i.postimg.cc/TYBM0RGT/3b019ee22cba562c0dc506c0a6d88d3c.jpg"
+FOTO_BEM_VINDA = "https://i.postimg.cc/ZnpXbj9R/content.png"
 
-VIDEO_BEM_VINDO = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4P-tj41ZAQAHbQADPAQ"
+VIDEO_BEM_VINDO = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
 
 FREE_TEASER_VIDEO_IDS = [
     "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
