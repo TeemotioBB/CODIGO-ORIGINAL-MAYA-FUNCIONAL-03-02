@@ -375,8 +375,8 @@ AB_TEST_RATIO = 0.5
 MODELO = "grok-4.20-0309-non-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
-START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
-START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
+START_SEND_WELCOME_MEDIA = True
+START_SEND_WELCOME_VIDEO = True
 
 logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
