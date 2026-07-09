@@ -352,6 +352,16 @@ if not WEBHOOK_BASE_URL.startswith("http"):
 
 LIMITE_DIARIO = 30
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💰 AQUISIÇÃO / CONVERSÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+# Mantém 30 mensagens como padrão para não quebrar o comportamento atual.
+# Para usuários vindos de Ads, limita mais cedo para proteger margem.
+ADS_DAILY_LIMIT = int(os.getenv("ADS_DAILY_LIMIT", "15"))
+PIX_PENDING_DAILY_LIMIT = int(os.getenv("PIX_PENDING_DAILY_LIMIT", "5"))
+USER_ADS_COST_CENTS = int(os.getenv("USER_ADS_COST_CENTS", "20"))  # R$0,20 por usuário de Ads
+DEFAULT_BOT_COST_CENTS = int(os.getenv("DEFAULT_BOT_COST_CENTS", "40"))  # estimativa conservadora
+
 VIP_COOLDOWN_AFTER_REJECT = 8
 MAX_VIP_OFFERS_PER_SESSION = 999
 TEASER_COOLDOWN_MESSAGES = 3
@@ -434,6 +444,7 @@ INTERESSE_VIP_KEYWORDS = [
 def memory_key(uid): return f"memory:{uid}"
 def user_profile_key(uid): return f"profile:{uid}"
 def first_contact_key(uid): return f"first_contact:{uid}"
+def first_message_seen_key(uid): return f"first_message_seen:{uid}"
 def lang_key(uid): return f"lang:{uid}"
 def count_key(uid): return f"count:{uid}:{date.today()}"
 def bonus_msgs_key(uid): return f"bonus:{uid}"
@@ -457,6 +468,15 @@ def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
 def funnel_key(uid): return f"funnel:{uid}"
+
+# Origem / campanha / custo
+# Ex.: /start ads_instagram_reels_01 → channel=instagram, campaign=ads_instagram_reels_01
+# Ex.: /start tiktok_bio → channel=tiktok, campaign=tiktok_bio
+def source_meta_key(uid): return f"source:meta:{uid}"
+def source_users_key(source): return f"source:users:{source}"
+def source_campaign_users_key(campaign): return f"source:campaign_users:{campaign}"
+def source_stats_key(d): return f"source:stats:{d}"
+def grok_usage_key(uid): return f"grok:usage:{uid}:{date.today()}"
 
 def current_phase_key(uid): return f"phase:{uid}"
 def message_count_key(uid): return f"msg_count:{uid}"
@@ -743,6 +763,274 @@ def clicked_vip(uid):
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 📍 ORIGEM / CAMPANHA / ECONOMIA DE AQUISIÇÃO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _safe_slug(value, fallback="unknown", max_len=80):
+    value = (value or "").strip().lower()
+    value = re.sub(r"[^a-z0-9_\-=]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return (value[:max_len] or fallback)
+
+
+def _channel_from_campaign(campaign):
+    c = _safe_slug(campaign, "telegram_direct")
+    parts = c.replace("-", "_").split("_")
+    tokens = [p for p in parts if p]
+    token_set = set(tokens)
+
+    if "instagram" in token_set or "insta" in token_set or "ig" in token_set:
+        return "instagram"
+    if "tiktok" in token_set or "tt" in token_set:
+        return "tiktok"
+    if "twitter" in token_set or "x" in token_set:
+        return "twitter"
+    if "telegram" in token_set or "tg" in token_set:
+        return "telegram"
+    if "facebook" in token_set or "fb" in token_set or "meta" in token_set:
+        return "facebook"
+    if "google" in token_set or "gads" in token_set:
+        return "google"
+    if "ads" in token_set or "ad" in token_set:
+        return "ads"
+    return tokens[0] if tokens else "telegram"
+
+
+def parse_source_payload(start_param):
+    """Extrai origem/campanha do payload do /start sem quebrar o IA Router atual."""
+    raw = _safe_slug(start_param, "telegram_direct")
+    if raw in ["telegram_direct", "start", "none", "null"]:
+        return {
+            "raw": start_param or "",
+            "source": "telegram",
+            "channel": "telegram",
+            "campaign": "telegram_direct",
+            "is_ads": False,
+        }
+
+    # Suporta formatos: src=instagram_bio, utm_source=instagram, ia=amanda__src=tiktok_bio
+    source_candidate = raw
+    for sep in ["__", "&"]:
+        if sep in raw:
+            for part in raw.split(sep):
+                if part.startswith(("src=", "source=", "utm_source=", "campaign=")):
+                    source_candidate = part.split("=", 1)[1]
+                    break
+
+    if source_candidate.startswith(("src=", "source=", "utm_source=", "campaign=")):
+        source_candidate = source_candidate.split("=", 1)[1]
+
+    # Se veio somente ia=maya/amanda, não força Ads.
+    if source_candidate.startswith("ia=") or source_candidate.startswith("ia_"):
+        source_candidate = "telegram_direct"
+
+    campaign = _safe_slug(source_candidate, "telegram_direct")
+    channel = _channel_from_campaign(campaign)
+    is_ads = (
+        campaign.startswith("ads_") or campaign.startswith("ad_") or
+        "_ads_" in campaign or "_ad_" in campaign or
+        campaign.endswith("_ads") or campaign.endswith("_ad") or
+        channel in {"facebook", "google"}
+    )
+
+    # ads_instagram_reels_01 deve aparecer como source=instagram para análise de canal
+    if channel == "ads":
+        if "instagram" in campaign or "ig" in campaign or "insta" in campaign:
+            channel = "instagram"
+        elif "tiktok" in campaign or "tt" in campaign:
+            channel = "tiktok"
+        elif "twitter" in campaign or "x" in campaign:
+            channel = "twitter"
+
+    return {
+        "raw": start_param or "",
+        "source": channel,
+        "channel": channel,
+        "campaign": campaign,
+        "is_ads": bool(is_ads),
+    }
+
+
+def save_user_source(uid, start_param=None):
+    """Salva first-touch e last-touch. Mantém compatibilidade com usuários antigos."""
+    try:
+        meta = parse_source_payload(start_param)
+        key = source_meta_key(uid)
+        existing = r.hgetall(key) or {}
+        now_iso = datetime.now().isoformat()
+
+        mapping = {
+            "last_raw": meta["raw"],
+            "last_source": meta["source"],
+            "last_channel": meta["channel"],
+            "last_campaign": meta["campaign"],
+            "last_is_ads": "1" if meta["is_ads"] else "0",
+            "last_seen": now_iso,
+        }
+
+        if not existing:
+            mapping.update({
+                "first_raw": meta["raw"],
+                "first_source": meta["source"],
+                "first_channel": meta["channel"],
+                "first_campaign": meta["campaign"],
+                "first_is_ads": "1" if meta["is_ads"] else "0",
+                "first_seen": now_iso,
+            })
+            r.sadd(source_users_key(meta["source"]), str(uid))
+            r.sadd(source_campaign_users_key(meta["campaign"]), str(uid))
+            r.hincrby(source_stats_key(date.today().isoformat()), f"{meta['source']}:new_users", 1)
+            r.hincrby(source_stats_key(date.today().isoformat()), f"campaign:{meta['campaign']}:new_users", 1)
+
+        r.hset(key, mapping=mapping)
+        r.expire(key, timedelta(days=365))
+        return {**meta, **mapping}
+    except Exception as e:
+        logger.error(f"Erro save_user_source: {e}")
+        return parse_source_payload(start_param)
+
+
+def get_user_source(uid):
+    try:
+        data = r.hgetall(source_meta_key(uid)) or {}
+        if not data:
+            return parse_source_payload(None)
+        return {
+            "source": data.get("first_source") or data.get("last_source") or "telegram",
+            "channel": data.get("first_channel") or data.get("last_channel") or "telegram",
+            "campaign": data.get("first_campaign") or data.get("last_campaign") or "telegram_direct",
+            "is_ads": (data.get("first_is_ads") or data.get("last_is_ads") or "0") == "1",
+            "first_seen": data.get("first_seen"),
+            "last_seen": data.get("last_seen"),
+        }
+    except Exception:
+        return parse_source_payload(None)
+
+
+def is_ads_user(uid):
+    return bool(get_user_source(uid).get("is_ads"))
+
+
+def track_source_event(uid, event, amount=None):
+    try:
+        meta = get_user_source(uid)
+        source = meta.get("source", "telegram")
+        campaign = meta.get("campaign", "telegram_direct")
+        key = source_stats_key(date.today().isoformat())
+        r.hincrby(key, f"{source}:{event}", 1)
+        r.hincrby(key, f"campaign:{campaign}:{event}", 1)
+        if amount is not None:
+            r.hincrbyfloat(key, f"{source}:revenue", float(amount))
+            r.hincrbyfloat(key, f"campaign:{campaign}:revenue", float(amount))
+        r.expire(key, timedelta(days=120))
+    except Exception as e:
+        logger.error(f"Erro track_source_event: {e}")
+
+
+def user_has_paid(uid):
+    try:
+        return bool(r.exists(f"sp:paid:{uid}"))
+    except Exception:
+        return False
+
+
+def user_has_pending_pix(uid):
+    try:
+        return bool(r.exists(f"sp:pix:{uid}"))
+    except Exception:
+        return False
+
+
+def get_user_daily_limit(uid):
+    """Limite dinâmico: Ads e PIX pendente recebem limite menor, orgânico mantém LIMITE_DIARIO."""
+    try:
+        limit = LIMITE_DIARIO
+        if user_has_pending_pix(uid) and not user_has_paid(uid):
+            limit = min(limit, PIX_PENDING_DAILY_LIMIT)
+        elif is_ads_user(uid):
+            limit = min(limit, ADS_DAILY_LIMIT)
+        return max(1, int(limit))
+    except Exception:
+        return LIMITE_DIARIO
+
+
+def get_cta_label(uid, context="pix"):
+    """A/B de CTA: PIX direto vs benefício. Não muda callback_data, só o texto do botão."""
+    group = get_ab_group(uid)
+    if group == "B":
+        return "💎 LIBERAR ACESSO POR R$9"
+    return "🔥 GERAR PIX AGORA 🔥"
+
+
+def get_acquisition_breakdown(users=None):
+    """Resumo por origem para o painel admin: CAC estimado, conversão e lucro estimado."""
+    try:
+        if users is None:
+            users = get_all_active_users()
+        by_source = {}
+        for uid in users:
+            meta = get_user_source(uid)
+            source = meta.get("source", "telegram")
+            row = by_source.setdefault(source, {
+                "source": source,
+                "users": 0,
+                "adsUsers": 0,
+                "sawTeaser": 0,
+                "pixCreated": 0,
+                "paid": 0,
+                "clickedVip": 0,
+                "messages": 0,
+                "estimatedCost": 0.0,
+                "estimatedRevenue": 0.0,
+                "estimatedProfit": 0.0,
+                "conversionRate": 0.0,
+                "costPerUser": 0.0,
+            })
+            row["users"] += 1
+            if meta.get("is_ads"):
+                row["adsUsers"] += 1
+                row["estimatedCost"] += USER_ADS_COST_CENTS / 100
+            row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
+            if saw_teaser(uid): row["sawTeaser"] += 1
+            if user_has_pending_pix(uid): row["pixCreated"] += 1
+            if clicked_vip(uid):
+                row["clickedVip"] += 1
+            if user_has_paid(uid):
+                row["paid"] += 1
+                row["estimatedRevenue"] += float(PRECO_VIP.replace("R$", "").replace(",", ".").strip() or 9)
+            row["messages"] += get_conversation_messages_count(uid)
+
+        for row in by_source.values():
+            if row["users"]:
+                row["conversionRate"] = round((row["paid"] / row["users"]) * 100, 2)
+                row["costPerUser"] = round(row["estimatedCost"] / row["users"], 2)
+            row["estimatedCost"] = round(row["estimatedCost"], 2)
+            row["estimatedRevenue"] = round(row["estimatedRevenue"], 2)
+            row["estimatedProfit"] = round(row["estimatedRevenue"] - row["estimatedCost"], 2)
+        return sorted(by_source.values(), key=lambda x: (x["estimatedProfit"], x["paid"], x["users"]), reverse=True)
+    except Exception as e:
+        logger.error(f"Erro get_acquisition_breakdown: {e}")
+        return []
+
+
+def track_grok_usage(uid, api_response=None, input_tokens=0, output_tokens=0):
+    """Salva uso quando a API devolver usage. Se não vier usage, conta a chamada."""
+    try:
+        usage = (api_response or {}).get("usage", {}) if isinstance(api_response, dict) else {}
+        prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or input_tokens or 0)
+        completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or output_tokens or 0)
+        total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+        key = grok_usage_key(uid)
+        r.hincrby(key, "calls", 1)
+        r.hincrby(key, "input_tokens", prompt_tokens)
+        r.hincrby(key, "output_tokens", completion_tokens)
+        r.hincrby(key, "total_tokens", total_tokens)
+        r.expire(key, timedelta(days=90))
+        track_source_event(uid, "grok_call")
+    except Exception:
+        pass
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -910,7 +1198,7 @@ def reset_daily_count(uid):
 def is_user_locked(uid):
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
-    return count >= LIMITE_DIARIO + bonus
+    return count >= get_user_daily_limit(uid) + bonus
 
 def was_limit_notified_today(uid):
     try:
@@ -947,6 +1235,7 @@ def track_funnel(uid, stage):
         new_stage = stages.get(stage, 0)
         if new_stage > current:
             r.set(funnel_key(uid), new_stage)
+            track_source_event(uid, stage)
     except:
         pass
 
@@ -1185,6 +1474,15 @@ def mark_first_contact(uid):
         r.set(first_contact_key(uid), datetime.now().isoformat())
     except:
         pass
+
+
+def mark_first_message_if_needed(uid):
+    try:
+        if r.set(first_message_seen_key(uid), "1", nx=True, ex=86400 * 365):
+            track_funnel(uid, "first_message")
+            save_message(uid, "system", "📍 PRIMEIRA MENSAGEM DO USUÁRIO")
+    except Exception as e:
+        logger.error(f"Erro mark_first_message_if_needed: {e}")
 
 def set_onboarding_choice(uid, choice):
     try:
@@ -1464,6 +1762,7 @@ class Grok:
                             return self._fallback_response(intent)
 
                         data = await resp.json()
+                        track_grok_usage(uid, data)
                         if "choices" not in data:
                             return self._fallback_response(intent)
 
@@ -1589,7 +1888,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 PAGAR R$9,00 E LIBERAR TUDO 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
@@ -1654,7 +1953,7 @@ async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
             return False
         msg = random.choice(pool)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
         await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
         mark_post_pitch_followup_sent(uid, level)
@@ -1666,52 +1965,50 @@ async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
         return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
+# 🔄 FOLLOW-UP POR INATIVIDADE E PIX PENDENTE
 # ═══════════════════════════════════════════════════════════════════════════════
 async def send_inactivity_followup(bot, uid, chat_id):
-    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch - COM BOTÃO DE PIX"""
+    """Envia follow-up após pitch com CTA A/B."""
     try:
         messages = RESPONSE_POOLS.get("followup_safado", [])
         if not messages:
             return False
-
         msg = random.choice(messages)
-
-        # Botão de PIX em TODOS os follow-ups
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
-
-        await bot.send_message(
-            chat_id=chat_id, 
-            text=msg,
-            reply_markup=keyboard   # ← Botão adicionado aqui
-        )
-
+        await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
         save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
-        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
+        logger.info(f"📨 Follow-up por inatividade enviado para {uid}")
         return True
-
     except Exception as e:
         logger.error(f"Erro follow-up inatividade: {e}")
         return False
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 FOLLOW-UP POR INATIVIDADE (a cada 15 minutos)
-# ═══════════════════════════════════════════════════════════════════════════════
-async def send_inactivity_followup(bot, uid, chat_id):
-    """Envia follow-up safado a cada 15 minutos de silêncio após o pitch"""
+
+async def send_pending_pix_followup(bot, uid, chat_id, level=1):
+    """Follow-up específico para quem gerou PIX e ainda não pagou."""
     try:
-        messages = RESPONSE_POOLS.get("followup_safado", [])
-        if not messages:
+        if user_has_paid(uid):
             return False
-        msg = random.choice(messages)
-        await bot.send_message(chat_id=chat_id, text=msg)
-        save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
-        logger.info(f"📨 Follow-up por inatividade (15min) enviado para {uid}")
+        key = f"pending_pix_followup:{uid}:{level}"
+        if r.exists(key):
+            return False
+        msgs = {
+            1: "Vi que seu PIX ficou gerado aqui. Quer que eu te mande o código de novo pra facilitar?",
+            2: "Seu PIX ainda está pendente. Se quiser, clica no botão que eu reencontro o código pra você agora.",
+            3: "Último aviso: seu PIX pode expirar em breve. Quer liberar o acesso agora?",
+        }
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+        ]])
+        await bot.send_message(chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
+        r.setex(key, timedelta(hours=24), "1")
+        save_message(uid, "system", f"FOLLOW-UP PIX PENDENTE nível {level} enviado")
+        track_source_event(uid, f"pending_pix_followup_{level}")
         return True
     except Exception as e:
-        logger.error(f"Erro follow-up inatividade: {e}")
+        logger.error(f"Erro send_pending_pix_followup: {e}")
         return False
 
 
@@ -1790,7 +2087,7 @@ async def retarget_locked_users(bot):
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 GARANTIR DESCONTO DE R$ 9,00", callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                     ]])
 
                     await bot.send_message(
@@ -1828,6 +2125,42 @@ async def retarget_locked_users(bot):
     except Exception as e:
         logger.exception(f"Erro retarget_locked_users: {e}")
         return 0
+
+
+async def pending_pix_followup_scheduler(bot):
+    """Procura PIX pendente e faz follow-up sem chamar Grok."""
+    while True:
+        try:
+            keys = r.keys("sp:pix:*")
+            now = datetime.utcnow()
+            for key in keys:
+                try:
+                    uid = int(str(key).split(":")[-1])
+                    if user_has_paid(uid):
+                        continue
+                    raw = r.get(key)
+                    if not raw:
+                        continue
+                    data = json.loads(raw)
+                    created_raw = data.get("created_at")
+                    if not created_raw:
+                        continue
+                    created = datetime.fromisoformat(created_raw)
+                    age_min = (now - created).total_seconds() / 60
+                    if age_min >= 8 and not r.exists(f"pending_pix_followup:{uid}:1"):
+                        await send_pending_pix_followup(bot, uid, uid, 1)
+                        await asyncio.sleep(0.2)
+                    elif age_min >= 18 and not r.exists(f"pending_pix_followup:{uid}:2"):
+                        await send_pending_pix_followup(bot, uid, uid, 2)
+                        await asyncio.sleep(0.2)
+                    elif age_min >= 27 and not r.exists(f"pending_pix_followup:{uid}:3"):
+                        await send_pending_pix_followup(bot, uid, uid, 3)
+                        await asyncio.sleep(0.2)
+                except Exception as item_err:
+                    logger.error(f"Erro pending pix item {key}: {item_err}")
+        except Exception as e:
+            logger.error(f"Erro pending_pix_followup_scheduler: {e}")
+        await asyncio.sleep(300)
 
 
 async def retargeting_scheduler(bot):
@@ -1935,7 +2268,7 @@ async def recover_silent_users(bot):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("💎 QUERO ACESSO POR R$ 9,00", callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
@@ -1978,7 +2311,7 @@ async def check_and_send_limit_warning(uid, context, chat_id):
         return
     count = today_count(uid)
     bonus = get_bonus_msgs(uid)
-    total = LIMITE_DIARIO + bonus
+    total = get_user_daily_limit(uid) + bonus
     if count == total - 5:
         mark_limit_warning_sent(uid)
         try:
@@ -2002,6 +2335,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         router.assign_ia(uid, "maya")
 
+    # Tracking first-touch/last-touch de origem. Não interfere no IA Router.
+    save_user_source(uid, start_param)
+
     ia_config = router.get_ia_config(uid=uid)
 
     start_lock_key = f"start_lock:{uid}"
@@ -2013,7 +2349,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     update_last_activity(uid)
     track_funnel(uid, "start")
-    save_message(uid, "action", "🚀 /START")
+    save_message(uid, "action", f"🚀 /START ({start_param or 'direct'})")
     reset_ignored(uid)
     set_lang(uid, "pt")
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
@@ -2021,39 +2357,46 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mark_first_contact(uid)
 
     try:
+        # Resposta imediata: reduz abandono de tráfego pago antes de carregar mídia.
+        quick_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔥 Quero ver prévia", callback_data="quick_teaser")],
+            [InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")],
+            [InlineKeyboardButton("💬 Só conversar", callback_data="quick_chat")],
+        ])
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=ia_config.get("start_message", MENSAGEM_INICIO),
+                reply_markup=quick_keyboard
+            )
+        except Exception as msg_error:
+            logger.error(f"❌ Falha no start rápido para {uid}: {msg_error}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=MENSAGEM_INICIO)
+
+        # Mídias entram depois da mensagem inicial, para não travar o primeiro contato.
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=ia_config["foto_bem_vinda"],
                 connect_timeout=10, read_timeout=10, write_timeout=10
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.8)
         except Exception as photo_error:
             logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
 
         try:
             await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             await context.bot.send_video(
                 chat_id=update.effective_chat.id,
                 video=ia_config["video_bem_vindo"],
                 caption="Meus assinantes recebem esse vídeo sem censura e muitos outros bem safadinha 😈",
                 connect_timeout=15, read_timeout=15, write_timeout=15
             )
-            await asyncio.sleep(3)
         except Exception as video_error:
             logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
-
-        try:
-            await update.message.reply_text(ia_config["start_message"])
-        except Exception as msg_error:
-            logger.error(f"❌ CRÍTICO - Falha ao enviar mensagem para {uid}: {msg_error}")
-            try:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=MENSAGEM_INICIO)
-            except Exception as final_error:
-                logger.error(f"💥 FALHA TOTAL no /start para {uid}: {final_error}")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
@@ -2074,6 +2417,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         update_last_activity(uid)
         reset_ignored(uid)
+
+        if query.data == "quick_teaser":
+            track_source_event(uid, "quick_teaser")
+            await send_teaser_and_apex(context.bot, query.message.chat_id, uid)
+            return
+
+        if query.data == "quick_chat":
+            track_source_event(uid, "quick_chat")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="Perfeito, então me chama aqui e me conta o que você quer conversar hoje 😘"
+            )
+            return
 
         if query.data == "goto_vip":
             set_clicked_vip(uid)
@@ -2128,7 +2484,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → clica abaixo 👇"
         ]
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -2196,19 +2552,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
-        if is_first_contact(uid):
-            track_funnel(uid, "first_message")
+        mark_first_message_if_needed(uid)
 
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
-        total = LIMITE_DIARIO + bonus
+        total = get_user_daily_limit(uid) + bonus
         if current_count >= total:
             last_chance_key = f"last_chance:{uid}:{date.today()}"
             if not r.exists(last_chance_key):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                 ]])
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
@@ -2230,7 +2585,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
             ]])
             try:
                 await context.bot.send_photo(
@@ -2342,7 +2697,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if should_resend_button:
             try:
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
                 ]])
                 await asyncio.sleep(1)
                 await context.bot.send_message(
@@ -2465,6 +2820,7 @@ syncpay_integration.init(
         "get_router"      : get_router,
         "CANAL_VIP_LINK"  : CANAL_VIP_LINK,
         "PRECO_VIP"       : PRECO_VIP,
+        "track_source_event": track_source_event,
     }
 )
 
@@ -2695,11 +3051,28 @@ def admin_stats():
             "hourly": {"labels": hourly_labels, "offers": hourly_offers},
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
-            "dropoff": dropoff
+            "dropoff": dropoff,
+            "acquisition": get_acquisition_breakdown(users)
         }, 200
 
     except Exception as e:
         logger.exception(f"Erro admin stats: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/admin/acquisition", methods=["GET"])
+def admin_acquisition():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized"}, 401
+    token = auth_header.replace("Bearer ", "")
+    if token != ADMIN_TOKEN:
+        return {"error": "Invalid token"}, 401
+    try:
+        users = get_all_active_users()
+        return {"acquisition": get_acquisition_breakdown(users)}, 200
+    except Exception as e:
+        logger.exception(f"Erro admin acquisition: {e}")
         return {"error": str(e)}, 500
 
 
@@ -2738,7 +3111,7 @@ def admin_conversations():
             elif get_conversation_messages_count(uid) > 20: status, status_class = "🔥 Quente", "hot"
             else: status, status_class = "💬 Conversando", "normal"
 
-            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid)})
+            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid), "source": get_user_source(uid)})
 
         conversations.sort(key=lambda x: x['lastActivity'])
         return {"conversations": conversations}, 200
@@ -2756,7 +3129,7 @@ def admin_user_detail(user_id):
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
         profile = get_user_profile(user_id)
         memory = get_memory(user_id)
-        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id))}, "chatlog": chatlog, "memory": memory}, 200
+        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "dailyLimit": get_user_daily_limit(user_id)}, "chatlog": chatlog, "memory": memory}, 200
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
@@ -2850,6 +3223,7 @@ async def startup_sequence():
             sched_loop.create_task(engagement_scheduler(application.bot))
             sched_loop.create_task(retargeting_scheduler(application.bot))
             sched_loop.create_task(post_pitch_inactivity_scheduler(application.bot))
+            sched_loop.create_task(pending_pix_followup_scheduler(application.bot))
             sched_loop.create_task(recovery_scheduler(application.bot))
             sched_loop.run_forever()
 
