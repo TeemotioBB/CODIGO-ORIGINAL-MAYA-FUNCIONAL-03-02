@@ -411,6 +411,15 @@ FOTO_BEM_VINDA = "https://i.postimg.cc/TYBM0RGT/3b019ee22cba562c0dc506c0a6d88d3c
 
 VIDEO_BEM_VINDO = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4P-tj41ZAQAHbQADPAQ"
 
+# v10.2 — Vídeos teaser grátis enviados quando a IA promete um vídeo e o usuário confirma.
+# Coloque aqui os FILE_IDs do Telegram, separados por vírgula, ou edite a lista abaixo.
+# Exemplo Railway env: FREE_TEASER_VIDEO_IDS=BAACAgEAAxk...,BAACAgEAAxk...
+FREE_TEASER_VIDEO_IDS = [
+    v.strip()
+    for v in os.getenv("FREE_TEASER_VIDEO_IDS", "").split(",")
+    if v.strip()
+]
+
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
 
@@ -496,6 +505,8 @@ def vip_offers_today_key(uid): return f"vip_offers:{uid}:{date.today()}"
 def msgs_since_last_offer_key(uid): return f"msgs_since_offer:{uid}"
 def last_offer_rejected_key(uid): return f"offer_rejected:{uid}"
 def vip_just_offered_key(uid): return f"vip_just_offered:{uid}"
+def pending_teaser_video_key(uid): return f"pending_teaser_video:{uid}"
+def free_teaser_video_sent_key(uid): return f"free_teaser_video_sent:{uid}:{date.today()}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
@@ -1202,6 +1213,138 @@ def should_use_pool_response(uid, intent, lead_type):
     if intent == "hot":
         return random.random() < 0.55
     return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎥 v10.2 — VÍDEO TEASER CONTEXTUAL
+# Quando a IA promete um vídeo e o usuário confirma, o bot envia um teaser real.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def mark_pending_teaser_video(uid):
+    try:
+        r.setex(pending_teaser_video_key(uid), timedelta(minutes=10), "1")
+        logger.info(f"🎥 Vídeo teaser pendente marcado para {uid}")
+    except Exception as e:
+        logger.error(f"Erro mark_pending_teaser_video: {e}")
+
+def has_pending_teaser_video(uid):
+    try:
+        return bool(r.exists(pending_teaser_video_key(uid)))
+    except Exception:
+        return False
+
+def clear_pending_teaser_video(uid):
+    try:
+        r.delete(pending_teaser_video_key(uid))
+    except Exception:
+        pass
+
+def free_teaser_video_already_sent_today(uid):
+    try:
+        return bool(r.exists(free_teaser_video_sent_key(uid)))
+    except Exception:
+        return False
+
+def mark_free_teaser_video_sent(uid):
+    try:
+        r.setex(free_teaser_video_sent_key(uid), timedelta(hours=20), "1")
+        track_source_event(uid, "free_teaser_video_sent")
+    except Exception:
+        pass
+
+def response_promises_teaser_video(response_text):
+    if not response_text:
+        return False
+    text = response_text.lower()
+    triggers = [
+        "vou te mandar um vídeo", "vou te mandar um video",
+        "te mando um vídeo", "te mando um video",
+        "te mandar um videozinho", "te mandar um vídeozinho",
+        "mandar um videozinho", "mandar um vídeozinho",
+        "videozinho meu", "vídeozinho meu",
+        "um videozinho meu", "um vídeozinho meu",
+        "quer que eu mande", "posso te mandar",
+        "tá preparado pra ver", "ta preparado pra ver",
+        "abre aí", "abre ai",
+        "já te mando o video", "já te mando o vídeo",
+        "ja te mando o video", "ja te mando o vídeo",
+    ]
+    return any(t in text for t in triggers)
+
+def maybe_mark_teaser_video_promise(uid, response_text):
+    if response_promises_teaser_video(response_text):
+        # Evita prometer/entregar teaser grátis repetidas vezes no mesmo dia.
+        if not free_teaser_video_already_sent_today(uid):
+            mark_pending_teaser_video(uid)
+
+def is_video_confirmation(text):
+    if not text:
+        return False
+    text = text.lower().strip()
+    confirmations = [
+        "sim", "pode", "pode mandar", "manda", "manda sim",
+        "quero", "quero ver", "bora", "vai", "manda aí", "manda ai",
+        "estou", "tô pronto", "to pronto", "pronto", "preparado",
+        "abre", "abre aí", "abre ai", "claro", "quero sim"
+    ]
+    # Evita falso positivo com frases negativas simples.
+    negatives = ["não", "nao", "agora não", "agora nao", "depois"]
+    if any(n in text for n in negatives):
+        return False
+    return any(c in text for c in confirmations)
+
+async def send_free_teaser_video(bot, chat_id, uid):
+    try:
+        if not FREE_TEASER_VIDEO_IDS:
+            logger.warning("🎥 FREE_TEASER_VIDEO_IDS vazio. Configure o file_id do vídeo teaser.")
+            clear_pending_teaser_video(uid)
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "Tentei te mandar agora, mas o vídeo não carregou aqui. "
+                    "Me chama de novo em instantes 😏"
+                )
+            )
+            save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
+            return True
+
+        video_id = random.choice(FREE_TEASER_VIDEO_IDS)
+
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+        await asyncio.sleep(1.0)
+        await bot.send_video(
+            chat_id=chat_id,
+            video=video_id,
+            caption=(
+                "Pronto… te mandei só um gostinho 😏\n\n"
+                "O resto eu libero no acesso completo."
+            ),
+            connect_timeout=15,
+            read_timeout=20,
+            write_timeout=20
+        )
+
+        clear_pending_teaser_video(uid)
+        mark_free_teaser_video_sent(uid)
+        save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
+
+        await asyncio.sleep(1.6)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+        ]])
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
+                "Quando aprovar, o acesso cai automático."
+            ),
+            reply_markup=keyboard
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Erro ao enviar vídeo teaser para {uid}: {e}")
+        clear_pending_teaser_video(uid)
+        return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
@@ -2771,6 +2914,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
 
+            # v10.2: se a IA prometeu um vídeo e o usuário confirmou, entrega o teaser real agora.
+            if has_pending_teaser_video(uid) and is_video_confirmation(text):
+                sent = await send_free_teaser_video(context.bot, update.effective_chat.id, uid)
+                if sent:
+                    return
+
         # ====================== TRATAMENTO DE FOTO ======================
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
@@ -2802,6 +2951,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
                     await update.message.reply_text(grok_response["response"])
                 # =================================================================
+
+                maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
 
                 if grok_response.get("offer_teaser", False):
                     can_offer, reason = can_offer_vip(uid)
@@ -2915,6 +3066,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             grok_response = await grok.reply(uid, text)
             await update.message.reply_text(grok_response["response"])
+
+        maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
         # =====================================================================
 
         # (O resto do seu código continua igual - CONFIRM_KEYWORDS, should_resend_button, should_offer, follow-up, streak, etc.)
