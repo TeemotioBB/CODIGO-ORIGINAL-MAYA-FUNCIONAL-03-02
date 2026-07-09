@@ -3613,10 +3613,30 @@ def require_auth():
 
 async def startup_sequence():
     try:
-        logger.info("🚀 Iniciando startup sequence...")
+        logger.info("🚀 Iniciando Sophia Bot v8.3 APEX...")
+
+        init_router(redis_url=REDIS_URL, config_path="ias_config.json")
+        logger.info("✅ IA Router inicializado")
 
         await application.initialize()
         await application.start()
+
+        webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+
+        try:
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            await asyncio.sleep(0.5)
+            await application.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"]
+            )
+            info = await application.bot.get_webhook_info()
+            logger.info(f"✅ Webhook configurado: {info.url}")
+            logger.info(f"📬 Pending updates: {info.pending_update_count}")
+            logger.info(f"⚠️ Último erro webhook: {info.last_error_message}")
+        except Exception as e:
+            logger.exception(f"❌ Erro configurando webhook: {e}")
+            raise
 
         # Schedulers no MESMO event loop do bot.
         # Evita erro: "bound to a different event loop"
@@ -3629,21 +3649,30 @@ async def startup_sequence():
         # ====================== META CAPI TRACKER ======================
         try:
             from meta_capi import start_capi_tracker
-            await start_capi_tracker()
-            logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
+            loop.create_task(start_capi_tracker())
+            logger.info("📡 Meta CAPI Tracker agendado com sucesso!")
         except Exception as e:
             logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
         # ============================================================
 
+        me = await application.bot.get_me()
+        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
+        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
+        logger.info("✅ BOT PRONTO PARA RECEBER MENSAGENS")
+
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
         raise
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
+    future = asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
+    future.result(timeout=60)
+
     logger.info(f"🌐 Flask rodando na porta {PORT}")
     logger.info("🚀 Sophia Bot v8.3 APEX + SyncPay operacional!")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
