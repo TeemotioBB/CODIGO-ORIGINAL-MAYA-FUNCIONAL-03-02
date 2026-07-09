@@ -407,7 +407,7 @@ VIDEOS_TEASER = [
     "BAACAgEAAxkBAAEDwG1qUB7WqTvvFdaQ_HujbiRIO9g4eQAC9QcAAtFNgEYpn7WJ4FAaPTwE",
 ]
 
-FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
+FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/ZnpXbj9R/content.png"
 FOTO_BEM_VINDA = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
 
 VIDEO_BEM_VINDO = ""
