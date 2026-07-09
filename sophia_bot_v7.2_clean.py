@@ -375,8 +375,8 @@ AB_TEST_RATIO = 0.5
 MODELO = "grok-4.20-0309-non-reasoning"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
-START_SEND_WELCOME_MEDIA = True
-START_SEND_WELCOME_VIDEO = True
+START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
+START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
 logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
@@ -395,18 +395,8 @@ except Exception as e:
     raise
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎨 ASSETS — MÍDIA FLEXÍVEL v10.3
+# 🎨 ASSETS
 # ═══════════════════════════════════════════════════════════════════════════════
-# Agora qualquer campo de mídia abaixo aceita:
-# - link de foto: https://...jpg / .png / .webp
-# - link direto de vídeo: https://...mp4 / .mov / .webm
-# - file_id de foto do Telegram
-# - file_id de vídeo do Telegram
-#
-# IMPORTANTE:
-# - Link precisa ser direto para o arquivo, não link de página.
-# - Para file_id cru, o sistema tenta o tipo preferido e, se falhar, tenta o outro.
-# - Você também pode forçar o tipo com prefixo: "photo:SEU_ID" ou "video:SEU_ID".
 
 FOTOS_TEASER = [
     "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
@@ -414,203 +404,20 @@ FOTOS_TEASER = [
 ]
 
 VIDEOS_TEASER = [
-    # "COLE_AQUI_FILE_ID_OU_LINK_DIRETO_MP4_DO_VIDEO",
+    "BAACAgEAAxkBAAEDwGtqUBrOwuXcSMRpPgNW1StLpgEFBgACmAYAAlgQgEZ9qj-jlnpvvDwE",
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
-FOTO_BEM_VINDA = ""
+FOTO_BEM_VINDA = "https://i.postimg.cc/TYBM0RGT/3b019ee22cba562c0dc506c0a6d88d3c.jpg"
 
-# Pode ser file_id de vídeo, link .mp4, file_id de foto ou link de foto.
-VIDEO_BEM_VINDO = "BAACAgEAAxkBAAEDwG1qUB7WqTvvFdaQ_HujbiRIO9g4eQAC9QcAAtFNgEYpn7WJ4FAaPTwE"
+VIDEO_BEM_VINDO = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4P-tj41ZAQAHbQADPAQ"
 
-# v10.3 — Mídias teaser grátis enviadas quando a IA promete um vídeo e o usuário confirma.
-# Aceita foto/vídeo, link/id. Porém o ideal aqui é colocar vídeo.
 FREE_TEASER_VIDEO_IDS = [
     "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
 ]
 
 AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
 AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🧩 ENVIO DE MÍDIA FLEXÍVEL v10.3
-# ═══════════════════════════════════════════════════════════════════════════════
-
-PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
-VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
-
-
-def normalize_media_item(media):
-    """Aceita string simples ou dict {type, id/url/media}. Retorna (valor, tipo_explicito)."""
-    if not media:
-        return None, None
-
-    explicit_type = None
-    value = media
-
-    if isinstance(media, dict):
-        explicit_type = (media.get("type") or media.get("kind") or "").strip().lower() or None
-        value = media.get("id") or media.get("file_id") or media.get("url") or media.get("media")
-
-    if not value:
-        return None, explicit_type
-
-    value = str(value).strip()
-    if not value:
-        return None, explicit_type
-
-    lower = value.lower()
-    if lower.startswith("photo:") or lower.startswith("foto:") or lower.startswith("image:") or lower.startswith("imagem:"):
-        return value.split(":", 1)[1].strip(), "photo"
-    if lower.startswith("video:") or lower.startswith("vídeo:"):
-        return value.split(":", 1)[1].strip(), "video"
-
-    if explicit_type in {"foto", "image", "imagem"}:
-        explicit_type = "photo"
-    elif explicit_type in {"vídeo"}:
-        explicit_type = "video"
-    elif explicit_type not in {"photo", "video", None}:
-        explicit_type = None
-
-    return value, explicit_type
-
-
-def normalize_media_list(value):
-    """Transforma string/lista/dict em lista limpa de mídias."""
-    if not value:
-        return []
-    if isinstance(value, (list, tuple)):
-        return [x for x in value if x]
-    if isinstance(value, dict):
-        return [value]
-    if isinstance(value, str):
-        # Permite variável env/lista em texto separada por vírgula.
-        if "," in value and not value.lower().startswith("http"):
-            return [x.strip() for x in value.split(",") if x.strip()]
-        return [value.strip()] if value.strip() else []
-    return []
-
-
-def infer_media_type(media):
-    """Tenta inferir pelo prefixo explícito, extensão do link e alguns prefixos comuns do Telegram."""
-    value, explicit_type = normalize_media_item(media)
-    if explicit_type:
-        return explicit_type
-    if not value:
-        return None
-
-    clean = value.split("?", 1)[0].lower()
-    if clean.endswith(VIDEO_EXTENSIONS):
-        return "video"
-    if clean.endswith(PHOTO_EXTENSIONS):
-        return "photo"
-
-    # Heurística Telegram: não é garantia, por isso ainda existe fallback.
-    if value.startswith("AgAC"):
-        return "photo"
-    if value.startswith("BAAC"):
-        return "video"
-
-    return None
-
-
-async def send_flexible_media(
-    bot,
-    chat_id,
-    media,
-    caption=None,
-    reply_markup=None,
-    parse_mode=None,
-    preferred="photo",
-    log_label="media",
-    delay_before=0.0,
-):
-    """
-    Envia foto ou vídeo aceitando link/id em qualquer campo.
-    Se o tipo escolhido falhar por arquivo incompatível, tenta o outro tipo automaticamente.
-    Retorna True se enviou, False se falhou.
-    """
-    value, explicit_type = normalize_media_item(media)
-    if not value:
-        return False
-
-    inferred = infer_media_type(media)
-    first = explicit_type or inferred or preferred or "photo"
-    attempts = []
-    for kind in [first, "video" if first == "photo" else "photo"]:
-        if kind not in attempts:
-            attempts.append(kind)
-
-    last_error = None
-    for kind in attempts:
-        try:
-            action = ChatAction.UPLOAD_VIDEO if kind == "video" else ChatAction.UPLOAD_PHOTO
-            await bot.send_chat_action(chat_id=chat_id, action=action)
-            if delay_before:
-                await asyncio.sleep(delay_before)
-
-            common_kwargs = {
-                "chat_id": chat_id,
-                "caption": caption,
-                "reply_markup": reply_markup,
-                "parse_mode": parse_mode,
-                "connect_timeout": 15,
-                "read_timeout": 20,
-                "write_timeout": 20,
-            }
-            # Remove None para evitar conflito/ruído.
-            common_kwargs = {k: v for k, v in common_kwargs.items() if v is not None}
-
-            if kind == "video":
-                await bot.send_video(video=value, **common_kwargs)
-            else:
-                await bot.send_photo(photo=value, **common_kwargs)
-            return True
-        except Exception as e:
-            last_error = e
-            logger.warning(f"⚠️ Falha ao enviar {log_label} como {kind}. Tentando fallback se possível. Erro: {e}")
-
-    logger.error(f"❌ Não consegui enviar {log_label}. Valor: {str(value)[:60]} | Erro final: {last_error}")
-    return False
-
-
-async def send_random_flexible_media(
-    bot,
-    chat_id,
-    medias,
-    count=1,
-    preferred="photo",
-    caption=None,
-    reply_markup=None,
-    parse_mode=None,
-    log_label="media",
-    sleep_between=1.0,
-):
-    """Escolhe N mídias da lista e envia com send_flexible_media."""
-    medias = normalize_media_list(medias)
-    if not medias:
-        return 0
-
-    selected = random.sample(medias, min(count, len(medias)))
-    sent_count = 0
-    for i, item in enumerate(selected):
-        sent = await send_flexible_media(
-            bot,
-            chat_id,
-            item,
-            caption=caption if i == 0 else None,
-            reply_markup=reply_markup if i == 0 else None,
-            parse_mode=parse_mode,
-            preferred=preferred,
-            log_label=log_label,
-            delay_before=0.5,
-        )
-        if sent:
-            sent_count += 1
-        if i < len(selected) - 1:
-            await asyncio.sleep(sleep_between)
-    return sent_count
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
@@ -1496,28 +1303,21 @@ async def send_free_teaser_video(bot, chat_id, uid):
             save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
             return True
 
-        teaser_media = random.choice(normalize_media_list(FREE_TEASER_VIDEO_IDS))
+        video_id = random.choice(FREE_TEASER_VIDEO_IDS)
 
-        sent_media = await send_flexible_media(
-            bot,
-            chat_id,
-            teaser_media,
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+        await asyncio.sleep(1.0)
+        await bot.send_video(
+            chat_id=chat_id,
+            video=video_id,
             caption=(
                 "Pronto… te mandei só um gostinho 😏\n\n"
                 "O resto eu libero no acesso completo."
             ),
-            preferred="video",
-            log_label="teaser grátis prometido",
-            delay_before=1.0,
+            connect_timeout=15,
+            read_timeout=20,
+            write_timeout=20
         )
-        if not sent_media:
-            await bot.send_message(
-                chat_id=chat_id,
-                text="Tentei te mandar agora, mas a mídia não carregou aqui. Me chama de novo em instantes 😏"
-            )
-            clear_pending_teaser_video(uid)
-            save_message(uid, "system", "⚠️ TEASER GRÁTIS FALHOU")
-            return True
 
         clear_pending_teaser_video(uid)
         mark_free_teaser_video_sent(uid)
@@ -2450,7 +2250,7 @@ grok = Grok()
 async def send_teaser_and_apex(bot, chat_id, uid):
     try:
         router = get_router()
-        ia_config = router.get_ia_config(uid=uid) or {}
+        ia_config = router.get_ia_config(uid=uid)
         fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
         videos_teaser = ia_config.get("videos_teaser", VIDEOS_TEASER)
         preco = ia_config.get("preco", PRECO_VIP)
@@ -2466,31 +2266,44 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         increment_vip_offers(uid)
         reset_msgs_since_offer(uid)
 
-                # === TEASER MAIS FORTE (v10.3 MÍDIA FLEXÍVEL) ===
+                # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
         await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
-        # Agora aceita foto/vídeo, link/id, tanto em fotos_teaser quanto em videos_teaser.
-        # Mantém o comportamento: tenta mandar 2 mídias da lista de fotos e 1 da lista de vídeos.
-        await send_random_flexible_media(
-            bot,
-            chat_id,
-            fotos_teaser,
-            count=2,
-            preferred="photo",
-            log_label="teaser fotos/mídias",
-            sleep_between=1.0,
-        )
+        # Envia 2 fotos
+        if fotos_teaser:
+            num_photos = min(2, len(fotos_teaser))
+            selected_photos = random.sample(fotos_teaser, num_photos)
 
-        await send_random_flexible_media(
-            bot,
-            chat_id,
-            videos_teaser,
-            count=1,
-            preferred="video",
-            log_label="teaser vídeo/mídia",
-            sleep_between=1.2,
-        )
+            for i, photo_id in enumerate(selected_photos):
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_id,
+                    connect_timeout=15,
+                    read_timeout=20,
+                    write_timeout=20
+                )
+
+                await asyncio.sleep(1.0)
+
+        # Envia 1 vídeo
+        if videos_teaser:
+            num_videos = min(1, len(videos_teaser))
+            selected_videos = random.sample(videos_teaser, num_videos)
+
+            for i, video_id in enumerate(selected_videos):
+                await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+                await asyncio.sleep(0.7)
+
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=video_id,
+                    connect_timeout=15,
+                    read_timeout=20,
+                    write_timeout=20
+                )
+
+                await asyncio.sleep(1.2)
 
         await asyncio.sleep(3.5)
 
@@ -2956,7 +2769,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Tracking first-touch/last-touch de origem. Não interfere no IA Router.
     save_user_source(uid, start_param)
 
-    ia_config = router.get_ia_config(uid=uid) or {}
+    ia_config = router.get_ia_config(uid=uid)
 
     start_lock_key = f"start_lock:{uid}"
     if not r.set(start_lock_key, "1", nx=True, ex=60):
@@ -2989,33 +2802,32 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Você veio mesmo 😏\n\nMe chama do seu jeito. Pode digitar normal comigo.")
 
         # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
-        # v10.3: aceita foto/vídeo, link/id, em foto_bem_vinda e video_bem_vindo.
         if START_SEND_WELCOME_MEDIA:
-            welcome_media = ia_config.get("foto_bem_vinda") or FOTO_BEM_VINDA
-            sent = await send_flexible_media(
-                context.bot,
-                update.effective_chat.id,
-                welcome_media,
-                preferred="photo",
-                log_label="mídia de boas-vindas",
-                delay_before=0.8,
-            )
-            if sent:
-                save_message(uid, "system", "MÍDIA BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
+            try:
+                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
+                await asyncio.sleep(0.8)
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=ia_config["foto_bem_vinda"],
+                    connect_timeout=10, read_timeout=10, write_timeout=10
+                )
+                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
+            except Exception as photo_error:
+                logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
 
         if START_SEND_WELCOME_VIDEO:
-            welcome_video = ia_config.get("video_bem_vindo") or VIDEO_BEM_VINDO
-            sent = await send_flexible_media(
-                context.bot,
-                update.effective_chat.id,
-                welcome_video,
-                caption="Só um gostinho do clima daqui… se quiser, me chama do seu jeito 😏",
-                preferred="video",
-                log_label="vídeo/mídia de boas-vindas",
-                delay_before=1.0,
-            )
-            if sent:
-                save_message(uid, "system", "VÍDEO/MÍDIA BOAS-VINDAS ENVIADO APÓS ABERTURA REALISTA")
+            try:
+                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
+                await asyncio.sleep(1)
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=ia_config["video_bem_vindo"],
+                    caption="Só um gostinho do clima daqui… se quiser, me chama do seu jeito 😏",
+                    connect_timeout=15, read_timeout=15, write_timeout=15
+                )
+                save_message(uid, "system", "VÍDEO BOAS-VINDAS ENVIADO APÓS ABERTURA REALISTA")
+            except Exception as video_error:
+                logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
@@ -3203,21 +3015,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
             ]])
             try:
-                ia_config = get_router().get_ia_config(uid=uid) or {}
-            except Exception:
-                ia_config = {}
-            limit_media = ia_config.get("media_limite_atingido") or ia_config.get("foto_limite_atingido") or FOTO_LIMITE_ATINGIDO
-            sent_limit_media = await send_flexible_media(
-                context.bot,
-                update.effective_chat.id,
-                limit_media,
-                caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-                preferred="photo",
-                log_label="mídia de limite atingido",
-            )
-            if not sent_limit_media:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=FOTO_LIMITE_ATINGIDO,
+                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            except:
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
