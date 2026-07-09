@@ -3608,37 +3608,36 @@ def require_auth():
     return decorator
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎬 STARTUP
+# 🚀 STARTUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-        async def startup_sequence():
-            try:
-                logger.info("🚀 Iniciando startup sequence...")
+async def startup_sequence():
+    try:
+        logger.info("🚀 Iniciando startup sequence...")
 
-                await application.initialize()
-                await application.start()
+        await application.initialize()
+        await application.start()
 
-                # Schedulers no MESMO event loop do bot.
-                # Evita erro: "bound to a different event loop"
-                loop.create_task(engagement_scheduler(application.bot))
-                loop.create_task(retargeting_scheduler(application.bot))
-                loop.create_task(post_pitch_inactivity_scheduler(application.bot))
-                loop.create_task(pending_pix_followup_scheduler(application.bot))
-                loop.create_task(recovery_scheduler(application.bot))
+        # Schedulers no MESMO event loop do bot.
+        # Evita erro: "bound to a different event loop"
+        loop.create_task(engagement_scheduler(application.bot))
+        loop.create_task(retargeting_scheduler(application.bot))
+        loop.create_task(post_pitch_inactivity_scheduler(application.bot))
+        loop.create_task(pending_pix_followup_scheduler(application.bot))
+        loop.create_task(recovery_scheduler(application.bot))
 
-                # ====================== META CAPI TRACKER ======================
-                try:
-                    from meta_capi import start_capi_tracker
-                    await start_capi_tracker()
-                    logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
-                except Exception as e:
-                    logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
-                # ============================================================
+        # ====================== META CAPI TRACKER ======================
+        try:
+            from meta_capi import start_capi_tracker
+            await start_capi_tracker()
+            logger.info("📡 Meta CAPI Tracker iniciado com sucesso!")
+        except Exception as e:
+            logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
+        # ============================================================
 
-            except Exception as e:
-                logger.exception(f"💥 ERRO CRÍTICO: {e}")
-                raise
-
+    except Exception as e:
+        logger.exception(f"💥 ERRO CRÍTICO: {e}")
+        raise
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
