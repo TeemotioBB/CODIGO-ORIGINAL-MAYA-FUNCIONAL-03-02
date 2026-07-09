@@ -3620,31 +3620,44 @@ async def startup_sequence():
 
         await application.initialize()
         await application.start()
+        logger.info("✅ Application Telegram iniciada")
 
         webhook_url = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
 
         try:
             await application.bot.delete_webhook(drop_pending_updates=True)
             await asyncio.sleep(0.5)
+
             await application.bot.set_webhook(
                 url=webhook_url,
                 allowed_updates=["message", "callback_query"]
             )
+
             info = await application.bot.get_webhook_info()
             logger.info(f"✅ Webhook configurado: {info.url}")
             logger.info(f"📬 Pending updates: {info.pending_update_count}")
             logger.info(f"⚠️ Último erro webhook: {info.last_error_message}")
+
         except Exception as e:
             logger.exception(f"❌ Erro configurando webhook: {e}")
             raise
 
+        me = await application.bot.get_me()
+        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
+        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
+
+        # Marca o bot como pronto ANTES dos schedulers
+        logger.info("✅ BOT PRONTO PARA RECEBER MENSAGENS")
+
         # Schedulers no MESMO event loop do bot.
-        # Evita erro: "bound to a different event loop"
+        # Retargeting desligado no boot porque pode travar a inicialização.
         loop.create_task(engagement_scheduler(application.bot))
-        loop.create_task(retargeting_scheduler(application.bot))
+        # loop.create_task(retargeting_scheduler(application.bot))
         loop.create_task(post_pitch_inactivity_scheduler(application.bot))
         loop.create_task(pending_pix_followup_scheduler(application.bot))
         loop.create_task(recovery_scheduler(application.bot))
+
+        logger.info("✅ Schedulers iniciados sem retargeting")
 
         # ====================== META CAPI TRACKER ======================
         try:
@@ -3655,15 +3668,9 @@ async def startup_sequence():
             logger.error(f"❌ Erro ao iniciar Meta CAPI Tracker: {e}")
         # ============================================================
 
-        me = await application.bot.get_me()
-        logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
-        logger.info("✅ BOT PRONTO PARA RECEBER MENSAGENS")
-
     except Exception as e:
         logger.exception(f"💥 ERRO CRÍTICO: {e}")
         raise
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎬 MAIN
@@ -3671,8 +3678,13 @@ async def startup_sequence():
 
 if __name__ == "__main__":
     future = asyncio.run_coroutine_threadsafe(startup_sequence(), loop)
-    future.result(timeout=60)
+
+    try:
+        future.result(timeout=20)
+    except Exception as e:
+        logger.exception(f"⚠️ Startup demorou ou falhou: {e}")
 
     logger.info(f"🌐 Flask rodando na porta {PORT}")
     logger.info("🚀 Sophia Bot v8.3 APEX + SyncPay operacional!")
+
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
