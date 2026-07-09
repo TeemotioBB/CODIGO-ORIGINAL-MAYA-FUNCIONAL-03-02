@@ -398,10 +398,13 @@ except Exception as e:
 # 🎨 ASSETS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VIDEOS_TEASER = [
-    "AAMCAQADGQEAASv-EGpQGvRHhzaf1yF5uQNqH8FlIV68AAKYBgACWBCARuhmX1Lmj7UzAQAHbQADPAQ",
+FOTOS_TEASER = [
     "https://i.postimg.cc/DzBFy8Lx/a63c77aa55ed4a07aa7ec710ae12580c.jpg",
     "https://i.postimg.cc/KzW2Bw99/b6fe112c63c54f3ab3c800a2e5eb664d.jpg",
+]
+
+VIDEOS_TEASER = [
+    "AAMCAQADGQEAASv-EGpQGvRHhzaf1yF5uQNqH8FlIV68AAKYBgACWBCARuhmX1Lmj7UzAQAHbQADPAQ",
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/x1V9sr0S/7e25cd9d465e4d90b6dc65ec18350d3f.jpg"
@@ -409,9 +412,6 @@ FOTO_BEM_VINDA = "https://i.postimg.cc/TYBM0RGT/3b019ee22cba562c0dc506c0a6d88d3c
 
 VIDEO_BEM_VINDO = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4P-tj41ZAQAHbQADPAQ"
 
-# v10.2 — Vídeos teaser grátis enviados quando a IA promete um vídeo e o usuário confirma.
-# Coloque aqui os FILE_IDs do Telegram, separados por vírgula, ou edite a lista abaixo.
-# Exemplo Railway env: FREE_TEASER_VIDEO_IDS=BAACAgEAAxk...,BAACAgEAAxk...
 FREE_TEASER_VIDEO_IDS = [
     "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
 ]
