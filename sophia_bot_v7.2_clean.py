@@ -2923,24 +2923,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         r.setex(remarketing_sent_key, timedelta(hours=24), "1")
 
-        try:
-        # ====================== CAPTURAR FILE_ID DE VÍDEO ======================
-        # TEMPORÁRIO: use só para pegar o ID do vídeo e depois pode remover.
-        if update.message.video:
-            video_id = update.message.video.file_id
-            file_unique_id = update.message.video.file_unique_id
-
-            logger.info(f"🎥 VIDEO FILE_ID: {video_id}")
-            logger.info(f"🎥 VIDEO UNIQUE_ID: {file_unique_id}")
-
-            await update.message.reply_text(
-                f"ID DO VÍDEO:\n\n{video_id}"
-            )
-            return
-        # ======================================================================
-
+    try:
         has_photo = bool(update.message.photo)
         text = update.message.text or ""
+
         # ====================== DETECÇÃO DE APEGO ======================
         if text:
             save_message(uid, "user", text)
