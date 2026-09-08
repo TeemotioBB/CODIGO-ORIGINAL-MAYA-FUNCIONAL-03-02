@@ -323,6 +323,16 @@ ATTACHMENT_KEYWORDS = {
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
+
+GROK_MODEL = os.getenv(
+    "GROK_MODEL",
+    "grok-4.20-0309-non-reasoning"
+)
+
+GROK_API_URL = os.getenv(
+    "GROK_API_URL",
+    "https://api.x.ai/v1/chat/completions"
+)
 REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
 
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://codigo-original-maya-funcional-03-02-production.up.railway.app")
@@ -372,13 +382,23 @@ FOLLOWUP_INTERVAL_HOURS = 12
 AB_TEST_ENABLED = True
 AB_TEST_RATIO = 0.5
 
-MODELO = "grok-4.20-0309-non-reasoning"
+GROK_MODEL = os.getenv(
+    "GROK_MODEL",
+    "grok-4.20-0309-non-reasoning"
+)
+
+GROK_API_URL = os.getenv(
+    "GROK_API_URL",
+    "https://api.x.ai/v1/chat/completions"
+)
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
 START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
 logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
+logger.info(f"🤖 Modelo Grok configurado: {GROK_MODEL}")
+logger.info(f"🌐 Endpoint Grok: {GROK_API_URL}")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
 logger.info(f"💎 Canal VIP: {CANAL_VIP_LINK}")
 logger.info(f"💰 Preço VIP: {PRECO_VIP}")
@@ -2137,19 +2157,22 @@ class Grok:
 
         for attempt in range(max_retries + 1):
             payload = {
-                "model": MODELO,
+                "model": GROK_MODEL,
                 "messages": [
                     {"role": "system", "content": prompt},
                     *mem,
                     {"role": "user", "content": user_content},
-                    {"role": "system", "content": "APENAS JSON! Resposta CURTA e NATURAL."}
+                    {
+                        "role": "system",
+                        "content": "APENAS JSON! Resposta CURTA e NATURAL."
+                    }
                 ],
                 "max_tokens": 350,
                 "temperature": 0.85 + (attempt * 0.1)
             }
 
             try:
-                timeout = aiohttp.ClientTimeout(total=20)
+                timeout = aiohttp.ClientTimeout(total=20)                
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(
                         GROK_API_URL,
@@ -2159,11 +2182,20 @@ class Grok:
                         },
                         json=payload
                     ) as resp:
+
                         if resp.status != 200:
-                            logger.error(f"Grok erro {resp.status}")
+                            error_body = await resp.text()
+
+                            logger.error(
+                                f"Grok erro {resp.status} | "
+                                f"modelo={GROK_MODEL} | "
+                                f"resposta={error_body}"
+                            )
+
                             return self._fallback_response(intent)
 
                         data = await resp.json()
+                        track_grok_usage(uid, data)
                         track_grok_usage(uid, data)
                         if "choices" not in data:
                             return self._fallback_response(intent)
