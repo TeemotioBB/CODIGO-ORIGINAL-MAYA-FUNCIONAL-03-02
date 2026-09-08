@@ -2324,21 +2324,25 @@ async def send_teaser_and_apex(bot, chat_id, uid):
             selected_videos = random.sample(videos_teaser, num_videos)
 
             for i, video_id in enumerate(selected_videos):
-                await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
-                await asyncio.sleep(0.7)
-
-                await bot.send_video(
-                    chat_id=chat_id,
-                    video=video_id,
-                    connect_timeout=15,
-                    read_timeout=20,
-                    write_timeout=20
-                )
-
+                try:
+                    await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+                    await asyncio.sleep(0.7)
+                    
+                    # Esse print vai mostrar no Railway qual vídeo ele está tentando enviar
+                    print(f"DEBUG: Tentando enviar vídeo ID: {video_id}") 
+                    
+                    await bot.send_video(
+                        chat_id=chat_id,
+                        video=video_id,
+                        connect_timeout=15,
+                        read_timeout=20,
+                        write_timeout=20
+                    )
+                except Exception as e:
+                    # Esse print vai te dar o ID exato do vídeo que está causando o erro 400
+                    print(f"❌ VÍDEO QUEBRADO IDENTIFICADO: {video_id} | ERRO: {e}")
+                
                 await asyncio.sleep(1.2)
-
-        await asyncio.sleep(3.5)
-
         # === PITCH MATADOR (Harper v9.0) ===
         pitch = (
             f"Curtiu meu corpo safado? 😈\n\n"
