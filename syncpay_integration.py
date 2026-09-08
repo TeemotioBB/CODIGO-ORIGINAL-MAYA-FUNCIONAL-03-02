@@ -216,18 +216,18 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
     preco = _callbacks.get("PRECO_VIP", "R$ 9,00")
     pix_code = pix_data["pix_code"]
 
-    # Evita problemas com caracteres especiais no HTML
-    pix_code_html = html.escape(pix_code)
+    preco_html = html.escape(str(preco))
+    pix_code_html = html.escape(str(pix_code))
 
     mensagem = (
         f"✅ <b>PIX gerado! Pague em até {PIX_VALIDADE_MINUTOS} minutos:</b>\n\n"
-        f"💰 Valor: <b>{preco}</b>\n\n"
+        f"💰 Valor: <b>{preco_html}</b>\n\n"
         f"<b>Como pagar em 30 segundos:</b>\n"
         f"1️⃣ Abra o app do seu banco\n"
         f"2️⃣ Vá em PIX → <b>Copia e Cola</b> (ou QR Code)\n"
         f"3️⃣ Copie o código abaixo ⬇️\n"
         f"4️⃣ Confirme e pronto! ✅\n\n"
-        f"<b>Código PIX (Toque abaixo para copiar):</b>\n"
+        f"<b>Código PIX (copia e cola):</b>\n"
         f"<pre>{pix_code_html}</pre>\n\n"
         f"⏰ <b>Confirmação automática!</b>\n"
         f"Assim que o pagamento cair, você recebe o acesso VIP aqui mesmo automaticamente 💕\n\n"
@@ -276,19 +276,6 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         reply_markup=keyboard
     )
 
-    await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
-    await asyncio.sleep(0.5)
-    await bot.send_message(chat_id=chat_id, text=f"`{pix_code}`", parse_mode="Markdown")
-    await asyncio.sleep(0.5)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "⏰ *Confirmação automática!*\n"
-            "Assim que o pagamento cair, você recebe o acesso VIP aqui mesmo automaticamente 💕\n\n"
-            "Qualquer dúvida é só me chamar 😊"
-        ),
-        parse_mode="Markdown"
-    )
 
     save_message = _callbacks.get("save_message")
     if save_message:
