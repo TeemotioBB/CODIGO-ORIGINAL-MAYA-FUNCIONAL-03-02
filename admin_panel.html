@@ -194,7 +194,7 @@ table { border-collapse: collapse; width: 100%; }
   text-transform: uppercase;
   color: var(--text-3);
 }
-.section-head .actions { display: flex; gap: 8px; }
+.section-head .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 /* ─── KPI grid ───────────────────────────────────────────── */
 .kpi-grid {
@@ -657,6 +657,9 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
         <option value="cooldown">Cooldown</option>
         <option value="converted">VIP</option>
       </select>
+      <input class="select" type="date" id="exportStart" aria-label="Data inicial da exportação">
+      <input class="select" type="date" id="exportEnd" aria-label="Data final da exportação">
+      <button class="btn btn-primary" id="exportConversationsBtn" type="button">Exportar CSV</button>
     </div>
   </div>
   <div class="card">
@@ -1220,6 +1223,77 @@ async function loadConversations() {
   }
 }
 
+async function exportConversations() {
+  const start = $('exportStart').value;
+  const end = $('exportEnd').value;
+  const token = localStorage.getItem('adminToken');
+  const btn = $('exportConversationsBtn');
+
+  if (!token) {
+    window.location.href = '/admin/login';
+    return;
+  }
+  if (!start || !end) {
+    alert('Escolha a data inicial e a data final.');
+    return;
+  }
+  if (start > end) {
+    alert('A data final não pode ser anterior à data inicial.');
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Exportando…';
+
+  try {
+    const res = await fetch(`/admin/conversations/export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (res.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return;
+    }
+
+    if (!res.ok) {
+      let message = 'Não foi possível exportar as conversas.';
+      try {
+        const data = await res.json();
+        if (data && data.error) message = data.error;
+      } catch (_) {}
+      alert(message);
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversas_${start}_a_${end}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    console.error('exportConversations:', e);
+    alert('Erro de conexão ao exportar as conversas.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+function setDefaultExportDates() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+  if (!$('exportStart').value) $('exportStart').value = local;
+  if (!$('exportEnd').value) $('exportEnd').value = local;
+}
+
 function classifyMsg(msg) {
   if (msg.includes('USER:')) return 'user';
   if (msg.includes('MAYA:')) return 'bot';
@@ -1340,6 +1414,8 @@ function init() {
   $('refreshBtn').addEventListener('click', () => { loadAllData(); loadConversations(); });
   $('fabRefresh').addEventListener('click', () => { loadAllData(); loadConversations(); });
   $('conversationFilter').addEventListener('change', loadConversations);
+  $('exportConversationsBtn').addEventListener('click', exportConversations);
+  setDefaultExportDates();
 
   loadAllData();
   loadConversations();
