@@ -15,9 +15,10 @@ import time
 
 from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, CopyTextButton
 from telegram.constants import ChatAction
 from telegram.ext import CallbackQueryHandler
+
 
 logger = logging.getLogger(__name__)
 
@@ -208,9 +209,16 @@ def _recuperar_customer(uid: int) -> dict:
 # 📤  ENVIO DO PIX NO CHAT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
+import html
+
+
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco    = _callbacks.get("PRECO_VIP", "R$ 9,00")
+    preco = _callbacks.get("PRECO_VIP", "R$ 9,00")
     pix_code = pix_data["pix_code"]
+
+    # Versão segura para exibir dentro do HTML do Telegram
+    pix_code_html = html.escape(pix_code)
 
     mensagem = (
         f"✅ <b>PIX gerado! Pague em até {PIX_VALIDADE_MINUTOS} minutos:</b>\n\n"
@@ -218,19 +226,29 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         f"<b>Como pagar em 30 segundos:</b>\n"
         f"1️⃣ Abra o app do seu banco\n"
         f"2️⃣ Vá em PIX → <b>Copia e Cola</b> (ou QR Code)\n"
-        f"3️⃣ Cole o código abaixo ⬇️\n"
+        f"3️⃣ Copie o código abaixo ⬇️\n"
         f"4️⃣ Confirme e pronto! ✅\n\n"
-        f"<b>Código PIX (copia e cola) CLIQUE ABAIXO PARA COPIAR:</b>\n"
-        f"<code>{pix_code}</code>\n\n"
+        f"<b>Código PIX (copia e cola):</b>\n"
+        f"<pre>{pix_code_html}</pre>\n\n"
         f"⏰ <b>Confirmação automática!</b>\n"
         f"Assim que o pagamento cair, você recebe o acesso VIP aqui mesmo automaticamente 💕\n\n"
         f"Qualquer dúvida é só me chamar 😊"
     )
 
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "📋 COPIAR CÓDIGO PIX",
+                copy_text=CopyTextButton(text=pix_code)
+            )
+        ]
+    ])
+
     await bot.send_message(
-        chat_id=chat_id, 
-        text=mensagem, 
-        parse_mode='HTML'
+        chat_id=chat_id,
+        text=mensagem,
+        parse_mode="HTML",
+        reply_markup=keyboard
     )
 
     await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
