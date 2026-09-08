@@ -2834,7 +2834,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_message(uid, "maya", opening)
         except Exception as msg_error:
             logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Você veio mesmo 😏\n\nMe chama do seu jeito. Pode digitar normal comigo.")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
 
         # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
         if START_SEND_WELCOME_MEDIA:
