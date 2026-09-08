@@ -213,14 +213,24 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
     pix_code = pix_data["pix_code"]
 
     mensagem = (
-        f"✅ *PIX gerado! Pague em até {PIX_VALIDADE_MINUTOS} minutos:*\n\n"
-        f"💰 Valor: *{preco}*\n\n"
-        f"*Como pagar em 30 segundos:*\n"
+        f"✅ <b>PIX gerado! Pague em até {PIX_VALIDADE_MINUTOS} minutos:</b>\n\n"
+        f"💰 Valor: <b>{preco}</b>\n\n"
+        f"<b>Como pagar em 30 segundos:</b>\n"
         f"1️⃣ Abra o app do seu banco\n"
-        f"2️⃣ Vá em PIX → *Copia e Cola* (ou QR Code)\n"
+        f"2️⃣ Vá em PIX → <b>Copia e Cola</b> (ou QR Code)\n"
         f"3️⃣ Cole o código abaixo ⬇️\n"
         f"4️⃣ Confirme e pronto! ✅\n\n"
-        f"*Código PIX (copia e cola) CLIQUE NO CÓDIGO ABAIXO PARA COPIAR:*"
+        f"<b>Código PIX (copia e cola) CLIQUE ABAIXO PARA COPIAR:</b>\n"
+        f"<code>{pix_code}</code>\n\n"
+        f"⏰ <b>Confirmação automática!</b>\n"
+        f"Assim que o pagamento cair, você recebe o acesso VIP aqui mesmo automaticamente 💕\n\n"
+        f"Qualquer dúvida é só me chamar 😊"
+    )
+
+    await bot.send_message(
+        chat_id=chat_id, 
+        text=mensagem, 
+        parse_mode='HTML'
     )
 
     await bot.send_message(chat_id=chat_id, text=mensagem, parse_mode="Markdown")
