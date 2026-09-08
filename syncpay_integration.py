@@ -227,7 +227,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         f"2️⃣ Vá em PIX → <b>Copia e Cola</b> (ou QR Code)\n"
         f"3️⃣ Copie o código abaixo ⬇️\n"
         f"4️⃣ Confirme e pronto! ✅\n\n"
-        f"<b>Código PIX (copia e cola):</b>\n"
+        f"<b>Código PIX (Toque abaixo para copiar):</b>\n"
         f"<pre>{pix_code_html}</pre>\n\n"
         f"⏰ <b>Confirmação automática!</b>\n"
         f"Assim que o pagamento cair, você recebe o acesso VIP aqui mesmo automaticamente 💕\n\n"
