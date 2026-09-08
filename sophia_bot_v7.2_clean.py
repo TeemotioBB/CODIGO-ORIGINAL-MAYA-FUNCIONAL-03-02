@@ -24,6 +24,8 @@ import json
 import random
 import hashlib
 import base64
+import csv
+import io
 import syncpay_integration
 from datetime import datetime, timedelta, date
 from flask import Flask, request
@@ -371,6 +373,7 @@ ADS_DAILY_LIMIT = int(os.getenv("ADS_DAILY_LIMIT", "12"))
 PIX_PENDING_DAILY_LIMIT = int(os.getenv("PIX_PENDING_DAILY_LIMIT", "4"))
 USER_ADS_COST_CENTS = int(os.getenv("USER_ADS_COST_CENTS", "20"))  # R$0,20 por usuário de Ads
 DEFAULT_BOT_COST_CENTS = int(os.getenv("DEFAULT_BOT_COST_CENTS", "40"))  # estimativa conservadora
+CHATLOG_EXPORT_RETENTION_DAYS = int(os.getenv("CHATLOG_EXPORT_RETENTION_DAYS", "180"))
 
 VIP_COOLDOWN_AFTER_REJECT = 8
 MAX_VIP_OFFERS_PER_SESSION = 999
@@ -490,6 +493,8 @@ def clicked_vip_key(uid): return f"clicked_vip:{uid}"
 def conversation_messages_key(uid): return f"conversation_msgs:{uid}"
 def ab_group_key(uid): return f"ab_group:{uid}"
 def chatlog_key(uid): return f"chatlog:{uid}"
+def chatlog_day_key(uid, day): return f"chatlog_day:{day}:{uid}"
+def chatlog_day_users_key(day): return f"chatlog_day_users:{day}"
 def recent_responses_key(uid): return f"recent_resp:{uid}"
 def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
@@ -1497,11 +1502,32 @@ def get_all_active_users():
 
 def save_message(uid, role, text):
     try:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        r.rpush(chatlog_key(uid), f"[{timestamp}] {role.upper()}: {text[:100]}")
-        r.ltrim(chatlog_key(uid), -200, -1)
-    except:
-        pass
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        role_upper = str(role).upper()
+        clean_text = str(text or "")[:4000]
+
+        # Log recente usado pelo painel em tempo real.
+        r.rpush(chatlog_key(uid), f"[{timestamp}] {role_upper}: {clean_text}")
+        r.ltrim(chatlog_key(uid), -500, -1)
+
+        # Histórico diário separado, próprio para exportação por período.
+        day = now.date().isoformat()
+        daily_key = chatlog_day_key(uid, day)
+        users_key = chatlog_day_users_key(day)
+        payload = json.dumps({
+            "timestamp": now.isoformat(timespec="seconds"),
+            "role": role_upper,
+            "text": clean_text,
+        }, ensure_ascii=False)
+        r.rpush(daily_key, payload)
+        r.sadd(users_key, str(uid))
+
+        retention = timedelta(days=max(1, CHATLOG_EXPORT_RETENTION_DAYS))
+        r.expire(daily_key, retention)
+        r.expire(users_key, retention)
+    except Exception as e:
+        logger.error(f"Erro save_message: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 📊 CONTROLE DE LIMITE DIÁRIO
@@ -3577,6 +3603,88 @@ def admin_conversations():
 
     except Exception as e:
         logger.exception(f"Erro admin conversations: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/admin/conversations/export", methods=["GET"])
+def admin_conversations_export():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized"}, 401
+    token = auth_header.replace("Bearer ", "")
+    if token != ADMIN_TOKEN:
+        return {"error": "Invalid token"}, 401
+
+    start_raw = (request.args.get("start") or "").strip()
+    end_raw = (request.args.get("end") or "").strip()
+
+    try:
+        start_date = datetime.strptime(start_raw, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_raw, "%Y-%m-%d").date()
+    except ValueError:
+        return {"error": "Use start e end no formato YYYY-MM-DD"}, 400
+
+    if end_date < start_date:
+        return {"error": "A data final não pode ser anterior à data inicial"}, 400
+
+    if (end_date - start_date).days > 365:
+        return {"error": "O intervalo máximo por exportação é de 366 dias"}, 400
+
+    try:
+        output = io.StringIO()
+        output.write("\ufeff")  # BOM para Excel reconhecer UTF-8 corretamente
+        writer = csv.writer(output, delimiter=";", lineterminator="\n")
+        writer.writerow([
+            "data_hora", "user_id", "nome", "papel", "mensagem",
+            "origem", "campanha", "comprou_vip", "em_cooldown"
+        ])
+
+        current = start_date
+        exported = 0
+        while current <= end_date:
+            day = current.isoformat()
+            user_ids = r.smembers(chatlog_day_users_key(day)) or set()
+
+            for uid_raw in user_ids:
+                try:
+                    uid = int(uid_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                profile = get_user_profile(uid) or {}
+                source = get_user_source(uid) or {}
+                rows = r.lrange(chatlog_day_key(uid, day), 0, -1) or []
+
+                for raw in rows:
+                    try:
+                        item = json.loads(raw)
+                    except Exception:
+                        continue
+
+                    writer.writerow([
+                        item.get("timestamp", ""),
+                        uid,
+                        profile.get("name", ""),
+                        item.get("role", ""),
+                        item.get("text", ""),
+                        source.get("source", ""),
+                        source.get("campaign", ""),
+                        "sim" if clicked_vip(uid) else "não",
+                        "sim" if is_in_rejection_cooldown(uid) else "não",
+                    ])
+                    exported += 1
+
+            current += timedelta(days=1)
+
+        filename = f"conversas_{start_date.isoformat()}_a_{end_date.isoformat()}.csv"
+        response = app.response_class(output.getvalue(), mimetype="text/csv")
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response.headers["X-Exported-Rows"] = str(exported)
+        return response
+
+    except Exception as e:
+        logger.exception(f"Erro exportando conversas: {e}")
         return {"error": str(e)}, 500
 
 
