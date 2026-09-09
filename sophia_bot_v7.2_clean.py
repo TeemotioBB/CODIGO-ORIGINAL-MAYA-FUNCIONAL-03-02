@@ -543,6 +543,16 @@ def pending_teaser_video_key(uid): return f"pending_teaser_video:{uid}"
 def free_teaser_video_sent_key(uid): return f"free_teaser_video_sent:{uid}:{date.today()}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 FOLLOW-UP 5 ESTÁGIOS — silêncio + interesse + modo silencioso
+# ═══════════════════════════════════════════════════════════════════════════════
+def followup_active_key(uid): return f"followup5:active:{uid}"
+def followup_stage_key(uid): return f"followup5:stage:{uid}"
+def followup_anchor_key(uid): return f"followup5:anchor:{uid}"
+def followup_interest_key(uid): return f"followup5:interest:{uid}"
+def followup_silent_key(uid): return f"followup5:silent:{uid}"
+def followup_first_name_key(uid): return f"followup5:first_name:{uid}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1115,20 +1125,11 @@ def get_source_context_line(uid):
 
 
 def get_realistic_start_message(uid, ia_config=None):
-    """Abertura sem botão: deixa claro que o usuário pode digitar livremente."""
-    line = get_source_context_line(uid)
-    variants = [
-        f"{line}\n\nMe fala do seu jeito: o que te fez clicar aqui?",
-        f"{line}\n\nNão precisa escolher botão nenhum. Pode digitar como se estivesse falando comigo de verdade.",
-        f"{line}\n\nAgora quero saber de você: veio só pela curiosidade ou veio procurar alguma coisa específica?",
-    ]
-    # Ads frios precisam de abertura mais explícita sobre conversa livre.
-    if is_ads_user(uid):
-        variants.append(
-            f"{line}\n\nPode falar normal comigo. Sem menu, sem enrolação: o que você veio procurar aqui?"
-        )
-    return random.choice(variants)
-
+    """Abertura pedida para iniciar a escolha de interesse do lead."""
+    return (
+        "E aí safado 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
+        "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
+    )
 
 def classify_lead(uid, text, intent=None):
     """Classificação invisível para guiar o fluxo sem parecer bot."""
@@ -2400,8 +2401,9 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         mark_vip_just_offered(uid)
+        activate_followup5(uid, reset_stage=False)
         
-        # Marca o momento do pitch para controlar inatividade
+        # Marca o momento do pitch para controle legado/diagnóstico
         r.setex(f"post_pitch_time:{uid}", timedelta(hours=12), datetime.now().isoformat())
         
         logger.info(f"🎯 Teaser + Pitch v9.0 PUNHETERO enviado para {uid}")
@@ -2414,62 +2416,243 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔄 v8.4 - FOLLOW-UP PÓS-PITCH (quando ele não paga)
+# 🔥 FOLLOW-UP 5 ESTÁGIOS — SILÊNCIO + INTERESSE + MODO SILENCIOSO
 # ═══════════════════════════════════════════════════════════════════════════════
-POST_PITCH_FOLLOWUP_POOL = {
-    "nivel1": [  # 5-15 minutos depois
-        "Amor, ainda tá aí? 🥺 Vi que você curtiu as fotos... quer que eu te mande um videozinho extra só pra você? 🔥",
-        "Ei gato... tá pensando no VIP né? 😏 Me fala se quer que eu te ajude com alguma dúvida...",
-    ],
-    "nivel2": [  # 30-60 minutos depois
-        "Tô aqui doida pra te mostrar mais... gravei um videozinho rapidinho só pra você ver o que tá perdendo 💦 Quer ver?",
-        "Amor, o PIX ainda tá valendo... quer que eu te mande o botão de novo ou prefere outro jeito? 😘",
-    ],
-    "nivel3": [  # 2h+ depois
-        "Ei... ainda não te liberei o VIP né? 🥺 Olha, vou te dar uma última chance com o mesmo preço de hoje...",
-    ]
+
+# Tempo desde a última interação do LEAD:
+# 1º 10 min | 2º 45 min | 3º 5h | 4º 24h | 5º 48h (final)
+FOLLOWUP_5_DELAYS_MINUTES = {1: 10, 2: 45, 3: 300, 4: 1440, 5: 2880}
+FOLLOWUP_SILENT_RESTART_DAYS = 7
+
+FOLLOWUP_INTEREST_FAMILIES = {
+    "boceta": ["buceta", "boceta", "bucetinha", "bocetinha", "perereca", "estojo", "molhadinha", "abertinha", "xereca"],
+    "bumbum": ["bunda", "bumbum", "cuzinho", "cu", "traseiro", "rabão", "rabao"],
+    "peitos": ["peito", "peitos", "seios", "seio", "teta", "tetas", "mama", "peitinho"],
+    "pes": ["pé", "pés", "pe", "pes", "pezinho", "pezinhos"],
+    "geral": ["tudo", "completa", "completinha", "inteira", "corpo todo", "quero ver tudo"],
 }
 
-def mark_post_pitch_followup_sent(uid, level):
+FOLLOWUP_INTEREST_LABELS = {
+    "boceta": "minha bocetinha",
+    "bumbum": "meu bumbum",
+    "peitos": "meus seios",
+    "pes": "meus pés",
+    "geral": "tudo",
+}
+
+def _followup_contains_term(text, term):
+    text = (text or "").lower()
+    term = (term or "").lower()
+    if not term:
+        return False
+    if len(term) <= 3 and " " not in term:
+        return bool(re.search(rf"\b{re.escape(term)}\b", text, flags=re.IGNORECASE))
+    return term in text
+
+def detect_followup_interest(text):
+    for interest, terms in FOLLOWUP_INTEREST_FAMILIES.items():
+        if any(_followup_contains_term(text, term) for term in terms):
+            return interest
+    return None
+
+def save_followup_interest(uid, text):
+    interest = detect_followup_interest(text)
+    if interest:
+        try:
+            r.setex(followup_interest_key(uid), timedelta(days=30), interest)
+            logger.info(f"🔥 [FOLLOWUP5] Interesse detectado: uid={uid} interesse={interest}")
+        except Exception:
+            pass
+    return interest
+
+def get_followup_interest(uid):
     try:
-        key = f"postpitch_followup:{uid}:{level}"
-        r.setex(key, timedelta(hours=12), "1")
-    except:
+        return r.get(followup_interest_key(uid))
+    except Exception:
+        return None
+
+def save_followup_first_name(uid, first_name):
+    try:
+        first_name = (first_name or "").strip()
+        if first_name:
+            r.setex(followup_first_name_key(uid), timedelta(days=365), first_name[:60])
+    except Exception:
         pass
 
-def already_sent_followup(uid, level):
+def is_followup5_active(uid):
     try:
-        return r.exists(f"postpitch_followup:{uid}:{level}")
-    except:
+        return bool(r.exists(followup_active_key(uid)))
+    except Exception:
         return False
 
-def already_sent_followup(uid, level):
+def is_followup5_silent(uid):
     try:
-        return r.exists(f"postpitch_followup:{uid}:{level}")
-    except:
+        return bool(r.exists(followup_silent_key(uid)))
+    except Exception:
         return False
 
-
-async def send_post_pitch_followup_v9(bot, uid, chat_id, level):
-    """Envia follow-up pós-pitch de acordo com o nível (1, 2 ou 3)."""
+def activate_followup5(uid, reset_stage=False):
     try:
-        pool = POST_PITCH_FOLLOWUP_POOL.get(f"nivel{level}", [])
-        if not pool:
+        if user_has_paid(uid):
             return False
-        if already_sent_followup(uid, level):
+        if reset_stage:
+            r.set(followup_stage_key(uid), 0)
+            r.delete(followup_silent_key(uid))
+        elif r.get(followup_stage_key(uid)) is None:
+            r.set(followup_stage_key(uid), 0)
+        r.setex(followup_active_key(uid), timedelta(days=8), "1")
+        r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
+        return True
+    except Exception as e:
+        logger.error(f"[FOLLOWUP5] Erro activate uid={uid}: {e}")
+        return False
+
+def cancel_followup5(uid, paid=False):
+    try:
+        r.delete(followup_active_key(uid))
+        r.delete(followup_anchor_key(uid))
+        if paid:
+            r.delete(followup_stage_key(uid))
+            r.delete(followup_silent_key(uid))
+        logger.info(f"🛑 [FOLLOWUP5] Cancelado uid={uid} paid={paid}")
+    except Exception:
+        pass
+
+def touch_followup5_from_user(uid, text="", first_name=""):
+    """Resposta do lead zera o relógio. O estágio alcançado é mantido."""
+    save_followup_first_name(uid, first_name)
+    if text:
+        save_followup_interest(uid, text)
+    try:
+        if user_has_paid(uid):
+            cancel_followup5(uid, paid=True)
+            return
+        silent_raw = r.get(followup_silent_key(uid))
+        if silent_raw:
+            try:
+                silent_since = datetime.fromisoformat(silent_raw)
+                if datetime.now() - silent_since >= timedelta(days=FOLLOWUP_SILENT_RESTART_DAYS):
+                    activate_followup5(uid, reset_stage=True)
+                    logger.info(f"♻️ [FOLLOWUP5] Reativado após 7 dias: uid={uid}")
+                else:
+                    return
+            except Exception:
+                return
+        if is_followup5_active(uid):
+            r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
+        else:
+            # Usuário voltou a falar fora de uma sequência ativa: começa novamente.
+            activate_followup5(uid, reset_stage=True)
+    except Exception as e:
+        logger.error(f"[FOLLOWUP5] Erro touch uid={uid}: {e}")
+
+def _followup_price(uid):
+    try:
+        ia_config = get_router().get_ia_config(uid=uid) or {}
+        return ia_config.get("preco", PRECO_VIP)
+    except Exception:
+        return PRECO_VIP
+
+def _followup_recurring_name(uid):
+    try:
+        if int(r.get(return_count_key(uid)) or 0) <= 0:
+            return ""
+        return (r.get(followup_first_name_key(uid)) or "").strip()
+    except Exception:
+        return ""
+
+def build_followup5_message(uid, stage):
+    preco = _followup_price(uid)
+    interest = get_followup_interest(uid)
+    parte = FOLLOWUP_INTEREST_LABELS.get(interest, "")
+
+    if stage == 1:
+        if parte:
+            return (f"Hmm, você quer ver mesmo {parte} 😏 Pois eu tô toda molhadinha te esperando... "
+                    f"só paga {preco} e eu te mando tudo AGORA!")
+        return (f"Ih, ficou na dúvida? 😏 Vou te dar um empurrãozinho... eu acho que você ia pirar "
+                f"vendo minha bocetinha bem molhadinha agora. Acertei? Paga os {preco} que eu te mando a prova agora! 😈")
+
+    if stage == 2:
+        if parte:
+            return (f"Tá com vergonha safado? 😈 Ou você só tá enrolando... Eu tô aqui toda pronta, "
+                    f"molhadinha pra você. Paga {preco} e eu te mostro {parte} bem de pertinho!")
+        return (f"Mudei de ideia... acho que meus seios combinam mais com o seu clima agora 😈 "
+                f"Paga os {preco} e eu te mostro como eles estão lindos hoje.")
+
+    if stage == 3:
+        return (f"Tô aqui sozinha e com tesão, você não vai me deixar na mão né? "
+                f"{preco} e eu libero tudo pra você agora!")
+
+    if stage == 4:
+        nome = _followup_recurring_name(uid)
+        prefix = f"{nome}, " if nome else ""
+        return (f"Olha só, eu tô perdendo a paciência aqui... 🔥 {prefix}paga {preco} ANTES das 23h59 "
+                f"e eu te mando um vídeo extra de graça só pra você!")
+
+    return (f"Última vez que eu vou te chamar, safado 😈 Se ainda quer me ver completinha, "
+            f"paga {preco} e eu libero tudo agora. Depois disso eu vou ficar quietinha por aqui 🔥")
+
+async def send_followup5_stage(bot, uid, stage):
+    try:
+        if user_has_paid(uid):
+            cancel_followup5(uid, paid=True)
             return False
-        msg = random.choice(pool)
+        if not is_followup5_active(uid):
+            return False
+        msg = build_followup5_message(uid, stage)
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
         ]])
-        await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
-        mark_post_pitch_followup_sent(uid, level)
-        save_message(uid, "system", f"FOLLOW-UP PÓS-PITCH nível {level} enviado")
-        logger.info(f"Follow-up pós-pitch nível {level} enviado para {uid}")
+        await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
+        r.set(followup_stage_key(uid), stage)
+        r.expire(followup_stage_key(uid), timedelta(days=30))
+        save_message(uid, "system", f"🔥 FOLLOW-UP 5 ESTÁGIOS #{stage} ENVIADO")
+        logger.info(f"🔥 [FOLLOWUP5] estágio={stage} enviado uid={uid}")
+        if stage >= 5:
+            r.delete(followup_active_key(uid))
+            r.delete(followup_anchor_key(uid))
+            r.setex(followup_silent_key(uid), timedelta(days=365), datetime.now().isoformat())
+            logger.info(f"🤫 [FOLLOWUP5] uid={uid} entrou em modo silencioso")
         return True
     except Exception as e:
-        logger.error(f"Erro send_post_pitch_followup_v9: {e}")
+        if "blocked" in str(e).lower():
+            add_to_blacklist(uid)
+            cancel_followup5(uid)
+        logger.error(f"[FOLLOWUP5] Erro estágio {stage} uid={uid}: {e}")
         return False
+
+async def followup5_scheduler(bot):
+    while True:
+        try:
+            users = get_all_active_users()
+            now = datetime.now()
+            for uid in users:
+                try:
+                    if is_blacklisted(uid):
+                        continue
+                    if user_has_paid(uid):
+                        cancel_followup5(uid, paid=True)
+                        continue
+                    if not is_followup5_active(uid) or is_followup5_silent(uid):
+                        continue
+                    current_stage = int(r.get(followup_stage_key(uid)) or 0)
+                    next_stage = current_stage + 1
+                    if next_stage > 5:
+                        continue
+                    anchor_raw = r.get(followup_anchor_key(uid)) or r.get(last_activity_key(uid))
+                    if not anchor_raw:
+                        continue
+                    anchor = datetime.fromisoformat(anchor_raw)
+                    silence_minutes = (now - anchor).total_seconds() / 60
+                    if silence_minutes >= FOLLOWUP_5_DELAYS_MINUTES[next_stage]:
+                        await send_followup5_stage(bot, uid, next_stage)
+                        await asyncio.sleep(0.2)
+                except Exception as item_err:
+                    logger.error(f"[FOLLOWUP5] Erro scheduler uid={uid}: {item_err}")
+        except Exception as e:
+            logger.error(f"[FOLLOWUP5] Erro geral scheduler: {e}")
+        await asyncio.sleep(60)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 FOLLOW-UP POR INATIVIDADE E PIX PENDENTE
@@ -2550,6 +2733,8 @@ async def process_engagement_jobs(bot):
     random.shuffle(users)
     for uid in users:
         if is_blacklisted(uid) or is_engagement_paused(uid):
+            continue
+        if user_has_paid(uid) or is_followup5_active(uid) or is_followup5_silent(uid):
             continue
         try:
             hours_inactive = get_hours_since_activity(uid)
@@ -2680,32 +2865,8 @@ async def retargeting_scheduler(bot):
         await asyncio.sleep(21600)
 
 async def post_pitch_inactivity_scheduler(bot):
-    """Scheduler que envia follow-up a cada 15 minutos de inatividade após o pitch"""
-    while True:
-        try:
-            users = get_all_active_users()
-            now = datetime.now()
-            
-            for uid in users:
-                # Só usuários que receberam o pitch
-                if not r.exists(f"post_pitch_time:{uid}"):
-                    continue
-                
-                hours_inactive = get_hours_since_activity(uid)
-                if not hours_inactive or hours_inactive < 0.25:  # menos de 15 minutos
-                    continue
-                
-                # Envia a cada 15 minutos de silêncio
-                if hours_inactive % 0.25 < 0.05:  # aproximadamente a cada 15 min
-                    last_sent_key = f"last_inactivity_followup:{uid}"
-                    if not r.exists(last_sent_key):
-                        await send_inactivity_followup(bot, uid, chat_id=uid)
-                        r.setex(last_sent_key, timedelta(minutes=15), "1")  # cooldown de 15 min
-                        
-            await asyncio.sleep(300)  # verifica a cada 5 minutos
-        except Exception as e:
-            logger.error(f"Erro scheduler inatividade: {e}")
-            await asyncio.sleep(60)
+    """Compatibilidade: agora usa o scheduler de 5 estágios."""
+    await followup5_scheduler(bot)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔄 SISTEMA DE RECUPERAÇÃO PÓS /START
@@ -2863,6 +3024,12 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
     mark_first_contact(uid)
+    save_followup_first_name(uid, update.effective_user.first_name or "")
+    if is_followup5_silent(uid):
+        # /start também respeita o modo silencioso; só reabre depois de 7 dias.
+        touch_followup5_from_user(uid, "", update.effective_user.first_name or "")
+    else:
+        activate_followup5(uid, reset_stage=True)
 
     try:
         # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
@@ -2965,6 +3132,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blacklisted(uid):
         return
 
+    # Guarda a inatividade ANTES de atualizar last_activity.
+    hours_since = get_hours_since_activity(uid)
+
+    incoming_text = ""
+    try:
+        incoming_text = (update.message.text or update.message.caption or "") if update.message else ""
+    except Exception:
+        incoming_text = ""
+    touch_followup5_from_user(uid, incoming_text, update.effective_user.first_name or "")
+
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
     reset_ignored(uid)
@@ -2973,7 +3150,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     increment_message_count(uid)
     increment_conversation_messages(uid)
 
-    hours_since = get_hours_since_activity(uid)
     if hours_since and hours_since >= RETURN_WINDOW_HOURS:
         await handle_return(uid, context.bot, update.effective_chat.id)
         update_last_activity(uid)
@@ -3226,19 +3402,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(2)
                     await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
 
-        # v8.4 - Follow-up pós-pitch
-                # v9.0 - Follow-up pós-pitch AGRESSIVO (Harper)
-        if was_vip_just_offered(uid) and not grok_response.get("offer_teaser", False):
-            msgs_since = get_msgs_since_offer(uid)
-            if msgs_since >= 3 and not already_sent_followup(uid, 1):
-                await asyncio.sleep(1)
-                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 1)
-            elif msgs_since >= 10 and not already_sent_followup(uid, 2):
-                await asyncio.sleep(1)
-                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 2)
-            elif msgs_since >= 20 and not already_sent_followup(uid, 3):
-                await asyncio.sleep(1)
-                await send_post_pitch_followup_v9(context.bot, uid, update.effective_chat.id, 3)
+        # Follow-up agora é controlado exclusivamente pelo scheduler de 5 estágios.
 
         if streak_updated:
             streak_msg = get_streak_message(streak)
@@ -3321,6 +3485,9 @@ syncpay_integration.init(
         "CANAL_VIP_LINK"  : CANAL_VIP_LINK,
         "PRECO_VIP"       : PRECO_VIP,
         "track_source_event": track_source_event,
+        "activate_followup5": activate_followup5,
+        "touch_followup5": touch_followup5_from_user,
+        "cancel_followup5": cancel_followup5,
     }
 )
 
@@ -3811,11 +3978,12 @@ async def startup_sequence():
         # Retargeting desligado no boot porque pode travar a inicialização.
         loop.create_task(engagement_scheduler(application.bot))
         # loop.create_task(retargeting_scheduler(application.bot))
-        loop.create_task(post_pitch_inactivity_scheduler(application.bot))
-        loop.create_task(pending_pix_followup_scheduler(application.bot))
-        loop.create_task(recovery_scheduler(application.bot))
+        loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP 5 ESTÁGIOS
+        # Desligados para não gerar mensagens extras fora dos 5 estágios:
+        # loop.create_task(pending_pix_followup_scheduler(application.bot))
+        # loop.create_task(recovery_scheduler(application.bot))
 
-        logger.info("✅ Schedulers iniciados sem retargeting")
+        logger.info("✅ Schedulers iniciados com FOLLOW-UP 5 ESTÁGIOS")
 
         # ====================== META CAPI TRACKER ======================
         try:
