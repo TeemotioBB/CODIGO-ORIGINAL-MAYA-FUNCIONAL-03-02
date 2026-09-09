@@ -262,26 +262,6 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
             f"💳 PIX ENVIADO (id={pix_data['identifier']})"
         )
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text=mensagem,
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-    await bot.send_message(
-        chat_id=chat_id,
-        text=mensagem,
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-
-    save_message = _callbacks.get("save_message")
-    if save_message:
-        save_message(uid, "system", f"💳 PIX ENVIADO (id={pix_data['identifier']})")
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯  SUBSTITUTO DE send_teaser_and_apex
 # ═══════════════════════════════════════════════════════════════════════════════
