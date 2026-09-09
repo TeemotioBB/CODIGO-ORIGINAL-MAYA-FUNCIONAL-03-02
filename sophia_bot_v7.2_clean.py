@@ -28,6 +28,7 @@ import csv
 import io
 import syncpay_integration
 from datetime import datetime, timedelta, date
+from zoneinfo import ZoneInfo
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
@@ -47,6 +48,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Fuso horário usado para logs/exportações do painel.
+# Railway normalmente roda em UTC; fixamos São Paulo para que a data do CSV
+# corresponda ao dia visto pelo usuário no Brasil.
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
+try:
+    LOCAL_TZ = ZoneInfo(APP_TIMEZONE)
+except Exception:
+    LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
+
+def local_now():
+    return datetime.now(LOCAL_TZ)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 v8.3 - SISTEMA DE FASES
@@ -373,7 +387,7 @@ ADS_DAILY_LIMIT = int(os.getenv("ADS_DAILY_LIMIT", "12"))
 PIX_PENDING_DAILY_LIMIT = int(os.getenv("PIX_PENDING_DAILY_LIMIT", "4"))
 USER_ADS_COST_CENTS = int(os.getenv("USER_ADS_COST_CENTS", "20"))  # R$0,20 por usuário de Ads
 DEFAULT_BOT_COST_CENTS = int(os.getenv("DEFAULT_BOT_COST_CENTS", "40"))  # estimativa conservadora
-CHATLOG_EXPORT_RETENTION_DAYS = int(os.getenv("CHATLOG_EXPORT_RETENTION_DAYS", "30"))
+CHATLOG_EXPORT_RETENTION_DAYS = int(os.getenv("CHATLOG_EXPORT_RETENTION_DAYS", "10"))
 
 VIP_COOLDOWN_AFTER_REJECT = 8
 MAX_VIP_OFFERS_PER_SESSION = 999
@@ -1502,7 +1516,8 @@ def get_all_active_users():
 
 def save_message(uid, role, text):
     try:
-        now = datetime.now()
+        # IMPORTANTE: usa horário de São Paulo, não UTC do Railway.
+        now = local_now()
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         role_upper = str(role).upper()
         clean_text = str(text or "")[:4000]
