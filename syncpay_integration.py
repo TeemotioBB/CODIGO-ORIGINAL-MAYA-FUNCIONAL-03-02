@@ -336,6 +336,9 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         )
 
         bot_main.mark_vip_just_offered(uid)
+        activate_followup5 = _callbacks.get("activate_followup5")
+        if activate_followup5:
+            activate_followup5(uid, reset_stage=False)
         logger.info(f"[SyncPay] 🎯 Teaser+pitch PIX enviado: uid={uid}")
         save_message = _callbacks.get("save_message")
         if save_message:
@@ -358,6 +361,10 @@ async def _pagar_vip_callback(update: Update, context):
     uid     = query.from_user.id
     chat_id = query.message.chat_id
     bot     = context.bot
+
+    touch_followup5 = _callbacks.get("touch_followup5")
+    if touch_followup5:
+        touch_followup5(uid, "pix", query.from_user.first_name or "")
 
     try:
         pix_pendente = _get_pix_pendente(uid)
@@ -493,6 +500,10 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
+
+        cancel_followup5 = _callbacks.get("cancel_followup5")
+        if cancel_followup5:
+            cancel_followup5(uid, paid=True)
 
         # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
         try:
