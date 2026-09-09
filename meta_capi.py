@@ -110,7 +110,7 @@ async def send_to_meta(event_name: str, apex_event: dict):
             "data": [{
                 "event_name":    event_name,
                 "event_time":    ts,
-                "action_source": "other",
+                "action_source": "chat",
                 "event_id":      f"{event_name}_{customer.get('chat_id')}_{ts}",
                 "user_data":     user_data,
                 "custom_data":   custom_data,
@@ -126,14 +126,18 @@ async def send_to_meta(event_name: str, apex_event: dict):
             url = f"https://graph.facebook.com/v21.0/{META_PIXEL_ID}/events"
             async with session.post(url, json=payload) as resp:
                 result = await resp.json()
+
                 if resp.status == 200:
                     logger.info(
                         f"✅ META CAPI → {event_name} enviado | "
                         f"User {customer.get('chat_id')} | "
-                        f"Campos: {list(user_data.keys())}"
+                        f"Campos: {list(user_data.keys())} | "
+                        f"Resposta Meta: {result}"
                     )
                 else:
-                    logger.error(f"❌ META CAPI erro {resp.status}: {result}")
+                    logger.error(
+                        f"❌ META CAPI erro {resp.status}: {result}"
+                    )
 
     except Exception:
         logger.exception(f"Erro ao enviar {event_name} para Meta")
