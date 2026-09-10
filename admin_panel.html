@@ -1864,30 +1864,113 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+
+
+// ─── exportação de conversas ─────────────────────────────
+function setDefaultExportDates() {
+  const start = $('exportStart');
+  const end = $('exportEnd');
+  if (!start || !end) return;
+
+  const today = new Date();
+  const yyyyMmDd = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 6);
+
+  if (!start.value) start.value = yyyyMmDd(sevenDaysAgo);
+  if (!end.value) end.value = yyyyMmDd(today);
+}
+
+async function exportConversations() {
+  const token = localStorage.getItem('adminToken');
+  if (!token) {
+    window.location.href = '/admin/login';
+    return;
+  }
+
+  const start = $('exportStart')?.value || '';
+  const end = $('exportEnd')?.value || '';
+  if (!start || !end) {
+    alert('Selecione a data inicial e final.');
+    return;
+  }
+
+  const btn = $('exportConversationsBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const params = new URLSearchParams({ start, end });
+    const response = await fetch(`/admin/conversations/export?${params.toString()}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (response.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return;
+    }
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversas_${start}_a_${end}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('exportConversations:', err);
+    alert(err.message || 'Não foi possível exportar as conversas.');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ─── wire up ─────────────────────────────────────────────
 async function init() {
-  $('refreshBtn').addEventListener('click', loadAllData);
-  $('fabRefresh').addEventListener('click', loadAllData);
-  $('conversationFilter').addEventListener('change', () => loadConversations({ append: false }));
-  $('conversationPhase').addEventListener('change', () => loadConversations({ append: false }));
+  // Começa a buscar os dados ANTES de configurar recursos secundários.
+  // Assim, um erro opcional nunca impede /summary e /leads de iniciarem.
+  const firstLoad = loadAllData();
+
+  $('refreshBtn')?.addEventListener('click', loadAllData);
+  $('fabRefresh')?.addEventListener('click', loadAllData);
+  $('conversationFilter')?.addEventListener('change', () => loadConversations({ append: false }));
+  $('conversationPhase')?.addEventListener('change', () => loadConversations({ append: false }));
 
   let searchTimer;
-  $('conversationSearch').addEventListener('input', () => {
+  $('conversationSearch')?.addEventListener('input', () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => loadConversations({ append: false }), 250);
   });
 
-  $('exportConversationsBtn').addEventListener('click', exportConversations);
+  $('exportConversationsBtn')?.addEventListener('click', exportConversations);
   setDefaultExportDates();
 
-  // Sequência real: summary → leads → charts.
-  await loadAllData();
+  await firstLoad;
   startAutoRefresh();
 }
 
 // Este script fica no fim do <body>, então todos os elementos do painel já existem.
 // Inicia imediatamente e não depende de DOMContentLoaded nem de bibliotecas externas.
-init();
+init().catch(err => {
+  console.error('Falha ao inicializar painel:', err);
+  const banner = $('loadingBanner');
+  if (banner) banner.classList.add('hidden');
+  const alerts = $('alerts');
+  if (alerts) alerts.innerHTML = '<div class="alert danger"><div><strong>Erro ao iniciar o painel.</strong><br>Abra o console do navegador para ver o detalhe.</div></div>';
+});
 </script>
 </body>
 </html>
