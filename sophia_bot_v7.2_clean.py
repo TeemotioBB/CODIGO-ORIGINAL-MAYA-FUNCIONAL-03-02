@@ -431,6 +431,262 @@ except Exception as e:
     logger.error(f"❌ Redis erro: {e}")
     raise
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚡ ADMIN STATS — agregação no evento + índices rápidos
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _admin_count_unique(event, uid, field):
+    """Incrementa um contador apenas na primeira ocorrência por usuário."""
+    try:
+        if r.sadd(admin_counted_set(event), str(uid)):
+            r.hincrby(admin_stats_hash_key(), field, 1)
+            return True
+    except Exception as e:
+        logger.debug(f"admin stats unique {event}/{uid}: {e}")
+    return False
+
+
+def _admin_record_streak(uid, new_streak):
+    try:
+        uid_s = str(uid)
+        old_raw = r.hget(admin_streak_values_key(), uid_s)
+        old = int(old_raw or 0)
+        new = max(0, int(new_streak or 0))
+        if new == old:
+            return
+        pipe = r.pipeline(transaction=False)
+        pipe.hset(admin_streak_values_key(), uid_s, new)
+        pipe.hincrby(admin_stats_hash_key(), "streak_sum", new - old)
+        if old <= 0 < new:
+            pipe.hincrby(admin_stats_hash_key(), "streak_users", 1)
+        elif old > 0 and new <= 0:
+            pipe.hincrby(admin_stats_hash_key(), "streak_users", -1)
+        pipe.execute()
+    except Exception as e:
+        logger.debug(f"admin streak {uid}: {e}")
+
+
+def _admin_index_activity(uid, when_ts=None):
+    try:
+        r.zadd(admin_activity_zset_key(), {str(uid): float(when_ts or datetime.now().timestamp())})
+    except Exception:
+        pass
+
+
+def _admin_index_first_contact(uid, when_ts=None):
+    try:
+        # NX impede um /start posterior de trocar a data de aquisição.
+        r.zadd(
+            admin_first_contact_zset_key(),
+            {str(uid): float(when_ts or datetime.now().timestamp())},
+            nx=True,
+        )
+    except Exception:
+        pass
+
+
+def _admin_index_cooldown(uid, ttl_seconds=86400):
+    try:
+        r.zadd(admin_cooldown_zset_key(), {str(uid): datetime.now().timestamp() + max(1, int(ttl_seconds))})
+    except Exception:
+        pass
+
+
+def _admin_index_ignored(uid, ttl_seconds=86400 * 14):
+    try:
+        r.zadd(admin_ignored_zset_key(), {str(uid): datetime.now().timestamp() + max(1, int(ttl_seconds))})
+    except Exception:
+        pass
+
+
+def _admin_record_funnel(uid, stage_number):
+    """Cada conjunto representa usuários que alcançaram pelo menos aquele estágio."""
+    try:
+        stage_number = max(0, min(int(stage_number or 0), 4))
+        names = {1: "started", 2: "first_message", 3: "saw_teaser", 4: "clicked_vip"}
+        for stage in range(1, stage_number + 1):
+            field = f"funnel_{names[stage]}"
+            if r.sadd(admin_counted_set(field), str(uid)):
+                r.hincrby(admin_stats_hash_key(), field, 1)
+    except Exception:
+        pass
+
+
+def reconcile_admin_paid_stats():
+    """
+    SyncPay mantém sp:paid:<uid>. Contamos essas chaves fora da requisição do painel,
+    evitando percorrer todos os leads toda vez que o admin abre a tela.
+    """
+    try:
+        paid = 0
+        for _ in r.scan_iter(match="sp:paid:*", count=500):
+            paid += 1
+        r.hset(admin_stats_hash_key(), "vip_sales", paid)
+        return paid
+    except Exception as e:
+        logger.debug(f"admin paid reconcile: {e}")
+        return None
+
+
+def bootstrap_admin_stats_once():
+    """
+    Migração única dos dados já existentes para os agregados rápidos.
+    Depois disso, os helpers acima mantêm os índices incrementalmente.
+    """
+    try:
+        if r.exists(admin_stats_ready_key()):
+            return True
+        if not r.set(admin_stats_bootstrap_lock_key(), "1", nx=True, ex=180):
+            return False
+
+        users = get_all_active_users()
+        total_messages = 0
+        streak_sum = 0
+        streak_users = 0
+        rejected_users = 0
+
+        # Preenche conjuntos idempotentes sem apagar nada que possa ter chegado ao vivo.
+        chunk_size = 500
+        now_ts = datetime.now().timestamp()
+
+        for start in range(0, len(users), chunk_size):
+            chunk = users[start:start + chunk_size]
+            pipe = r.pipeline(transaction=False)
+            for uid in chunk:
+                pipe.get(first_contact_key(uid))
+                pipe.get(last_activity_key(uid))
+                pipe.get(saw_teaser_key(uid))
+                pipe.get(clicked_vip_key(uid))
+                pipe.get(conversation_messages_key(uid))
+                pipe.get(streak_key(uid))
+                pipe.get(funnel_key(uid))
+                pipe.get(rejection_cooldown_key(uid))
+                pipe.ttl(rejection_cooldown_key(uid))
+                pipe.get(ignored_count_key(uid))
+                pipe.ttl(ignored_count_key(uid))
+                pipe.get(last_offer_rejected_key(uid))
+            vals = pipe.execute()
+            idx = 0
+
+            write = r.pipeline(transaction=False)
+            for uid in chunk:
+                first_raw = vals[idx]; idx += 1
+                last_raw = vals[idx]; idx += 1
+                saw_raw = vals[idx]; idx += 1
+                clicked_raw = vals[idx]; idx += 1
+                msgs_raw = vals[idx]; idx += 1
+                streak_raw = vals[idx]; idx += 1
+                funnel_raw = vals[idx]; idx += 1
+                cooldown_raw = vals[idx]; idx += 1
+                cooldown_ttl = vals[idx]; idx += 1
+                ignored_raw = vals[idx]; idx += 1
+                ignored_ttl = vals[idx]; idx += 1
+                rejected_raw = vals[idx]; idx += 1
+
+                if first_raw:
+                    try:
+                        first_ts = datetime.fromisoformat(first_raw).timestamp()
+                    except Exception:
+                        first_ts = now_ts
+                    write.zadd(admin_first_contact_zset_key(), {str(uid): first_ts}, nx=True)
+
+                if last_raw:
+                    try:
+                        last_ts = datetime.fromisoformat(last_raw).timestamp()
+                    except Exception:
+                        last_ts = now_ts
+                    # XX/GT seria ótimo, mas MAX via leitura não compensa aqui; eventos novos
+                    # continuarão atualizando este índice depois da migração.
+                    write.zadd(admin_activity_zset_key(), {str(uid): last_ts}, nx=True)
+
+                if saw_raw:
+                    write.sadd(admin_counted_set("saw_teaser"), str(uid))
+                if clicked_raw:
+                    write.sadd(admin_counted_set("clicked_vip"), str(uid))
+
+                try:
+                    msgs = max(0, int(msgs_raw or 0))
+                except Exception:
+                    msgs = 0
+                total_messages += msgs
+
+                try:
+                    streak = max(0, int(streak_raw or 0))
+                except Exception:
+                    streak = 0
+                write.hset(admin_streak_values_key(), str(uid), streak)
+                if streak > 0:
+                    streak_sum += streak
+                    streak_users += 1
+
+                try:
+                    funnel = max(0, min(int(funnel_raw or 0), 4))
+                except Exception:
+                    funnel = 0
+                for stage, name in ((1, "started"), (2, "first_message"), (3, "saw_teaser"), (4, "clicked_vip")):
+                    if funnel >= stage:
+                        write.sadd(admin_counted_set(f"funnel_{name}"), str(uid))
+
+                if cooldown_raw:
+                    ttl = cooldown_ttl if isinstance(cooldown_ttl, int) and cooldown_ttl > 0 else 86400
+                    write.zadd(admin_cooldown_zset_key(), {str(uid): now_ts + ttl})
+                if ignored_raw:
+                    ttl = ignored_ttl if isinstance(ignored_ttl, int) and ignored_ttl > 0 else 86400 * 14
+                    write.zadd(admin_ignored_zset_key(), {str(uid): now_ts + ttl})
+                if rejected_raw:
+                    rejected_users += 1
+
+            write.execute()
+
+        # SCARD é O(1) e torna o bootstrap imune a chamadas repetidas.
+        current_total_messages = int(r.hget(admin_stats_hash_key(), "total_messages") or 0)
+        mapping = {
+            "total_users": r.scard(all_users_key()),
+            "saw_teaser": r.scard(admin_counted_set("saw_teaser")),
+            "clicked_vip": r.scard(admin_counted_set("clicked_vip")),
+            "total_messages": max(total_messages, current_total_messages),
+            "streak_sum": streak_sum,
+            "streak_users": streak_users,
+            "rejected_vip": rejected_users,
+            "funnel_started": r.scard(admin_counted_set("funnel_started")),
+            "funnel_first_message": r.scard(admin_counted_set("funnel_first_message")),
+            "funnel_saw_teaser": r.scard(admin_counted_set("funnel_saw_teaser")),
+            "funnel_clicked_vip": r.scard(admin_counted_set("funnel_clicked_vip")),
+        }
+        r.hset(admin_stats_hash_key(), mapping=mapping)
+        reconcile_admin_paid_stats()
+        r.set(admin_stats_ready_key(), datetime.now().isoformat())
+        logger.info(f"⚡ Admin stats bootstrap concluído: {len(users)} usuários")
+        return True
+    except Exception as e:
+        logger.exception(f"Erro bootstrap admin stats: {e}")
+        return False
+    finally:
+        try:
+            r.delete(admin_stats_bootstrap_lock_key())
+        except Exception:
+            pass
+
+
+async def admin_stats_maintenance_scheduler():
+    """Mantém compras e índices expirados atualizados fora do caminho crítico do painel."""
+    while True:
+        try:
+            if not r.exists(admin_stats_ready_key()):
+                await asyncio.to_thread(bootstrap_admin_stats_once)
+            else:
+                await asyncio.to_thread(reconcile_admin_paid_stats)
+
+            now_ts = datetime.now().timestamp()
+            # Remove membros cujo TTL lógico já venceu.
+            r.zremrangebyscore(admin_cooldown_zset_key(), "-inf", now_ts)
+            r.zremrangebyscore(admin_ignored_zset_key(), "-inf", now_ts)
+        except Exception as e:
+            logger.debug(f"admin stats maintenance: {e}")
+        await asyncio.sleep(60)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎨 ASSETS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -518,6 +774,17 @@ def blacklist_key(): return "blacklist"
 def all_users_key(): return "all_users"
 def funnel_key(uid): return f"funnel:{uid}"
 
+# Dashboard rápido: agregados e índices mantidos no evento, não na leitura.
+def admin_stats_hash_key(): return "admin:stats"
+def admin_activity_zset_key(): return "admin:index:last_activity"
+def admin_first_contact_zset_key(): return "admin:index:first_contact"
+def admin_cooldown_zset_key(): return "admin:index:cooldown"
+def admin_ignored_zset_key(): return "admin:index:ignored"
+def admin_streak_values_key(): return "admin:streak_values"
+def admin_counted_set(event): return f"admin:counted:{event}"
+def admin_stats_ready_key(): return "admin:stats:ready:v2"
+def admin_stats_bootstrap_lock_key(): return "admin:stats:bootstrap_lock:v2"
+
 # Origem / campanha / custo
 # Ex.: /start ads_instagram_reels_01 → channel=instagram, campaign=ads_instagram_reels_01
 # Ex.: /start tiktok_bio → channel=tiktok, campaign=tiktok_bio
@@ -566,6 +833,7 @@ def set_rejection_cooldown(uid, msgs=None):
         cooldown_msgs = msgs or VIP_COOLDOWN_AFTER_REJECT
         r.set(rejection_cooldown_key(uid), cooldown_msgs)
         r.expire(rejection_cooldown_key(uid), timedelta(hours=24))
+        _admin_index_cooldown(uid, 86400)
         logger.info(f"🚫 Cooldown ativado para {uid}: {cooldown_msgs} msgs")
     except:
         pass
@@ -578,10 +846,12 @@ def decrement_rejection_cooldown(uid):
             if new_val <= 0:
                 r.delete(rejection_cooldown_key(uid))
                 r.delete(last_offer_rejected_key(uid))
+                r.zrem(admin_cooldown_zset_key(), str(uid))
                 logger.info(f"✅ Cooldown expirado para {uid}")
             else:
                 r.set(rejection_cooldown_key(uid), new_val)
                 r.expire(rejection_cooldown_key(uid), timedelta(hours=24))
+                _admin_index_cooldown(uid, 86400)
     except:
         pass
 
@@ -772,10 +1042,12 @@ def update_streak(uid):
             new_streak = get_streak(uid) + 1
             r.set(streak_key(uid), new_streak)
             r.set(streak_last_day_key(uid), today)
+            _admin_record_streak(uid, new_streak)
             return new_streak, True
         else:
             r.set(streak_key(uid), 1)
             r.set(streak_last_day_key(uid), today)
+            _admin_record_streak(uid, 1)
             return 1, True
     except:
         return 0, False
@@ -799,6 +1071,7 @@ def set_saw_teaser(uid):
     try:
         r.set(saw_teaser_key(uid), datetime.now().isoformat())
         r.incr(teaser_count_key(uid))
+        _admin_count_unique("saw_teaser", uid, "saw_teaser")
     except:
         pass
 
@@ -817,6 +1090,7 @@ def get_teaser_count(uid):
 def set_clicked_vip(uid):
     try:
         r.set(clicked_vip_key(uid), datetime.now().isoformat())
+        _admin_count_unique("clicked_vip", uid, "clicked_vip")
     except:
         pass
 
@@ -1482,8 +1756,10 @@ def get_time_context():
 
 def update_last_activity(uid):
     try:
-        r.set(last_activity_key(uid), datetime.now().isoformat())
+        now = datetime.now()
+        r.set(last_activity_key(uid), now.isoformat())
         r.sadd(all_users_key(), str(uid))
+        _admin_index_activity(uid, now.timestamp())
     except:
         pass
 
@@ -1502,8 +1778,13 @@ def get_hours_since_activity(uid):
 
 def increment_conversation_messages(uid):
     try:
-        r.incr(conversation_messages_key(uid))
-        r.expire(conversation_messages_key(uid), timedelta(days=30))
+        pipe = r.pipeline(transaction=False)
+        pipe.incr(conversation_messages_key(uid))
+        pipe.expire(conversation_messages_key(uid), timedelta(days=30))
+        pipe.hincrby(admin_stats_hash_key(), "total_messages", 1)
+        pipe.hincrby(f"admin:stats:day:{date.today().isoformat()}", "messages", 1)
+        pipe.expire(f"admin:stats:day:{date.today().isoformat()}", timedelta(days=8))
+        pipe.execute()
     except:
         pass
 
@@ -1613,6 +1894,7 @@ def track_funnel(uid, stage):
         new_stage = stages.get(stage, 0)
         if new_stage > current:
             r.set(funnel_key(uid), new_stage)
+            _admin_record_funnel(uid, new_stage)
             track_source_event(uid, stage)
     except:
         pass
@@ -1690,6 +1972,7 @@ def increment_ignored(uid):
         count = get_ignored_count(uid)
         new_count = count + 1
         r.setex(ignored_count_key(uid), timedelta(days=14), new_count)
+        _admin_index_ignored(uid, 86400 * 14)
         if new_count >= 3:
             pause_engagement(uid)
             return True
@@ -1702,6 +1985,7 @@ def reset_ignored(uid):
         r.delete(ignored_count_key(uid))
         r.delete(engagement_paused_key(uid))
         r.delete(awaiting_response_key(uid))
+        r.zrem(admin_ignored_zset_key(), str(uid))
     except:
         pass
 
@@ -1896,9 +2180,22 @@ def is_first_contact(uid):
 
 def mark_first_contact(uid):
     try:
-        r.set(first_contact_key(uid), datetime.now().isoformat())
+        now = datetime.now()
+        # Primeiro contato de verdade: /start repetido não redefine aquisição.
+        created = r.set(first_contact_key(uid), now.isoformat(), nx=True)
+        if created:
+            _admin_index_first_contact(uid, now.timestamp())
+            _admin_count_unique("total_user", uid, "total_users")
+        else:
+            existing = r.get(first_contact_key(uid))
+            if existing:
+                try:
+                    _admin_index_first_contact(uid, datetime.fromisoformat(existing).timestamp())
+                except Exception:
+                    pass
+        return bool(created)
     except:
-        pass
+        return False
 
 
 def mark_first_message_if_needed(uid):
@@ -3837,6 +4134,74 @@ def admin_dashboard():
     except FileNotFoundError:
         return {"error": "Admin panel not found"}, 404
 
+@app.route("/admin/summary", methods=["GET"])
+def admin_summary():
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
+
+    try:
+        now_ts = datetime.now().timestamp()
+
+        pipe = r.pipeline(transaction=False)
+        pipe.hgetall(admin_stats_hash_key())
+        pipe.scard(all_users_key())
+        pipe.scard(admin_counted_set("saw_teaser"))
+        pipe.scard(admin_counted_set("clicked_vip"))
+        pipe.zcount(admin_first_contact_zset_key(), now_ts - 86400, "+inf")
+        pipe.zcount(admin_activity_zset_key(), now_ts - 86400, "+inf")
+        pipe.zcount(admin_activity_zset_key(), now_ts - 86400 * 7, "+inf")
+        pipe.zcount(admin_cooldown_zset_key(), now_ts, "+inf")
+        pipe.zcount(admin_ignored_zset_key(), now_ts, "+inf")
+        pipe.exists(admin_stats_ready_key())
+        values = pipe.execute()
+
+        raw = values[0] or {}
+        total_users = int(values[1] or raw.get("total_users") or 0)
+        saw_teaser_count = int(values[2] or raw.get("saw_teaser") or 0)
+        clicked_vip_count = int(values[3] or raw.get("clicked_vip") or 0)
+        new_users_24h = int(values[4] or 0)
+        active_today = int(values[5] or 0)
+        active_week = int(values[6] or 0)
+        in_cooldown = int(values[7] or 0)
+        ignored = int(values[8] or 0)
+        ready = bool(values[9])
+
+        streak_sum = int(raw.get("streak_sum") or 0)
+        streak_users = int(raw.get("streak_users") or 0)
+        avg_streak = (streak_sum / streak_users) if streak_users else 0.0
+
+        stats = {
+            "totalUsers": total_users,
+            "newUsers24h": new_users_24h,
+            "activeToday": active_today,
+            "activeWeek": active_week,
+            "sawTeaser": saw_teaser_count,
+            "clickedVip": clicked_vip_count,
+            "vipSales": int(raw.get("vip_sales") or 0),
+            "totalMessages": int(raw.get("total_messages") or 0),
+            "avgStreak": round(avg_streak, 1),
+            "inCooldown": in_cooldown,
+            "rejectedVip": int(raw.get("rejected_vip") or 0),
+            "ignored": ignored,
+        }
+        funnel = {
+            "started": int(raw.get("funnel_started") or 0),
+            "firstMessage": int(raw.get("funnel_first_message") or 0),
+            "sawTeaser": int(raw.get("funnel_saw_teaser") or 0),
+            "clickedVip": int(raw.get("funnel_clicked_vip") or 0),
+        }
+
+        return {
+            "stats": stats,
+            "funnel": funnel,
+            "server": {"status": "online", "statsReady": ready},
+        }, 200
+    except Exception as e:
+        logger.exception(f"Erro admin summary: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/admin/charts", methods=["GET"])
 @app.route("/admin/stats", methods=["GET"])
 def admin_stats():
     if not admin_request_authorized():
@@ -4132,6 +4497,23 @@ def admin_stats():
             "acquisition": acquisition
         }
 
+        try:
+            r.hset(admin_stats_hash_key(), mapping={
+                "total_users": total_users,
+                "saw_teaser": saw_teaser_count,
+                "clicked_vip": clicked_vip_count,
+                "total_messages": total_messages,
+                "streak_sum": int(sum(streaks)),
+                "streak_users": len(streaks),
+                "rejected_vip": rejected_vip_count,
+                "funnel_started": started,
+                "funnel_first_message": first_message,
+                "funnel_saw_teaser": saw_teaser_funnel,
+                "funnel_clicked_vip": clicked_vip_funnel,
+            })
+        except Exception:
+            pass
+
         admin_stats._cache = {"ts": now_ts, "data": payload}
         return payload, 200
 
@@ -4156,35 +4538,58 @@ def admin_acquisition():
         return {"error": str(e)}, 500
 
 
+@app.route("/admin/leads", methods=["GET"])
 @app.route("/admin/conversations", methods=["GET"])
 def admin_conversations():
+    """
+    Lista metadados dos leads. NUNCA inclui histórico de mensagens.
+    /admin/conversations é mantida como alias para compatibilidade.
+    """
     if not admin_request_authorized():
         return {"error": "Unauthorized"}, 401
 
     try:
-        filter_type = (request.args.get("filter") or "all").strip().lower()
+        filter_type = (request.args.get("filter") or request.args.get("status") or "all").strip().lower()
         phase_filter = (request.args.get("phase") or "all").strip().lower()
         query_uid = (request.args.get("q") or "").strip()
         try:
             limit = max(1, min(int(request.args.get("limit") or 40), 100))
         except Exception:
             limit = 40
+        try:
+            offset = max(0, int(request.args.get("offset") or 0))
+        except Exception:
+            offset = 0
 
-        users = get_all_active_users()
         exact_search = False
         if query_uid:
             if not query_uid.isdigit():
-                return {"conversations": []}, 200
+                empty_page = {"offset": 0, "limit": limit, "total": 0, "hasMore": False}
+                return {"leads": [], "conversations": [], "pagination": empty_page}, 200
             wanted_uid = int(query_uid)
             users = [wanted_uid] if r.sismember(all_users_key(), str(wanted_uid)) else []
             exact_search = True
+            offset = 0
+        else:
+            # Índice ordenado por atividade: não precisamos mais começar pelo SET completo.
+            now_ts = datetime.now().timestamp()
+            users_raw = r.zrevrangebyscore(admin_activity_zset_key(), "+inf", now_ts - 86400)
+            if users_raw:
+                users = []
+                for raw in users_raw:
+                    try:
+                        users.append(int(raw))
+                    except (TypeError, ValueError):
+                        pass
+            else:
+                # Fallback temporário durante a primeira migração.
+                users = get_all_active_users()
 
-        # Primeiro passe: apenas metadados leves, todos agrupados em uma pipeline.
         candidates = []
         now = datetime.now()
         chunk_size = 500
-        for start in range(0, len(users), chunk_size):
-            chunk = users[start:start + chunk_size]
+        for start_idx in range(0, len(users), chunk_size):
+            chunk = users[start_idx:start_idx + chunk_size]
             pipe = r.pipeline(transaction=False)
             for uid in chunk:
                 pipe.get(last_activity_key(uid))
@@ -4240,10 +4645,30 @@ def admin_conversations():
                     continue
                 elif filter_type == "cooldown" and not in_cooldown:
                     continue
-                elif filter_type == "converted" and not clicked:
+                elif filter_type in {"converted", "vip"} and not clicked:
                     continue
                 elif filter_type == "manual" and not ai_paused:
                     continue
+
+                if hours is None:
+                    last_activity = "—"
+                elif hours < (1 / 60):
+                    last_activity = "< 1 min"
+                elif hours < 1:
+                    last_activity = f"{max(1, int(hours * 60))} min"
+                elif hours < 24:
+                    last_activity = f"{int(hours)}h"
+                else:
+                    last_activity = f"{int(hours / 24)}d"
+
+                if clicked:
+                    status, status_class = "💎 Comprou VIP", "vip"
+                elif in_cooldown:
+                    status, status_class = "🚫 Cooldown", "cooldown"
+                elif msg_count > 20:
+                    status, status_class = "🔥 Quente", "hot"
+                else:
+                    status, status_class = "💬 Conversando", "normal"
 
                 candidates.append({
                     "userId": uid,
@@ -4256,77 +4681,29 @@ def admin_conversations():
                     "clickedVip": clicked,
                     "sawTeaser": saw,
                     "teaserCount": teaser_count,
+                    "lastActivity": last_activity,
+                    "status": status,
+                    "statusClass": status_class,
                 })
 
         candidates.sort(key=lambda x: x["hours"] if x["hours"] is not None else 999999)
-        if not exact_search:
-            candidates = candidates[:limit]
+        total = len(candidates)
 
-        # Segundo passe: histórico e hashes só dos cards que realmente serão exibidos.
-        pipe = r.pipeline(transaction=False)
-        for item in candidates:
-            uid = item["userId"]
-            pipe.lrange(chatlog_key(uid), -50, -1)
-            pipe.hgetall(source_meta_key(uid))
-            pipe.get(manual_ai_pause_meta_key(uid))
-        detail_values = pipe.execute() if candidates else []
+        if exact_search:
+            page = candidates[:1]
+        else:
+            page = candidates[offset:offset + limit]
 
-        conversations = []
-        idx = 0
-        for item in candidates:
-            chatlog = detail_values[idx] or []; idx += 1
-            source_meta = detail_values[idx] or {}; idx += 1
-            pause_meta_raw = detail_values[idx]; idx += 1
-
-            hours = item["hours"]
-            if hours is None:
-                last_activity = "—"
-            elif hours < (1 / 60):
-                last_activity = "< 1 min"
-            elif hours < 1:
-                last_activity = f"{max(1, int(hours * 60))} min"
-            elif hours < 24:
-                last_activity = f"{int(hours)}h"
-            else:
-                last_activity = f"{int(hours / 24)}d"
-
-            if item["clickedVip"]:
-                status, status_class = "💎 Comprou VIP", "vip"
-            elif item["inCooldown"]:
-                status, status_class = "🚫 Cooldown", "cooldown"
-            elif item["totalMessages"] > 20:
-                status, status_class = "🔥 Quente", "hot"
-            else:
-                status, status_class = "💬 Conversando", "normal"
-
-            source = {
-                "source": source_meta.get("first_source") or source_meta.get("last_source") or "telegram",
-                "channel": source_meta.get("first_channel") or source_meta.get("last_channel") or "telegram",
-                "campaign": source_meta.get("first_campaign") or source_meta.get("last_campaign") or "telegram_direct",
-                "is_ads": (source_meta.get("first_is_ads") or source_meta.get("last_is_ads") or "0") == "1",
-                "first_seen": source_meta.get("first_seen"),
-                "last_seen": source_meta.get("last_seen"),
-            }
-
-            pause_info = {}
-            if pause_meta_raw:
-                try: pause_info = json.loads(pause_meta_raw)
-                except Exception: pause_info = {}
-
-            conversations.append({
-                **item,
-                "messages": chatlog,
-                "lastActivity": last_activity,
-                "status": status,
-                "statusClass": status_class,
-                "source": source,
-                "pauseInfo": pause_info,
-            })
-
-        return {"conversations": conversations}, 200
+        pagination = {
+            "offset": offset,
+            "limit": limit,
+            "total": total,
+            "hasMore": (offset + len(page)) < total,
+        }
+        return {"leads": page, "conversations": page, "pagination": pagination}, 200
 
     except Exception as e:
-        logger.exception(f"Erro admin conversations: {e}")
+        logger.exception(f"Erro admin leads: {e}")
         return {"error": str(e)}, 500
 
 
@@ -4409,6 +4786,53 @@ def admin_conversations_export():
 
     except Exception as e:
         logger.exception(f"Erro exportando conversas: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/admin/user/<int:user_id>/messages", methods=["GET"])
+def admin_user_messages(user_id):
+    """Busca o chat apenas quando o card é aberto, em páginas a partir do fim da lista."""
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
+    if not r.sismember(all_users_key(), str(user_id)):
+        return {"error": "User not found"}, 404
+
+    try:
+        try:
+            limit = max(5, min(int(request.args.get("limit") or 15), 50))
+        except Exception:
+            limit = 15
+        try:
+            before = max(0, int(request.args.get("before") or 0))
+        except Exception:
+            before = 0
+
+        total = int(r.llen(chatlog_key(user_id)) or 0)
+        end_exclusive = max(0, total - before)
+        start_idx = max(0, end_exclusive - limit)
+        end_idx = end_exclusive - 1
+
+        if end_idx < 0:
+            messages = []
+        else:
+            messages = r.lrange(chatlog_key(user_id), start_idx, end_idx) or []
+
+        loaded_from_tail = before + len(messages)
+        has_more = start_idx > 0
+
+        return {
+            "userId": user_id,
+            "messages": messages,
+            "pagination": {
+                "limit": limit,
+                "before": before,
+                "nextBefore": loaded_from_tail if has_more else None,
+                "hasMore": has_more,
+                "total": total,
+            },
+        }, 200
+    except Exception as e:
+        logger.exception(f"Erro carregando mensagens uid={user_id}: {e}")
         return {"error": str(e)}, 500
 
 
@@ -4599,6 +5023,7 @@ async def startup_sequence():
         loop.create_task(engagement_scheduler(application.bot))
         # loop.create_task(retargeting_scheduler(application.bot))
         loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP 5 ESTÁGIOS
+        loop.create_task(admin_stats_maintenance_scheduler())
         # Desligados para não gerar mensagens extras fora dos 5 estágios:
         # loop.create_task(pending_pix_followup_scheduler(application.bot))
         # loop.create_task(recovery_scheduler(application.bot))
