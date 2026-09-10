@@ -7,10 +7,8 @@
 <meta name="theme-color" content="#0a0a0a">
 <title>Sophia · Admin</title>
 
-<link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-<link rel="preload" href="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" as="script">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>
+<!-- Chart.js saiu do caminho crítico.
+     Ele é carregado sob demanda somente depois de KPIs/leads aparecerem. -->
 
 <style>
 /* ─── design tokens ─────────────────────────────────────── */
@@ -1067,10 +1065,71 @@ const CHART_COLORS = {
   accent: '#ff5a1f', success: '#16a34a', warn: '#f59e0b', danger: '#ef4444', info: '#3b82f6', muted: '#525252',
 };
 
+let chartJsPromise = null;
+
+function loadExternalScript(src, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    let finished = false;
+    const timeout = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      script.remove();
+      reject(new Error(`Timeout carregando ${src}`));
+    }, timeoutMs);
+
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    script.onerror = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      script.remove();
+      reject(new Error(`Falha carregando ${src}`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function loadChartLibrary() {
+  if (typeof Chart !== 'undefined') return Promise.resolve(true);
+  if (chartJsPromise) return chartJsPromise;
+
+  chartJsPromise = (async () => {
+    const sources = [
+      'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js'
+    ];
+
+    for (const src of sources) {
+      try {
+        await loadExternalScript(src, 5000);
+        if (typeof Chart !== 'undefined') return true;
+      } catch (err) {
+        console.warn('Chart.js indisponível nesta CDN:', err.message);
+      }
+    }
+    return false;
+  })();
+
+  return chartJsPromise;
+}
+
 function updateCharts(d) {
   if (typeof Chart === 'undefined') {
-    // chart.js not yet loaded — retry once it is
-    return setTimeout(() => updateCharts(d), 200);
+    // Importante: o painel NÃO espera Chart.js para iniciar.
+    // Só os gráficos aguardam a biblioteca, com fallback de CDN.
+    loadChartLibrary().then(ok => {
+      if (ok) updateCharts(d);
+      else console.warn('Gráficos indisponíveis; KPIs e leads continuam funcionando.');
+    });
+    return;
   }
   setupChartDefaults();
 
@@ -1826,11 +1885,9 @@ async function init() {
   startAutoRefresh();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+// Este script fica no fim do <body>, então todos os elementos do painel já existem.
+// Inicia imediatamente e não depende de DOMContentLoaded nem de bibliotecas externas.
+init();
 </script>
 </body>
 </html>
