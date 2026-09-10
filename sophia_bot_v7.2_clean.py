@@ -3839,125 +3839,217 @@ def admin_dashboard():
 
 @app.route("/admin/stats", methods=["GET"])
 def admin_stats():
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    if not admin_request_authorized():
         return {"error": "Unauthorized"}, 401
-    token = auth_header.replace("Bearer ", "")
-    if token != ADMIN_TOKEN:
-        return {"error": "Invalid token"}, 401
 
     try:
+        # Cache curtíssimo: evita recalcular centenas de chaves em refreshes próximos,
+        # sem deixar o painel perceptivelmente defasado.
+        now_ts = datetime.now().timestamp()
+        cache_ttl = int(os.getenv("ADMIN_STATS_CACHE_SECONDS", "15"))
+        cached = getattr(admin_stats, "_cache", None)
+        if cached and cached.get("data") is not None and now_ts - cached.get("ts", 0) < cache_ttl:
+            return cached["data"], 200
+
         users = get_all_active_users()
-        total_users = len(users)
-        saw_teaser_count = sum(1 for uid in users if saw_teaser(uid))
-        clicked_vip_count = sum(1 for uid in users if clicked_vip(uid))
-        in_cooldown_count = sum(1 for uid in users if is_in_rejection_cooldown(uid))
-        rejected_vip_count = sum(1 for uid in users if r.exists(last_offer_rejected_key(uid)))
-        ignored_count = sum(1 for uid in users if get_ignored_count(uid) > 0)
         now = datetime.now()
-        active_today = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 24)
-        active_week = sum(1 for uid in users if get_hours_since_activity(uid) and get_hours_since_activity(uid) < 168)
-        new_users_24h = sum(1 for uid in users if r.exists(first_contact_key(uid)) and (now - datetime.fromisoformat(r.get(first_contact_key(uid)))).total_seconds() < 86400)
-        total_messages = sum(get_conversation_messages_count(uid) for uid in users)
-        streaks = [get_streak(uid) for uid in users if get_streak(uid) > 0]
+        days = [now - timedelta(days=i) for i in range(6, -1, -1)]
+
+        # O código antigo fazia vários r.get/r.exists por usuário, cada um como uma
+        # viagem separada ao Redis remoto. Aqui agrupamos tudo em pipeline, em lotes.
+        snapshots = []
+        chunk_size = 500
+        for start in range(0, len(users), chunk_size):
+            chunk = users[start:start + chunk_size]
+            pipe = r.pipeline(transaction=False)
+
+            for uid in chunk:
+                pipe.get(saw_teaser_key(uid))
+                pipe.get(clicked_vip_key(uid))
+                pipe.get(rejection_cooldown_key(uid))
+                pipe.get(last_offer_rejected_key(uid))
+                pipe.get(ignored_count_key(uid))
+                pipe.get(last_activity_key(uid))
+                pipe.get(first_contact_key(uid))
+                pipe.get(conversation_messages_key(uid))
+                pipe.get(streak_key(uid))
+                pipe.get(funnel_key(uid))
+                pipe.get(teaser_count_key(uid))
+                pipe.get(vip_offers_today_key(uid))
+                pipe.hgetall(source_meta_key(uid))
+                pipe.exists(f"sp:pix:{uid}")
+                pipe.exists(f"sp:paid:{uid}")
+                for day in days:
+                    pipe.get(f"daily_msg_sent:{uid}:{day.date()}")
+
+            values = pipe.execute()
+            idx = 0
+            for uid in chunk:
+                saw_raw = values[idx]; idx += 1
+                clicked_raw = values[idx]; idx += 1
+                cooldown_raw = values[idx]; idx += 1
+                rejected_raw = values[idx]; idx += 1
+                ignored_raw = values[idx]; idx += 1
+                last_raw = values[idx]; idx += 1
+                first_raw = values[idx]; idx += 1
+                msgs_raw = values[idx]; idx += 1
+                streak_raw = values[idx]; idx += 1
+                funnel_raw = values[idx]; idx += 1
+                teaser_count_raw = values[idx]; idx += 1
+                vip_offers_raw = values[idx]; idx += 1
+                source_meta = values[idx] or {}; idx += 1
+                pix_pending = bool(values[idx]); idx += 1
+                paid = bool(values[idx]); idx += 1
+                daily = []
+                for _ in days:
+                    daily.append(values[idx]); idx += 1
+
+                try: msgs = int(msgs_raw or 0)
+                except Exception: msgs = 0
+                try: streak = int(streak_raw or 0)
+                except Exception: streak = 0
+                try: funnel = int(funnel_raw or 0)
+                except Exception: funnel = 0
+                try: teaser_count = int(teaser_count_raw or 0)
+                except Exception: teaser_count = 0
+                try: vip_offers = int(vip_offers_raw or 0)
+                except Exception: vip_offers = 0
+                try: ignored = int(ignored_raw or 0)
+                except Exception: ignored = 0
+
+                last_dt = None
+                hours = None
+                if last_raw:
+                    try:
+                        last_dt = datetime.fromisoformat(last_raw)
+                        hours = (now - last_dt).total_seconds() / 3600
+                    except Exception:
+                        pass
+
+                first_dt = None
+                if first_raw:
+                    try:
+                        first_dt = datetime.fromisoformat(first_raw)
+                    except Exception:
+                        pass
+
+                daily_counts = []
+                for raw in daily:
+                    try: daily_counts.append(int(raw or 0))
+                    except Exception: daily_counts.append(0)
+
+                snapshots.append({
+                    "uid": uid,
+                    "saw_raw": saw_raw,
+                    "saw": bool(saw_raw),
+                    "clicked": bool(clicked_raw),
+                    "cooldown_raw": cooldown_raw,
+                    "cooldown": bool(cooldown_raw),
+                    "rejected": bool(rejected_raw),
+                    "ignored": ignored,
+                    "hours": hours,
+                    "first_dt": first_dt,
+                    "msgs": msgs,
+                    "streak": streak,
+                    "funnel": funnel,
+                    "teaser_count": teaser_count,
+                    "vip_offers": vip_offers,
+                    "source_meta": source_meta,
+                    "pix_pending": pix_pending,
+                    "paid": paid,
+                    "daily": daily_counts,
+                })
+
+        total_users = len(snapshots)
+        saw_teaser_count = sum(1 for x in snapshots if x["saw"])
+        clicked_vip_count = sum(1 for x in snapshots if x["clicked"])
+        in_cooldown_count = sum(1 for x in snapshots if x["cooldown"])
+        rejected_vip_count = sum(1 for x in snapshots if x["rejected"])
+        ignored_count = sum(1 for x in snapshots if x["ignored"] > 0)
+        active_today = sum(1 for x in snapshots if x["hours"] is not None and x["hours"] < 24)
+        active_week = sum(1 for x in snapshots if x["hours"] is not None and x["hours"] < 168)
+        new_users_24h = sum(
+            1 for x in snapshots
+            if x["first_dt"] is not None and (now - x["first_dt"]).total_seconds() < 86400
+        )
+        total_messages = sum(x["msgs"] for x in snapshots)
+        streaks = [x["streak"] for x in snapshots if x["streak"] > 0]
         avg_streak = sum(streaks) / len(streaks) if streaks else 0
+
         funnel_stages = {i: 0 for i in range(5)}
-        for uid in users:
-            try:
-                stage = int(r.get(funnel_key(uid)) or 0)
-                funnel_stages[stage] += 1
-            except:
-                pass
+        for x in snapshots:
+            if x["funnel"] in funnel_stages:
+                funnel_stages[x["funnel"]] += 1
 
         activity_labels = []
         activity_messages = []
-        for i in range(6, -1, -1):
-            day = now - timedelta(days=i)
+        for pos, day in enumerate(days):
             day_name = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][day.weekday()]
             activity_labels.append(day_name)
-            msgs = 0
-            for uid in users:
-                try:
-                    daily_key = f"daily_msg_sent:{uid}:{day.date()}"
-                    msgs += int(r.get(daily_key) or 0)
-                except:
-                    pass
-            activity_messages.append(msgs)
+            activity_messages.append(sum(x["daily"][pos] for x in snapshots))
 
         interest_levels = {"high": 0, "medium": 0, "low": 0}
-        for uid in users:
-            msgs = get_conversation_messages_count(uid)
-            saw = saw_teaser(uid)
-            if msgs > 20 and saw:
+        for x in snapshots:
+            if x["msgs"] > 20 and x["saw"]:
                 interest_levels["high"] += 1
-            elif msgs > 10 or saw:
+            elif x["msgs"] > 10 or x["saw"]:
                 interest_levels["medium"] += 1
             else:
                 interest_levels["low"] += 1
 
         hourly_labels = [f"{h}h" for h in range(0, 24, 2)]
         hourly_offers = [0] * 12
-        for uid in users:
-            try:
-                saw_time = r.get(saw_teaser_key(uid))
-                if saw_time:
-                    hour = datetime.fromisoformat(saw_time).hour
+        for x in snapshots:
+            if x["saw_raw"]:
+                try:
+                    hour = datetime.fromisoformat(x["saw_raw"]).hour
                     hourly_offers[hour // 2] += 1
-            except:
-                pass
+                except Exception:
+                    pass
 
-        # Novos usuários por hora de hoje: útil para cruzar picos com campanhas.
         growth_labels = [f"{h}h" for h in range(24)]
         growth_users = [0] * 24
-        for uid in users:
-            try:
-                first_raw = r.get(first_contact_key(uid))
-                if not first_raw:
-                    continue
-                first_dt = datetime.fromisoformat(first_raw)
-                if first_dt.date() == now.date():
-                    growth_users[first_dt.hour] += 1
-            except Exception:
-                pass
+        for x in snapshots:
+            first_dt = x["first_dt"]
+            if first_dt and first_dt.date() == now.date():
+                growth_users[first_dt.hour] += 1
 
-        user_data = []
-        for uid in users:
-            msgs = get_conversation_messages_count(uid)
-            if msgs > 0:
-                user_data.append({
-                    "id": uid,
-                    "messages": msgs,
-                    "streak": get_streak(uid),
-                    "teasers": get_teaser_count(uid),
-                    "last_activity_hours": get_hours_since_activity(uid) or 999
-                })
-        user_data.sort(key=lambda x: x["messages"] * (x["streak"] + 1), reverse=True)
-
+        user_data = [x for x in snapshots if x["msgs"] > 0]
+        user_data.sort(key=lambda x: x["msgs"] * (x["streak"] + 1), reverse=True)
         top_users = []
         for user in user_data[:20]:
-            hours = user["last_activity_hours"]
+            hours = user["hours"] if user["hours"] is not None else 999
             if hours < 2: status, status_text = "hot", "🔥 Quente"
             elif hours < 24: status, status_text = "warm", "😊 Morno"
             else: status, status_text = "cold", "❄️ Frio"
-            if user["messages"] > 20: interest, interest_text = "hot", "Alto"
-            elif user["messages"] > 10: interest, interest_text = "warm", "Médio"
+            if user["msgs"] > 20: interest, interest_text = "hot", "Alto"
+            elif user["msgs"] > 10: interest, interest_text = "warm", "Médio"
             else: interest, interest_text = "cold", "Baixo"
             if hours < 1: last_activity = "< 1h atrás"
             elif hours < 24: last_activity = f"{int(hours)}h atrás"
             else: last_activity = f"{int(hours/24)}d atrás"
-            top_users.append({"id": user["id"], "messages": user["messages"], "streak": user["streak"], "teasers": user["teasers"], "lastActivity": last_activity, "status": status, "statusText": status_text, "interest": interest, "interestText": interest_text})
+            top_users.append({
+                "id": user["uid"], "messages": user["msgs"], "streak": user["streak"],
+                "teasers": user["teaser_count"], "lastActivity": last_activity,
+                "status": status, "statusText": status_text,
+                "interest": interest, "interestText": interest_text
+            })
 
         cooldown_users = []
-        for uid in users:
-            if is_in_rejection_cooldown(uid):
-                cooldown_remaining = get_rejection_cooldown_remaining(uid)
-                offers_today = get_vip_offers_today(uid)
-                total_teasers = get_teaser_count(uid)
-                hours = get_hours_since_activity(uid) or 0
-                if hours < 1: last_contact = "< 1h atrás"
-                elif hours < 24: last_contact = f"{int(hours)}h atrás"
-                else: last_contact = f"{int(hours/24)}d atrás"
-                cooldown_users.append({"id": uid, "cooldownRemaining": cooldown_remaining, "offersToday": offers_today, "totalTeasers": total_teasers, "lastContact": last_contact})
+        for x in snapshots:
+            if not x["cooldown"]:
+                continue
+            try: cooldown_remaining = int(x["cooldown_raw"] or 0)
+            except Exception: cooldown_remaining = 0
+            hours = x["hours"] if x["hours"] is not None else 0
+            if hours < 1: last_contact = "< 1h atrás"
+            elif hours < 24: last_contact = f"{int(hours)}h atrás"
+            else: last_contact = f"{int(hours/24)}d atrás"
+            cooldown_users.append({
+                "id": x["uid"], "cooldownRemaining": cooldown_remaining,
+                "offersToday": x["vip_offers"], "totalTeasers": x["teaser_count"],
+                "lastContact": last_contact
+            })
 
         started = funnel_stages[1]
         first_message = funnel_stages[2]
@@ -3988,7 +4080,46 @@ def admin_stats():
             {"name": "Teaser → Clique VIP", "users": saw_teaser_funnel - clicked_vip_funnel, "percent": round((clicked_vip_funnel / saw_teaser_funnel * 100) if saw_teaser_funnel > 0 else 0, 1), "dropRate": f"{drop_3:.1f}", "dropClass": get_drop_class(drop_3), "status": get_status(drop_3)}
         ]
 
-        return {
+        # Aquisição usando o mesmo snapshot; evita percorrer o Redis inteiro uma segunda vez.
+        by_source = {}
+        try:
+            vip_price = float(PRECO_VIP.replace("R$", "").replace(",", ".").strip() or 9)
+        except Exception:
+            vip_price = 9.0
+
+        for x in snapshots:
+            meta = x["source_meta"] or {}
+            source = meta.get("first_source") or meta.get("last_source") or "telegram"
+            is_ads = (meta.get("first_is_ads") or meta.get("last_is_ads") or "0") == "1"
+            row = by_source.setdefault(source, {
+                "source": source, "users": 0, "adsUsers": 0, "sawTeaser": 0,
+                "pixCreated": 0, "paid": 0, "clickedVip": 0, "messages": 0,
+                "estimatedCost": 0.0, "estimatedRevenue": 0.0,
+                "estimatedProfit": 0.0, "conversionRate": 0.0, "costPerUser": 0.0,
+            })
+            row["users"] += 1
+            if is_ads:
+                row["adsUsers"] += 1
+                row["estimatedCost"] += USER_ADS_COST_CENTS / 100
+            row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
+            if x["saw"]: row["sawTeaser"] += 1
+            if x["pix_pending"]: row["pixCreated"] += 1
+            if x["clicked"]: row["clickedVip"] += 1
+            if x["paid"]:
+                row["paid"] += 1
+                row["estimatedRevenue"] += vip_price
+            row["messages"] += x["msgs"]
+
+        for row in by_source.values():
+            if row["users"]:
+                row["conversionRate"] = round((row["paid"] / row["users"]) * 100, 2)
+                row["costPerUser"] = round(row["estimatedCost"] / row["users"], 2)
+            row["estimatedCost"] = round(row["estimatedCost"], 2)
+            row["estimatedRevenue"] = round(row["estimatedRevenue"], 2)
+            row["estimatedProfit"] = round(row["estimatedRevenue"] - row["estimatedCost"], 2)
+        acquisition = sorted(by_source.values(), key=lambda x: (x["estimatedProfit"], x["paid"], x["users"]), reverse=True)
+
+        payload = {
             "stats": {"totalUsers": total_users, "newUsers24h": new_users_24h, "activeToday": active_today, "activeWeek": active_week, "sawTeaser": saw_teaser_count, "clickedVip": clicked_vip_count, "totalMessages": total_messages, "avgStreak": round(avg_streak, 1), "inCooldown": in_cooldown_count, "rejectedVip": rejected_vip_count, "ignored": ignored_count},
             "funnel": {"started": started, "firstMessage": first_message, "sawTeaser": saw_teaser_funnel, "clickedVip": clicked_vip_funnel},
             "activity": {"labels": activity_labels, "messages": activity_messages},
@@ -3998,8 +4129,11 @@ def admin_stats():
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
             "dropoff": dropoff,
-            "acquisition": get_acquisition_breakdown(users)
-        }, 200
+            "acquisition": acquisition
+        }
+
+        admin_stats._cache = {"ts": now_ts, "data": payload}
+        return payload, 200
 
     except Exception as e:
         logger.exception(f"Erro admin stats: {e}")
@@ -4031,6 +4165,10 @@ def admin_conversations():
         filter_type = (request.args.get("filter") or "all").strip().lower()
         phase_filter = (request.args.get("phase") or "all").strip().lower()
         query_uid = (request.args.get("q") or "").strip()
+        try:
+            limit = max(1, min(int(request.args.get("limit") or 40), 100))
+        except Exception:
+            limit = 40
 
         users = get_all_active_users()
         exact_search = False
@@ -4041,83 +4179,150 @@ def admin_conversations():
             users = [wanted_uid] if r.sismember(all_users_key(), str(wanted_uid)) else []
             exact_search = True
 
+        # Primeiro passe: apenas metadados leves, todos agrupados em uma pipeline.
+        candidates = []
+        now = datetime.now()
+        chunk_size = 500
+        for start in range(0, len(users), chunk_size):
+            chunk = users[start:start + chunk_size]
+            pipe = r.pipeline(transaction=False)
+            for uid in chunk:
+                pipe.get(last_activity_key(uid))
+                pipe.get(current_phase_key(uid))
+                pipe.get(manual_ai_paused_key(uid))
+                pipe.get(conversation_messages_key(uid))
+                pipe.get(rejection_cooldown_key(uid))
+                pipe.get(clicked_vip_key(uid))
+                pipe.get(saw_teaser_key(uid))
+                pipe.get(teaser_count_key(uid))
+            vals = pipe.execute()
+            idx = 0
+
+            for uid in chunk:
+                last_raw = vals[idx]; idx += 1
+                phase_raw = vals[idx]; idx += 1
+                manual_raw = vals[idx]; idx += 1
+                msgs_raw = vals[idx]; idx += 1
+                cooldown_raw = vals[idx]; idx += 1
+                clicked_raw = vals[idx]; idx += 1
+                saw_raw = vals[idx]; idx += 1
+                teaser_count_raw = vals[idx]; idx += 1
+
+                hours = None
+                if last_raw:
+                    try:
+                        hours = (now - datetime.fromisoformat(last_raw)).total_seconds() / 3600
+                    except Exception:
+                        pass
+                if not exact_search and (hours is None or hours > 24):
+                    continue
+
+                try: current_phase = int(phase_raw or 0)
+                except Exception: current_phase = 0
+                try: msg_count = int(msgs_raw or 0)
+                except Exception: msg_count = 0
+                try: teaser_count = int(teaser_count_raw or 0)
+                except Exception: teaser_count = 0
+
+                ai_paused = bool(manual_raw)
+                in_cooldown = bool(cooldown_raw)
+                clicked = bool(clicked_raw)
+                saw = bool(saw_raw)
+
+                if phase_filter != "all":
+                    try:
+                        if int(phase_filter) != current_phase:
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+
+                if filter_type == "hot" and msg_count <= 20:
+                    continue
+                elif filter_type == "cooldown" and not in_cooldown:
+                    continue
+                elif filter_type == "converted" and not clicked:
+                    continue
+                elif filter_type == "manual" and not ai_paused:
+                    continue
+
+                candidates.append({
+                    "userId": uid,
+                    "hours": hours,
+                    "currentPhase": current_phase,
+                    "phaseName": get_phase_name(current_phase),
+                    "aiPaused": ai_paused,
+                    "totalMessages": msg_count,
+                    "inCooldown": in_cooldown,
+                    "clickedVip": clicked,
+                    "sawTeaser": saw,
+                    "teaserCount": teaser_count,
+                })
+
+        candidates.sort(key=lambda x: x["hours"] if x["hours"] is not None else 999999)
+        if not exact_search:
+            candidates = candidates[:limit]
+
+        # Segundo passe: histórico e hashes só dos cards que realmente serão exibidos.
+        pipe = r.pipeline(transaction=False)
+        for item in candidates:
+            uid = item["userId"]
+            pipe.lrange(chatlog_key(uid), -50, -1)
+            pipe.hgetall(source_meta_key(uid))
+            pipe.get(manual_ai_pause_meta_key(uid))
+        detail_values = pipe.execute() if candidates else []
+
         conversations = []
+        idx = 0
+        for item in candidates:
+            chatlog = detail_values[idx] or []; idx += 1
+            source_meta = detail_values[idx] or {}; idx += 1
+            pause_meta_raw = detail_values[idx]; idx += 1
 
-        for uid in users:
-            hours = get_hours_since_activity(uid)
-            # Busca por UID atravessa o limite de 24h; listagem normal continua leve.
-            if not exact_search and (hours is None or hours > 24):
-                continue
-
-            current_phase = get_current_phase(uid)
-            phase_name = get_phase_name(current_phase)
-            ai_paused = is_ai_manually_paused(uid)
-
-            if phase_filter != "all":
-                try:
-                    if int(phase_filter) != int(current_phase):
-                        continue
-                except (TypeError, ValueError):
-                    pass
-
-            msg_count = get_conversation_messages_count(uid)
-            if filter_type == "hot" and msg_count <= 20:
-                continue
-            elif filter_type == "cooldown" and not is_in_rejection_cooldown(uid):
-                continue
-            elif filter_type == "converted" and not clicked_vip(uid):
-                continue
-            elif filter_type == "manual" and not ai_paused:
-                continue
-
-            chatlog = r.lrange(chatlog_key(uid), -50, -1)
+            hours = item["hours"]
             if hours is None:
                 last_activity = "—"
-                sort_hours = 999999
             elif hours < (1 / 60):
                 last_activity = "< 1 min"
-                sort_hours = hours
             elif hours < 1:
                 last_activity = f"{max(1, int(hours * 60))} min"
-                sort_hours = hours
             elif hours < 24:
                 last_activity = f"{int(hours)}h"
-                sort_hours = hours
             else:
                 last_activity = f"{int(hours / 24)}d"
-                sort_hours = hours
 
-            if clicked_vip(uid):
+            if item["clickedVip"]:
                 status, status_class = "💎 Comprou VIP", "vip"
-            elif is_in_rejection_cooldown(uid):
+            elif item["inCooldown"]:
                 status, status_class = "🚫 Cooldown", "cooldown"
-            elif msg_count > 20:
+            elif item["totalMessages"] > 20:
                 status, status_class = "🔥 Quente", "hot"
             else:
                 status, status_class = "💬 Conversando", "normal"
 
+            source = {
+                "source": source_meta.get("first_source") or source_meta.get("last_source") or "telegram",
+                "channel": source_meta.get("first_channel") or source_meta.get("last_channel") or "telegram",
+                "campaign": source_meta.get("first_campaign") or source_meta.get("last_campaign") or "telegram_direct",
+                "is_ads": (source_meta.get("first_is_ads") or source_meta.get("last_is_ads") or "0") == "1",
+                "first_seen": source_meta.get("first_seen"),
+                "last_seen": source_meta.get("last_seen"),
+            }
+
+            pause_info = {}
+            if pause_meta_raw:
+                try: pause_info = json.loads(pause_meta_raw)
+                except Exception: pause_info = {}
+
             conversations.append({
-                "userId": uid,
+                **item,
                 "messages": chatlog,
-                "totalMessages": msg_count,
                 "lastActivity": last_activity,
                 "status": status,
                 "statusClass": status_class,
-                "sawTeaser": saw_teaser(uid),
-                "teaserCount": get_teaser_count(uid),
-                "inCooldown": is_in_rejection_cooldown(uid),
-                "clickedVip": clicked_vip(uid),
-                "source": get_user_source(uid),
-                "currentPhase": current_phase,
-                "phaseName": phase_name,
-                "aiPaused": ai_paused,
-                "pauseInfo": get_ai_manual_pause_info(uid),
-                "_sortHours": sort_hours,
+                "source": source,
+                "pauseInfo": pause_info,
             })
 
-        conversations.sort(key=lambda x: x.get("_sortHours", 999999))
-        for item in conversations:
-            item.pop("_sortHours", None)
         return {"conversations": conversations}, 200
 
     except Exception as e:
