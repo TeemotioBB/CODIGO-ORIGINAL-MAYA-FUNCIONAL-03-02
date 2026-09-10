@@ -548,6 +548,25 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
 .conv-msgs::-webkit-scrollbar { width: 6px; }
 .conv-msgs::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
+.conv-chat.hidden { display: none; }
+.chat-history-tools {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 8px;
+}
+.chat-history-tools .btn { height: 30px; font-size: 11px; color: var(--text-2); }
+.lead-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 4px 2px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.lead-pagination b { color: var(--text-2); font-family: var(--mono); }
+
 /* ─── skeleton ───────────────────────────────────────────── */
 .skel {
   display: inline-block;
@@ -782,9 +801,17 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
 const state = {
   charts: {},
   data: null,
+  summary: null,
   isLoading: false,
+  loadingSummary: false,
+  loadingCharts: false,
+  loadingLeads: false,
   isUsingMock: false,
   chartsBuilt: false,
+  leads: [],
+  leadPagination: { offset: 0, limit: 40, total: 0, hasMore: false },
+  openChats: new Set(),
+  chatCache: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -807,36 +834,93 @@ function setupChartDefaults() {
   Chart.defaults.plugins.tooltip.displayColors = false;
 }
 
-// ─── data fetching ───────────────────────────────────────
-async function fetchRealData() {
+// ─── data fetching em ondas ───────────────────────────────
+async function fetchAdminJSON(path, timeoutMs = 30000) {
   const token = localStorage.getItem('adminToken');
   if (!token) return null;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch('/admin/stats', {
+    const response = await fetch(path, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
 
     if (response.status === 401) {
       localStorage.removeItem('adminToken');
       window.location.href = '/admin/login';
       return null;
     }
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
     return await response.json();
   } catch (err) {
-    clearTimeout(timeoutId);
-    console.error('fetchRealData:', err);
+    if (err.name !== 'AbortError') console.error(`fetchAdminJSON ${path}:`, err);
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-// ─── main loader ─────────────────────────────────────────
+async function loadSummary() {
+  if (state.loadingSummary) return false;
+  state.loadingSummary = true;
+
+  try {
+    const data = await fetchAdminJSON('/admin/summary', 10000);
+    if (!data || !data.stats) return false;
+
+    state.summary = data;
+    state.data = { ...(state.data || {}), ...data };
+
+    // Onda 1: números leves primeiro.
+    updateKPIs(data);
+    schedule(() => updateAlerts(data));
+    schedule(() => generateAIInsights(data));
+
+    $('loadingBanner').classList.add('hidden');
+    $('demoBanner').classList.add('hidden');
+
+    const stamp = new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    $('lastUpdate').textContent = stamp;
+    return true;
+  } finally {
+    state.loadingSummary = false;
+  }
+}
+
+async function loadChartsData() {
+  if (state.loadingCharts) return;
+  state.loadingCharts = true;
+
+  try {
+    const data = await fetchAdminJSON('/admin/charts', 30000);
+    if (!data) return;
+
+    // Mantém KPIs da rota rápida; usa a rota pesada apenas para conteúdo analítico.
+    const merged = {
+      ...data,
+      stats: state.summary?.stats || data.stats,
+    };
+    state.data = merged;
+
+    schedule(() => updateCharts(merged));
+    schedule(() => updateAcquisition(merged));
+    schedule(() => updateTopUsers(merged));
+    schedule(() => updateCooldown(merged));
+    schedule(() => updateDropoff(merged));
+  } finally {
+    state.loadingCharts = false;
+  }
+}
+
+// ─── main loader: Onda 1 → Onda 2 → Onda 3 ───────────────
 async function loadAllData() {
   if (state.isLoading) return;
 
@@ -850,49 +934,32 @@ async function loadAllData() {
   $('refreshBtn').classList.add('spinning');
   $('fabRefresh').classList.add('spinning');
 
-  // Só mostra o banner azul na primeira carga. Em refresh, mantém os dados atuais na tela.
-  if (!state.data) $('loadingBanner').classList.remove('hidden');
+  if (!state.summary) $('loadingBanner').classList.remove('hidden');
   $('demoBanner').classList.add('hidden');
 
   try {
-    const data = await fetchRealData();
-    if (!data) {
+    const summaryOk = await loadSummary();
+
+    if (!summaryOk && !state.summary) {
       $('loadingBanner').classList.add('hidden');
-      if (!state.data) {
-        $('alerts').innerHTML = `
-          <div class="alert warn">
-            <div><strong>Não foi possível carregar os dados reais.</strong><br>
-            Tente atualizar novamente. Nenhum dado de demonstração foi exibido.</div>
-          </div>`;
-      }
-      return;
+      $('alerts').innerHTML = `
+        <div class="alert warn">
+          <div><strong>Não foi possível carregar os dados principais.</strong><br>
+          Tente atualizar novamente.</div>
+        </div>`;
     }
 
-    state.data = data;
-    state.isUsingMock = false;
-    $('loadingBanner').classList.add('hidden');
-    $('demoBanner').classList.add('hidden');
+    // Onda 2: lista operacional sem histórico de chat.
+    await loadConversations({ append: false });
 
-    // Primeiro paint: KPIs aparecem imediatamente após a resposta do backend.
-    updateKPIs(state.data);
-
-    // O restante é desenhado quando o navegador estiver livre.
-    schedule(() => updateAlerts(state.data));
-    schedule(() => generateAIInsights(state.data));
-    schedule(() => updateCharts(state.data));
-    schedule(() => updateAcquisition(state.data));
-    schedule(() => updateTopUsers(state.data));
-    schedule(() => updateCooldown(state.data));
-    schedule(() => updateDropoff(state.data));
-
-    const stamp = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    $('lastUpdate').textContent = stamp;
+    // Onda 3: gráficos/relatórios não bloqueiam a interface.
+    setTimeout(loadChartsData, 0);
   } finally {
     state.isLoading = false;
     setTimeout(() => {
       $('refreshBtn').classList.remove('spinning');
       $('fabRefresh').classList.remove('spinning');
-    }, 400);
+    }, 250);
   }
 }
 
@@ -1330,36 +1397,123 @@ function updateDropoff(d) {
   wrap.innerHTML = cards + table;
 }
 
-// ─── conversations / command center ───────────────────────
-async function loadConversations() {
+// ─── leads / command center — chat somente sob demanda ───
+async function loadConversations(options = {}) {
+  const append = Boolean(options.append);
+  if (state.loadingLeads) return;
+
   const filter = $('conversationFilter').value;
   const phase = $('conversationPhase').value;
   const q = $('conversationSearch').value.trim();
   const token = localStorage.getItem('adminToken');
+
   if (!token) {
-    $('conversationsList').innerHTML = '<div class="empty">Conecte o token de admin para ver conversas em tempo real</div>';
+    $('conversationsList').innerHTML = '<div class="empty">Conecte o token de admin para ver os leads</div>';
     return;
   }
 
-  const params = new URLSearchParams({ filter, phase });
-  params.set('limit', '40');
+  state.loadingLeads = true;
+  const offset = (append && !q) ? state.leads.length : 0;
+  const params = new URLSearchParams({ filter, phase, limit: '40', offset: String(offset) });
   if (q) params.set('q', q);
 
   try {
-    const res = await fetch(`/admin/conversations?${params.toString()}`, {
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    });
-    if (res.status === 401) {
-      localStorage.removeItem('adminToken');
-      window.location.href = '/admin/login';
-      return;
+    const data = await fetchAdminJSON(`/admin/leads?${params.toString()}`, 15000);
+    if (!data) return;
+
+    const incoming = data.leads || data.conversations || [];
+    if (append) {
+      const existing = new Set(state.leads.map(x => String(x.userId)));
+      state.leads = state.leads.concat(incoming.filter(x => !existing.has(String(x.userId))));
+    } else {
+      state.leads = incoming;
     }
-    if (!res.ok) return;
-    const data = await res.json();
-    displayConversations(data.conversations || []);
+
+    state.leadPagination = data.pagination || {
+      offset: 0, limit: 40, total: state.leads.length, hasMore: false
+    };
+    displayConversations(state.leads, state.leadPagination);
   } catch (e) {
     console.error('loadConversations:', e);
+  } finally {
+    state.loadingLeads = false;
   }
+}
+
+async function refreshOpenChats() {
+  const ids = [...state.openChats];
+  for (const userId of ids.slice(0, 5)) {
+    await loadUserMessages(userId, false, true);
+  }
+}
+
+async function toggleConversation(userId) {
+  const id = String(userId);
+
+  if (state.openChats.has(id)) {
+    state.openChats.delete(id);
+    displayConversations(state.leads, state.leadPagination);
+    return;
+  }
+
+  state.openChats.add(id);
+  displayConversations(state.leads, state.leadPagination);
+
+  const cache = state.chatCache[id];
+  if (!cache?.loaded) {
+    await loadUserMessages(id, false);
+  } else {
+    scrollChatToBottom(id);
+  }
+}
+
+async function loadUserMessages(userId, older = false, silent = false) {
+  const id = String(userId);
+  const current = state.chatCache[id] || {
+    loaded: false, messages: [], nextBefore: null, hasMore: false, total: 0
+  };
+
+  if (!silent) {
+    const box = $(`msgs-${id}`);
+    if (box && !current.loaded) box.innerHTML = '<div class="msg system">Carregando mensagens…</div>';
+  }
+
+  const before = older ? current.nextBefore : 0;
+  if (older && (before === null || before === undefined)) return;
+
+  const params = new URLSearchParams({ limit: '15' });
+  if (before) params.set('before', String(before));
+
+  const data = await fetchAdminJSON(`/admin/user/${id}/messages?${params.toString()}`, 10000);
+  if (!data) return;
+
+  const page = data.messages || [];
+  const pagination = data.pagination || {};
+
+  state.chatCache[id] = {
+    loaded: true,
+    messages: older ? page.concat(current.messages || []) : page,
+    nextBefore: pagination.nextBefore ?? null,
+    hasMore: Boolean(pagination.hasMore),
+    total: Number(pagination.total || page.length),
+  };
+
+  // Só redesenha se o lead ainda estiver visível/aberto.
+  if (state.openChats.has(id)) {
+    displayConversations(state.leads, state.leadPagination);
+    if (!older) scrollChatToBottom(id);
+  }
+}
+
+function loadOlderMessages(userId) {
+  return loadUserMessages(userId, true);
+}
+
+function scrollChatToBottom(userId) {
+  requestAnimationFrame(() => {
+    const box = $(`msgs-${userId}`);
+    if (box) box.scrollTop = box.scrollHeight;
+  });
 }
 
 async function toggleAI(userId, action) {
@@ -1385,7 +1539,11 @@ async function toggleAI(userId, action) {
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Não foi possível alterar a IA.');
-    await loadConversations();
+
+    await loadConversations({ append: false });
+    if (state.openChats.has(String(userId))) {
+      await loadUserMessages(userId, false);
+    }
   } catch (e) {
     alert(e.message || 'Erro ao alterar a IA deste usuário.');
     if (btn) btn.disabled = false;
@@ -1411,7 +1569,6 @@ async function sendMessage(userId) {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      // Segurança contra conversa embolada: enviar pelo painel assume o lead e pausa a IA.
       body: JSON.stringify({ message, pause_ai: true }),
     });
     if (res.status === 401) {
@@ -1423,7 +1580,8 @@ async function sendMessage(userId) {
     if (!res.ok) throw new Error(data.error || 'Não foi possível enviar a mensagem.');
 
     if (input) input.value = '';
-    await loadConversations();
+    await loadConversations({ append: false });
+    await loadUserMessages(userId, false);
   } catch (e) {
     alert(e.message || 'Erro ao enviar mensagem.');
   } finally {
@@ -1448,7 +1606,7 @@ function classifyMsg(msg) {
   return '';
 }
 
-function displayConversations(list) {
+function displayConversations(list, pagination = state.leadPagination) {
   const wrap = $('conversationsList');
 
   // Auto-refresh não pode apagar uma mensagem que o admin ainda está digitando.
@@ -1458,53 +1616,95 @@ function displayConversations(list) {
   const activeCursor = activeInputId ? document.activeElement.selectionStart : null;
 
   if (!list || list.length === 0) {
-    wrap.innerHTML = '<div class="empty">Nenhuma conversa encontrada com esses filtros</div>';
+    wrap.innerHTML = '<div class="empty">Nenhum lead encontrado com esses filtros</div>';
     return;
   }
 
-  wrap.innerHTML = list.map(c => `
-    <div class="conv ${c.statusClass || 'normal'} ${c.aiPaused ? 'manual-active' : ''}">
-      <div class="conv-head">
-        <div>
-          <div class="conv-uid">User ${c.userId}</div>
-          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">
-            <span class="badge ${c.statusClass || 'normal'}">${escapeHtml(c.status)}</span>
-            ${c.aiPaused ? '<span class="badge manual">🖐 Modo manual</span>' : '<span class="badge normal">IA ativa</span>'}
+  const cards = list.map(c => {
+    const id = String(c.userId);
+    const isOpen = state.openChats.has(id);
+    const cache = state.chatCache[id] || { loaded: false, messages: [], hasMore: false };
+
+    const historyHtml = cache.loaded
+      ? (cache.messages.length
+          ? cache.messages.map(m => `<div class="msg ${classifyMsg(m)}">${escapeHtml(m)}</div>`).join('')
+          : '<div class="msg system">— sem mensagens —</div>')
+      : '<div class="msg system">Carregando somente quando você abrir este lead…</div>';
+
+    return `
+      <div class="conv ${c.statusClass || 'normal'} ${c.aiPaused ? 'manual-active' : ''}" data-lead-user="${id}">
+        <div class="conv-head">
+          <div>
+            <div class="conv-uid">User ${id}</div>
+            <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">
+              <span class="badge ${c.statusClass || 'normal'}">${escapeHtml(c.status)}</span>
+              ${c.aiPaused ? '<span class="badge manual">🖐 Modo manual</span>' : '<span class="badge normal">IA ativa</span>'}
+            </div>
+          </div>
+
+          <div class="conv-stats">
+            <span><b>${c.totalMessages}</b> msg</span>
+            <span>${escapeHtml(c.lastActivity)}</span>
+            <span>Fase <b>${escapeHtml(c.phaseName || String(c.currentPhase ?? '—'))}</b></span>
+            ${c.teaserCount > 0 ? `<span><b>${c.teaserCount}</b> teaser</span>` : ''}
+          </div>
+
+          <div class="conv-actions">
+            <button class="btn" type="button" onclick="toggleConversation('${id}')">
+              ${isOpen ? 'Fechar conversa' : 'Ver conversa'}
+            </button>
+            ${c.aiPaused
+              ? `<button class="btn btn-resume" data-ai-user="${id}" onclick="toggleAI('${id}', 'resume')">Retomar IA</button>`
+              : `<button class="btn btn-pause" data-ai-user="${id}" onclick="toggleAI('${id}', 'pause')">Pausar IA</button>`}
           </div>
         </div>
-        <div class="conv-stats">
-          <span><b>${c.totalMessages}</b> msg</span>
-          <span>${escapeHtml(c.lastActivity)}</span>
-          <span>Fase <b>${escapeHtml(c.phaseName || String(c.currentPhase ?? '—'))}</b></span>
-          ${c.teaserCount > 0 ? `<span><b>${c.teaserCount}</b> teaser</span>` : ''}
-        </div>
-        <div class="conv-actions">
-          ${c.aiPaused
-            ? `<button class="btn btn-resume" data-ai-user="${c.userId}" onclick="toggleAI('${c.userId}', 'resume')">Retomar IA</button>`
-            : `<button class="btn btn-pause" data-ai-user="${c.userId}" onclick="toggleAI('${c.userId}', 'pause')">Pausar IA</button>`}
-        </div>
-      </div>
-      <div class="conv-msgs" id="msgs-${c.userId}">
-        ${c.messages && c.messages.length
-          ? c.messages.map(m => `<div class="msg ${classifyMsg(m)}">${escapeHtml(m)}</div>`).join('')
-          : '<div class="msg system">— sem mensagens —</div>'}
-      </div>
-      <div class="chat-input-group">
-        <textarea class="chat-input" id="input-${c.userId}" maxlength="4096" rows="1" placeholder="Digite como o bot deve falar com este lead…" onkeydown="handleChatKey(event, '${c.userId}')"></textarea>
-        <button class="btn btn-send" data-send-user="${c.userId}" onclick="sendMessage('${c.userId}')" title="Enviar mensagem">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          <span>Enviar</span>
-        </button>
-        <div class="manual-helper">Ao enviar pelo painel, a IA é pausada automaticamente para você assumir a conversa. Shift+Enter quebra linha.</div>
-      </div>
-    </div>
-  `).join('');
 
-  // Restaura rascunhos/foco e abre cada conversa na mensagem mais recente.
+        <div class="conv-chat ${isOpen ? '' : 'hidden'}" id="chat-${id}">
+          <div class="chat-history-tools">
+            ${cache.loaded && cache.hasMore
+              ? `<button class="btn" type="button" onclick="loadOlderMessages('${id}')">Carregar mensagens anteriores</button>`
+              : ''}
+          </div>
+
+          <div class="conv-msgs" id="msgs-${id}">
+            ${historyHtml}
+          </div>
+
+          <div class="chat-input-group">
+            <textarea class="chat-input" id="input-${id}" maxlength="4096" rows="1"
+              placeholder="Digite como o bot deve falar com este lead…"
+              onkeydown="handleChatKey(event, '${id}')"></textarea>
+            <button class="btn btn-send" data-send-user="${id}" onclick="sendMessage('${id}')" title="Enviar mensagem">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              <span>Enviar</span>
+            </button>
+            <div class="manual-helper">Ao enviar pelo painel, a IA é pausada automaticamente. Shift+Enter quebra linha.</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const total = Number(pagination?.total || list.length);
+  const shown = list.length;
+  const paginationHtml = `
+    <div class="lead-pagination">
+      <span>Mostrando <b>${shown ? `1–${shown}` : '0'}</b> de <b>${total}</b></span>
+      ${pagination?.hasMore
+        ? `<button class="btn" type="button" onclick="loadConversations({ append: true })">Carregar mais</button>`
+        : ''}
+    </div>`;
+
+  wrap.innerHTML = cards + paginationHtml;
+
   Object.entries(drafts).forEach(([id, value]) => {
     const el = $(id);
     if (el && value) el.value = value;
   });
+
   if (activeInputId) {
     const el = $(activeInputId);
     if (el) {
@@ -1512,10 +1712,6 @@ function displayConversations(list) {
       if (Number.isInteger(activeCursor)) el.setSelectionRange(activeCursor, activeCursor);
     }
   }
-  list.forEach(c => {
-    const box = $(`msgs-${c.userId}`);
-    if (box) box.scrollTop = box.scrollHeight;
-  });
 }
 
 function escapeHtml(s) {
@@ -1578,17 +1774,25 @@ function generateMockData() {
   };
 }
 
-// ─── auto-refresh (respeitando visibility) ──────────────
-let refreshTimer, convTimer;
+// ─── auto-refresh por camada ──────────────────────────────
+let refreshTimer, convTimer, chartsTimer;
 
 function startAutoRefresh() {
   stopAutoRefresh();
-  refreshTimer = setInterval(loadAllData, 60_000);
-  convTimer    = setInterval(loadConversations, 30_000);
+
+  // KPIs são baratos; leads continuam operacionais; gráficos não precisam rodar a cada 30s.
+  refreshTimer = setInterval(loadSummary, 60_000);
+  convTimer = setInterval(async () => {
+    await loadConversations({ append: false });
+    await refreshOpenChats();
+  }, 30_000);
+  chartsTimer = setInterval(loadChartsData, 120_000);
 }
+
 function stopAutoRefresh() {
   clearInterval(refreshTimer);
   clearInterval(convTimer);
+  clearInterval(chartsTimer);
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -1596,28 +1800,29 @@ document.addEventListener('visibilitychange', () => {
     stopAutoRefresh();
   } else {
     loadAllData();
-    loadConversations();
+    refreshOpenChats();
     startAutoRefresh();
   }
 });
 
 // ─── wire up ─────────────────────────────────────────────
 async function init() {
-  $('refreshBtn').addEventListener('click', async () => { await loadAllData(); loadConversations(); });
-  $('fabRefresh').addEventListener('click', async () => { await loadAllData(); loadConversations(); });
-  $('conversationFilter').addEventListener('change', loadConversations);
-  $('conversationPhase').addEventListener('change', loadConversations);
+  $('refreshBtn').addEventListener('click', loadAllData);
+  $('fabRefresh').addEventListener('click', loadAllData);
+  $('conversationFilter').addEventListener('change', () => loadConversations({ append: false }));
+  $('conversationPhase').addEventListener('change', () => loadConversations({ append: false }));
+
   let searchTimer;
   $('conversationSearch').addEventListener('input', () => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(loadConversations, 250);
+    searchTimer = setTimeout(() => loadConversations({ append: false }), 250);
   });
+
   $('exportConversationsBtn').addEventListener('click', exportConversations);
   setDefaultExportDates();
 
-  // Evita /stats e /conversations disputarem o Redis na primeira abertura.
+  // Sequência real: summary → leads → charts.
   await loadAllData();
-  setTimeout(loadConversations, 50);
   startAutoRefresh();
 }
 
