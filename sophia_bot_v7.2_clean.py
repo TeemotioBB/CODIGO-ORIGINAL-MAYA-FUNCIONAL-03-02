@@ -551,6 +551,7 @@ def followup_anchor_key(uid): return f"followup5:anchor:{uid}"
 def followup_interest_key(uid): return f"followup5:interest:{uid}"
 def followup_silent_key(uid): return f"followup5:silent:{uid}"
 def followup_first_name_key(uid): return f"followup5:first_name:{uid}"
+def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
@@ -2142,6 +2143,20 @@ ORIGEM: LEAD DE ADS.
 - Venda só quando houver sinal; antes disso, faça ele responder.
 """
 
+    # Defesa extra: o message_handler já intercepta o hard wall antes do Grok,
+    # mas esta regra evita vazamento caso outro fluxo chame a IA diretamente.
+    if is_sales_hard_wall(uid) and not user_has_paid(uid):
+        behavior_block += f"""
+
+HARD WALL DE VENDA ATIVO — PRIORIDADE MÁXIMA:
+- O pitch/PIX já foi apresentado. NÃO continue descrevendo fantasias ou cenas sexuais gratuitamente.
+- Não dê novas descrições explícitas como recompensa pela conversa.
+- Use o desejo já demonstrado pelo usuário apenas para lembrar o que ele quer.
+- Conduza diretamente para o VIP/PIX de {preco}.
+- Se ele tiver dúvida sobre pagamento, responda somente à dúvida de pagamento.
+- offer_teaser=false, porque o botão/PIX é controlado pelo fluxo externo.
+"""
+
     base_prompt = f"""Você é {ia_name}, {ia_bio}.
 
 {behavior_block}
@@ -2401,6 +2416,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         mark_vip_just_offered(uid)
+        activate_sales_hard_wall(uid)
         activate_followup5(uid, reset_stage=False)
         
         # Marca o momento do pitch para controle legado/diagnóstico
@@ -2423,9 +2439,30 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 # 1º 10 min | 2º 45 min | 3º 5h | 4º 24h | 5º 48h (final)
 FOLLOWUP_5_DELAYS_MINUTES = {1: 10, 2: 45, 3: 300, 4: 1440, 5: 2880}
 FOLLOWUP_SILENT_RESTART_DAYS = 7
+SALES_HARD_WALL_DAYS = int(os.getenv("SALES_HARD_WALL_DAYS", "30"))
+# Só coloque algo aqui se esse bônus REALMENTE existir e for entregue no VIP.
+VIP_BONUS_TEXT = os.getenv("VIP_BONUS_TEXT", "").strip()
 
+# A ordem importa: desejos mais específicos vêm antes dos genéricos.
 FOLLOWUP_INTEREST_FAMILIES = {
-    "boceta": ["buceta", "boceta", "bucetinha", "bocetinha", "perereca", "estojo", "molhadinha", "abertinha", "xereca"],
+    "de_quatro": [
+        "de 4", "de quatro", "quatro apoios", "4 apoios", "comer de 4",
+        "me comer de 4", "ver de 4", "me ver de 4", "ficar de 4"
+    ],
+    "oral": [
+        "boquete", "oral", "chupar", "chupando", "chupada", "mamada",
+        "mamar", "na boca", "minha boca"
+    ],
+    "anal": [
+        "anal", "no cu", "pelo cu", "dar o cu", "comer o cu", "meter no cu"
+    ],
+    "gozo": [
+        "gozar", "gozando", "gozo", "gemer", "gemendo", "gozada"
+    ],
+    "boceta": [
+        "buceta", "boceta", "bucetinha", "bocetinha", "perereca",
+        "molhadinha", "abertinha", "xereca"
+    ],
     "bumbum": ["bunda", "bumbum", "cuzinho", "cu", "traseiro", "rabão", "rabao"],
     "peitos": ["peito", "peitos", "seios", "seio", "teta", "tetas", "mama", "peitinho"],
     "pes": ["pé", "pés", "pe", "pes", "pezinho", "pezinhos"],
@@ -2433,11 +2470,15 @@ FOLLOWUP_INTEREST_FAMILIES = {
 }
 
 FOLLOWUP_INTEREST_LABELS = {
-    "boceta": "minha bocetinha",
-    "bumbum": "meu bumbum",
-    "peitos": "meus seios",
-    "pes": "meus pés",
-    "geral": "tudo",
+    "de_quatro": "me ver de 4",
+    "oral": "me ver chupando",
+    "anal": "ver meu anal",
+    "gozo": "me ver gozando",
+    "boceta": "ver minha bocetinha",
+    "bumbum": "ver meu bumbum",
+    "peitos": "ver meus seios",
+    "pes": "ver meus pés",
+    "geral": "me ver completinha",
 }
 
 def _followup_contains_term(text, term):
@@ -2507,6 +2548,37 @@ def activate_followup5(uid, reset_stage=False):
         logger.error(f"[FOLLOWUP5] Erro activate uid={uid}: {e}")
         return False
 
+def activate_sales_hard_wall(uid):
+    """Liga o hard wall depois do pitch/PIX: sem fantasia grátis até o pagamento."""
+    try:
+        if user_has_paid(uid):
+            return False
+        r.setex(
+            sales_hard_wall_key(uid),
+            timedelta(days=SALES_HARD_WALL_DAYS),
+            datetime.now().isoformat()
+        )
+        activate_followup5(uid, reset_stage=False)
+        logger.info(f"🧱 [HARD WALL] Ativado uid={uid}")
+        return True
+    except Exception as e:
+        logger.error(f"[HARD WALL] Erro activate uid={uid}: {e}")
+        return False
+
+def clear_sales_hard_wall(uid):
+    try:
+        r.delete(sales_hard_wall_key(uid))
+    except Exception:
+        pass
+
+def is_sales_hard_wall(uid):
+    try:
+        if user_has_paid(uid):
+            return False
+        return bool(r.exists(sales_hard_wall_key(uid)) or user_has_pending_pix(uid))
+    except Exception:
+        return False
+
 def cancel_followup5(uid, paid=False):
     try:
         r.delete(followup_active_key(uid))
@@ -2514,6 +2586,7 @@ def cancel_followup5(uid, paid=False):
         if paid:
             r.delete(followup_stage_key(uid))
             r.delete(followup_silent_key(uid))
+            clear_sales_hard_wall(uid)
         logger.info(f"🛑 [FOLLOWUP5] Cancelado uid={uid} paid={paid}")
     except Exception:
         pass
@@ -2561,37 +2634,87 @@ def _followup_recurring_name(uid):
     except Exception:
         return ""
 
+def _followup_desire(uid):
+    interest = get_followup_interest(uid)
+    return FOLLOWUP_INTEREST_LABELS.get(interest, "me ver sem censura")
+
+def _followup_bonus_suffix():
+    if VIP_BONUS_TEXT:
+        return f" Se entrar agora, eu ainda libero {VIP_BONUS_TEXT}."
+    return ""
+
 def build_followup5_message(uid, stage):
     preco = _followup_price(uid)
-    interest = get_followup_interest(uid)
-    parte = FOLLOWUP_INTEREST_LABELS.get(interest, "")
+    desejo = _followup_desire(uid)
+    bonus = _followup_bonus_suffix()
 
     if stage == 1:
-        if parte:
-            return (f"Hmm, você quer ver mesmo {parte} 😏 Pois eu tô toda molhadinha te esperando... "
-                    f"só paga {preco} e eu te mando tudo AGORA!")
-        return (f"Ih, ficou na dúvida? 😏 Vou te dar um empurrãozinho... eu acho que você ia pirar "
-                f"vendo minha bocetinha bem molhadinha agora. Acertei? Paga os {preco} que eu te mando a prova agora! 😈")
+        return (
+            f"Tô aqui lembrando que você queria {desejo}... 😏 "
+            f"Eu não vou continuar te entregando o resto de graça. "
+            f"Entra no VIP por {preco} e eu libero agora.{bonus}"
+        )
 
     if stage == 2:
-        if parte:
-            return (f"Tá com vergonha safado? 😈 Ou você só tá enrolando... Eu tô aqui toda pronta, "
-                    f"molhadinha pra você. Paga {preco} e eu te mostro {parte} bem de pertinho!")
-        return (f"Mudei de ideia... acho que meus seios combinam mais com o seu clima agora 😈 "
-                f"Paga os {preco} e eu te mostro como eles estão lindos hoje.")
+        return (
+            f"Você falou que queria {desejo} e eu não esqueci 😈 "
+            f"Já deixei isso separado no VIP — só falta você entrar. "
+            f"{preco} e eu libero pra você agora.{bonus}"
+        )
 
     if stage == 3:
-        return (f"Tô aqui sozinha e com tesão, você não vai me deixar na mão né? "
-                f"{preco} e eu libero tudo pra você agora!")
+        return (
+            f"Amor, agora eu tô priorizando quem já tá no VIP. 🔥 "
+            f"Se você ainda quer {desejo}, entra por {preco} e eu continuo com você por lá.{bonus}"
+        )
 
     if stage == 4:
         nome = _followup_recurring_name(uid)
         prefix = f"{nome}, " if nome else ""
-        return (f"Olha só, eu tô perdendo a paciência aqui... 🔥 {prefix}paga {preco} ANTES das 23h59 "
-                f"e eu te mando um vídeo extra de graça só pra você!")
+        return (
+            f"{prefix}eu ainda deixei separado o que você queria: {desejo}. 😈 "
+            f"Se quiser liberar agora, é {preco}. Depois eu não vou ficar insistindo.{bonus}"
+        )
 
-    return (f"Última vez que eu vou te chamar, safado 😈 Se ainda quer me ver completinha, "
-            f"paga {preco} e eu libero tudo agora. Depois disso eu vou ficar quietinha por aqui 🔥")
+    return (
+        f"Última vez que eu vou te chamar, safado 😈 "
+        f"Se ainda quer {desejo}, entra no VIP por {preco} e eu libero agora. "
+        f"Depois disso eu fico quietinha por aqui.{bonus}"
+    )
+
+def build_sales_hard_wall_message(uid, text=""):
+    """Resposta determinística pós-pitch/PIX: corta o loop de gratificação."""
+    if text:
+        save_followup_interest(uid, text)
+    preco = _followup_price(uid)
+    desejo = _followup_desire(uid)
+    bonus = _followup_bonus_suffix()
+
+    if user_has_pending_pix(uid):
+        return (
+            f"Eu sei que você quer continuar 😈 e eu não esqueci que você queria {desejo}. "
+            f"Mas agora eu paro por aqui: o resto eu libero só depois do PIX. "
+            f"Seu acesso é {preco}; clica no botão que eu recupero o PIX pra você.{bonus}"
+        )
+
+    return (
+        f"Ai meu Deus, imaginei agora... 😈 Eu sei que você queria {desejo}. "
+        f"Mas daqui pra frente eu não vou continuar a fantasia de graça. "
+        f"Entra no VIP por {preco} e eu libero o resto agora.{bonus}"
+    )
+
+async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
+    if user_has_paid(uid):
+        clear_sales_hard_wall(uid)
+        return False
+    msg = build_sales_hard_wall_message(uid, text)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+    ]])
+    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+    save_message(uid, "system", "🧱 HARD WALL PÓS-PITCH/PIX ENVIADO")
+    logger.info(f"🧱 [HARD WALL] Resposta enviada uid={uid} interesse={get_followup_interest(uid) or 'geral'}")
+    return True
 
 async def send_followup5_stage(bot, uid, stage):
     try:
@@ -3198,6 +3321,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
         # ====================== TRATAMENTO DE FOTO ======================
+        # Depois do pitch/PIX, foto também respeita o hard wall: não chama Grok
+        # para continuar a fantasia gratuitamente.
+        if has_photo and is_sales_hard_wall(uid) and not user_has_paid(uid):
+            caption = update.message.caption or ""
+            await send_sales_hard_wall_response(
+                context.bot, update.effective_chat.id, uid, caption
+            )
+            return
+
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
@@ -3302,6 +3434,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_text = get_trust_response(uid)
             await update.message.reply_text(response_text)
             save_message(uid, "maya", response_text)
+            return
+
+        # 1.5) HARD WALL: depois do pitch/PIX, corta a fantasia grátis.
+        # O interesse continua sendo atualizado pelo texto do usuário para que
+        # os 5 follow-ups sejam segmentados no desejo real dele.
+        if is_sales_hard_wall(uid) and not user_has_paid(uid):
+            await send_sales_hard_wall_response(
+                context.bot, update.effective_chat.id, uid, text
+            )
             return
 
         # 2) Pedido claro de preço/acesso/conteúdo: não enrola, vai para SyncPay.
@@ -3488,6 +3629,8 @@ syncpay_integration.init(
         "activate_followup5": activate_followup5,
         "touch_followup5": touch_followup5_from_user,
         "cancel_followup5": cancel_followup5,
+        "activate_hard_wall": activate_sales_hard_wall,
+        "clear_hard_wall": clear_sales_hard_wall,
     }
 )
 
