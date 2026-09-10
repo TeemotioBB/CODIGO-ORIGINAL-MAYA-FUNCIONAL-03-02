@@ -336,6 +336,9 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
         )
 
         bot_main.mark_vip_just_offered(uid)
+        activate_hard_wall = _callbacks.get("activate_hard_wall")
+        if activate_hard_wall:
+            activate_hard_wall(uid)
         activate_followup5 = _callbacks.get("activate_followup5")
         if activate_followup5:
             activate_followup5(uid, reset_stage=False)
@@ -365,6 +368,10 @@ async def _pagar_vip_callback(update: Update, context):
     touch_followup5 = _callbacks.get("touch_followup5")
     if touch_followup5:
         touch_followup5(uid, "pix", query.from_user.first_name or "")
+
+    activate_hard_wall = _callbacks.get("activate_hard_wall")
+    if activate_hard_wall:
+        activate_hard_wall(uid)
 
     try:
         pix_pendente = _get_pix_pendente(uid)
@@ -504,6 +511,9 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         cancel_followup5 = _callbacks.get("cancel_followup5")
         if cancel_followup5:
             cancel_followup5(uid, paid=True)
+        clear_hard_wall = _callbacks.get("clear_hard_wall")
+        if clear_hard_wall:
+            clear_hard_wall(uid)
 
         # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
         try:
