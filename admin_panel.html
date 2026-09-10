@@ -480,7 +480,62 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
 .conv-msgs .msg { margin: 2px 0; word-break: break-word; }
 .conv-msgs .msg.user   { color: #60a5fa; }
 .conv-msgs .msg.bot    { color: #f472b6; }
+.conv-msgs .msg.admin  { color: #4ade80; }
 .conv-msgs .msg.system { color: var(--text-3); }
+
+.badge.manual { color: #c084fc; border-color: rgba(192,132,252,.3); background: rgba(192,132,252,.08); }
+
+.conv-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn-pause { border-color: rgba(245,158,11,.45); color: #fbbf24; }
+.btn-resume { border-color: rgba(74,222,128,.45); color: #4ade80; }
+
+.chat-input-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.chat-input {
+  width: 100%;
+  min-height: 38px;
+  max-height: 120px;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+.chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,90,31,.10); }
+.btn-send { min-width: 44px; background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-send:hover { background: #ff6b30; border-color: #ff6b30; }
+.manual-helper { grid-column: 1 / -1; color: var(--text-3); font-size: 10.5px; line-height: 1.35; }
+.conv.manual-active { box-shadow: inset 0 0 0 1px rgba(192,132,252,.14); }
+
+.search-input {
+  height: 36px;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+
+@media (max-width: 640px) {
+  .chat-input-group { grid-template-columns: 1fr; }
+  .chat-input-group .btn-send { width: 100%; }
+  .search-input { width: 100%; min-width: 0; }
+}
 .conv-msgs::-webkit-scrollbar { width: 6px; }
 .conv-msgs::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
@@ -540,7 +595,7 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
   <header class="topbar">
     <div class="brand">
       <span class="brand-dot"></span>
-      <div class="brand-title">Sophia <span>· admin v8.2</span></div>
+      <div class="brand-title">Sophia <span>· admin · command center</span></div>
     </div>
     <div class="topbar-meta" id="lastUpdate">—</div>
     <button class="btn" id="refreshBtn" aria-label="Atualizar">
@@ -629,6 +684,10 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
       <div class="card-head"><h3>Ofertas VIP · por horário</h3></div>
       <div class="chart-wrap"><canvas id="hourlyChart"></canvas></div>
     </div>
+    <div class="card">
+      <div class="card-head"><h3>Novos usuários · hoje por hora</h3></div>
+      <div class="chart-wrap"><canvas id="growthHourlyChart"></canvas></div>
+    </div>
   </div>
 
   <!-- acquisition -->
@@ -651,11 +710,22 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
   <div class="section-head">
     <h2>Conversas em tempo real</h2>
     <div class="actions">
+      <input class="search-input" id="conversationSearch" inputmode="numeric" placeholder="Buscar UID" aria-label="Buscar usuário por UID">
       <select class="select" id="conversationFilter">
         <option value="all">Todas</option>
         <option value="hot">Quentes</option>
+        <option value="manual">Modo manual</option>
         <option value="cooldown">Cooldown</option>
         <option value="converted">VIP</option>
+      </select>
+      <select class="select" id="conversationPhase" aria-label="Filtrar por fase">
+        <option value="all">Todas as fases</option>
+        <option value="0">Onboarding</option>
+        <option value="1">Engagement</option>
+        <option value="2">Provocation</option>
+        <option value="3">VIP Pitch</option>
+        <option value="4">Post-Rejection</option>
+        <option value="5">Relationship</option>
       </select>
       <input class="select" type="date" id="exportStart" aria-label="Data inicial da exportação">
       <input class="select" type="date" id="exportEnd" aria-label="Data final da exportação">
@@ -994,6 +1064,25 @@ function buildCharts(d) {
       scales: baseScales,
     },
   });
+
+  const growth = d.growthHourly || { labels: [], users: [] };
+  state.charts.growthHourly = new Chart($('growthHourlyChart'), {
+    type: 'bar',
+    data: {
+      labels: growth.labels,
+      datasets: [{
+        data: growth.users,
+        backgroundColor: CHART_COLORS.success,
+        borderRadius: 3,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: baseScales,
+    },
+  });
 }
 
 function refreshCharts(d) {
@@ -1015,6 +1104,14 @@ function refreshCharts(d) {
   h.data.labels = d.hourly.labels;
   h.data.datasets[0].data = d.hourly.offers;
   h.update('none');
+
+  const g = state.charts.growthHourly;
+  const growth = d.growthHourly || { labels: [], users: [] };
+  if (g) {
+    g.data.labels = growth.labels;
+    g.data.datasets[0].data = growth.users;
+    g.update('none');
+  }
 }
 
 
@@ -1201,20 +1298,29 @@ function updateDropoff(d) {
   wrap.innerHTML = cards + table;
 }
 
-// ─── conversations ───────────────────────────────────────
+// ─── conversations / command center ───────────────────────
 async function loadConversations() {
   const filter = $('conversationFilter').value;
+  const phase = $('conversationPhase').value;
+  const q = $('conversationSearch').value.trim();
   const token = localStorage.getItem('adminToken');
   if (!token) {
-    // demo: keep showing the placeholder
     $('conversationsList').innerHTML = '<div class="empty">Conecte o token de admin para ver conversas em tempo real</div>';
     return;
   }
 
+  const params = new URLSearchParams({ filter, phase });
+  if (q) params.set('q', q);
+
   try {
-    const res = await fetch(`/admin/conversations?filter=${filter}`, {
+    const res = await fetch(`/admin/conversations?${params.toString()}`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
+    if (res.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return;
+    }
     if (!res.ok) return;
     const data = await res.json();
     displayConversations(data.conversations || []);
@@ -1223,111 +1329,160 @@ async function loadConversations() {
   }
 }
 
-async function exportConversations() {
-  const start = $('exportStart').value;
-  const end = $('exportEnd').value;
+async function toggleAI(userId, action) {
   const token = localStorage.getItem('adminToken');
-  const btn = $('exportConversationsBtn');
+  if (!token) return window.location.href = '/admin/login';
 
-  if (!token) {
-    window.location.href = '/admin/login';
-    return;
-  }
-  if (!start || !end) {
-    alert('Escolha a data inicial e a data final.');
-    return;
-  }
-  if (start > end) {
-    alert('A data final não pode ser anterior à data inicial.');
-    return;
-  }
-
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Exportando…';
+  const btn = document.querySelector(`[data-ai-user="${userId}"]`);
+  if (btn) btn.disabled = true;
 
   try {
-    const res = await fetch(`/admin/conversations/export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+    const res = await fetch(`/admin/user/${userId}/ai`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action }),
     });
-
     if (res.status === 401) {
       localStorage.removeItem('adminToken');
       window.location.href = '/admin/login';
       return;
     }
-
-    if (!res.ok) {
-      let message = 'Não foi possível exportar as conversas.';
-      try {
-        const data = await res.json();
-        if (data && data.error) message = data.error;
-      } catch (_) {}
-      alert(message);
-      return;
-    }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `conversas_${start}_a_${end}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível alterar a IA.');
+    await loadConversations();
   } catch (e) {
-    console.error('exportConversations:', e);
-    alert('Erro de conexão ao exportar as conversas.');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
+    alert(e.message || 'Erro ao alterar a IA deste usuário.');
+    if (btn) btn.disabled = false;
   }
 }
 
-function setDefaultExportDates() {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
-  if (!$('exportStart').value) $('exportStart').value = local;
-  if (!$('exportEnd').value) $('exportEnd').value = local;
+async function sendMessage(userId) {
+  const token = localStorage.getItem('adminToken');
+  if (!token) return window.location.href = '/admin/login';
+
+  const input = $(`input-${userId}`);
+  const button = document.querySelector(`[data-send-user="${userId}"]`);
+  const message = (input?.value || '').trim();
+  if (!message) return;
+
+  if (button) button.disabled = true;
+  if (input) input.disabled = true;
+
+  try {
+    const res = await fetch(`/admin/user/${userId}/message`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      // Segurança contra conversa embolada: enviar pelo painel assume o lead e pausa a IA.
+      body: JSON.stringify({ message, pause_ai: true }),
+    });
+    if (res.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível enviar a mensagem.');
+
+    if (input) input.value = '';
+    await loadConversations();
+  } catch (e) {
+    alert(e.message || 'Erro ao enviar mensagem.');
+  } finally {
+    if (button) button.disabled = false;
+    if (input) input.disabled = false;
+    if (input) input.focus();
+  }
+}
+
+function handleChatKey(event, userId) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage(userId);
+  }
 }
 
 function classifyMsg(msg) {
   if (msg.includes('USER:')) return 'user';
-  if (msg.includes('MAYA:')) return 'bot';
+  if (msg.includes('ADMIN:')) return 'admin';
+  if (msg.includes('MAYA:') || msg.includes('SOPHIA:') || msg.includes('BOT:')) return 'bot';
   if (msg.includes('SYSTEM:') || msg.includes('ACTION:')) return 'system';
   return '';
 }
 
 function displayConversations(list) {
   const wrap = $('conversationsList');
+
+  // Auto-refresh não pode apagar uma mensagem que o admin ainda está digitando.
+  const drafts = {};
+  wrap.querySelectorAll('.chat-input').forEach(el => { drafts[el.id] = el.value; });
+  const activeInputId = document.activeElement?.classList?.contains('chat-input') ? document.activeElement.id : null;
+  const activeCursor = activeInputId ? document.activeElement.selectionStart : null;
+
   if (!list || list.length === 0) {
-    wrap.innerHTML = '<div class="empty">Nenhuma conversa nas últimas 24h</div>';
+    wrap.innerHTML = '<div class="empty">Nenhuma conversa encontrada com esses filtros</div>';
     return;
   }
 
   wrap.innerHTML = list.map(c => `
-    <div class="conv ${c.statusClass || 'normal'}">
+    <div class="conv ${c.statusClass || 'normal'} ${c.aiPaused ? 'manual-active' : ''}">
       <div class="conv-head">
         <div>
           <div class="conv-uid">User ${c.userId}</div>
-          <div style="margin-top:4px;"><span class="badge ${c.statusClass || 'normal'}">${c.status}</span></div>
+          <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">
+            <span class="badge ${c.statusClass || 'normal'}">${escapeHtml(c.status)}</span>
+            ${c.aiPaused ? '<span class="badge manual">🖐 Modo manual</span>' : '<span class="badge normal">IA ativa</span>'}
+          </div>
         </div>
         <div class="conv-stats">
           <span><b>${c.totalMessages}</b> msg</span>
-          <span>${c.lastActivity}</span>
+          <span>${escapeHtml(c.lastActivity)}</span>
+          <span>Fase <b>${escapeHtml(c.phaseName || String(c.currentPhase ?? '—'))}</b></span>
           ${c.teaserCount > 0 ? `<span><b>${c.teaserCount}</b> teaser</span>` : ''}
         </div>
+        <div class="conv-actions">
+          ${c.aiPaused
+            ? `<button class="btn btn-resume" data-ai-user="${c.userId}" onclick="toggleAI('${c.userId}', 'resume')">Retomar IA</button>`
+            : `<button class="btn btn-pause" data-ai-user="${c.userId}" onclick="toggleAI('${c.userId}', 'pause')">Pausar IA</button>`}
+        </div>
       </div>
-      <div class="conv-msgs">
+      <div class="conv-msgs" id="msgs-${c.userId}">
         ${c.messages && c.messages.length
           ? c.messages.map(m => `<div class="msg ${classifyMsg(m)}">${escapeHtml(m)}</div>`).join('')
           : '<div class="msg system">— sem mensagens —</div>'}
       </div>
+      <div class="chat-input-group">
+        <textarea class="chat-input" id="input-${c.userId}" maxlength="4096" rows="1" placeholder="Digite como o bot deve falar com este lead…" onkeydown="handleChatKey(event, '${c.userId}')"></textarea>
+        <button class="btn btn-send" data-send-user="${c.userId}" onclick="sendMessage('${c.userId}')" title="Enviar mensagem">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          <span>Enviar</span>
+        </button>
+        <div class="manual-helper">Ao enviar pelo painel, a IA é pausada automaticamente para você assumir a conversa. Shift+Enter quebra linha.</div>
+      </div>
     </div>
   `).join('');
+
+  // Restaura rascunhos/foco e abre cada conversa na mensagem mais recente.
+  Object.entries(drafts).forEach(([id, value]) => {
+    const el = $(id);
+    if (el && value) el.value = value;
+  });
+  if (activeInputId) {
+    const el = $(activeInputId);
+    if (el) {
+      el.focus();
+      if (Number.isInteger(activeCursor)) el.setSelectionRange(activeCursor, activeCursor);
+    }
+  }
+  list.forEach(c => {
+    const box = $(`msgs-${c.userId}`);
+    if (box) box.scrollTop = box.scrollHeight;
+  });
 }
 
 function escapeHtml(s) {
@@ -1353,6 +1508,10 @@ function generateMockData() {
     hourly: {
       labels: ['0h', '2h', '4h', '6h', '8h', '10h', '12h', '14h', '16h', '18h', '20h', '22h'],
       offers: [12, 8, 5, 7, 15, 23, 34, 45, 56, 67, 78, 54],
+    },
+    growthHourly: {
+      labels: Array.from({ length: 24 }, (_, h) => `${h}h`),
+      users: [0,0,0,0,1,1,2,4,8,12,9,7,6,8,11,13,17,19,15,10,8,5,3,1],
     },
     topUsers: Array.from({ length: 20 }, (_, i) => {
       const tier = ['hot', 'warm', 'cold'][i % 3];
@@ -1414,6 +1573,12 @@ function init() {
   $('refreshBtn').addEventListener('click', () => { loadAllData(); loadConversations(); });
   $('fabRefresh').addEventListener('click', () => { loadAllData(); loadConversations(); });
   $('conversationFilter').addEventListener('change', loadConversations);
+  $('conversationPhase').addEventListener('change', loadConversations);
+  let searchTimer;
+  $('conversationSearch').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadConversations, 250);
+  });
   $('exportConversationsBtn').addEventListener('click', exportConversations);
   setDefaultExportDates();
 
