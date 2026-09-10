@@ -310,6 +310,15 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 
         await asyncio.sleep(3)
 
+        # Áudio de apresentação do VIP: uma única vez e antes do botão/PIX.
+        send_vip_intro_audio = _callbacks.get("send_vip_intro_audio")
+        if send_vip_intro_audio:
+            try:
+                await send_vip_intro_audio(bot, chat_id, uid)
+                await asyncio.sleep(0.8)
+            except Exception as audio_err:
+                logger.error(f"[SyncPay] Erro no áudio de apresentação uid={uid}: {audio_err}")
+
         urgencia = bot_main.get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
