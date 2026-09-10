@@ -823,6 +823,8 @@ def followup_interest_key(uid): return f"followup5:interest:{uid}"
 def followup_silent_key(uid): return f"followup5:silent:{uid}"
 def followup_first_name_key(uid): return f"followup5:first_name:{uid}"
 def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
+def vip_intro_audio_sent_key(uid): return f"audio:vip_intro_sent:{uid}"
+def vip_moan_audio_sent_key(uid): return f"audio:moan_sent:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
@@ -2747,6 +2749,11 @@ async def send_teaser_and_apex(bot, chat_id, uid):
                     print(f"❌ VÍDEO QUEBRADO IDENTIFICADO: {video_id} | ERRO: {e}")
                 
                 await asyncio.sleep(1.2)
+
+        # Áudio de apresentação do VIP: uma única vez, antes do pitch/botão PIX.
+        await send_vip_intro_audio_once(bot, chat_id, uid)
+        await asyncio.sleep(0.8)
+
         # === PITCH MATADOR (Harper v9.0) ===
         pitch = (
             f"Curtiu meu corpo safado? 😈\n\n"
@@ -2791,6 +2798,12 @@ SALES_HARD_WALL_DAYS = int(os.getenv("SALES_HARD_WALL_DAYS", "30"))
 # Só coloque algo aqui se esse bônus REALMENTE existir e for entregue no VIP.
 VIP_BONUS_TEXT = os.getenv("VIP_BONUS_TEXT", "").strip()
 
+# Áudios pré-gravados do Telegram (use file_id, não caminho local).
+# Podem ser definidos globalmente no Railway ou por IA em ias_config.json.
+VIP_INTRO_AUDIO_FILE_ID = os.getenv("VIP_INTRO_AUDIO_FILE_ID", "").strip()
+VIP_MOAN_AUDIO_FILE_ID = os.getenv("VIP_MOAN_AUDIO_FILE_ID", "").strip()
+PIX_AUDIO_RECOVERY_DELAY_MINUTES = int(os.getenv("PIX_AUDIO_RECOVERY_DELAY_MINUTES", "10"))
+
 # A ordem importa: desejos mais específicos vêm antes dos genéricos.
 FOLLOWUP_INTEREST_FAMILIES = {
     "de_quatro": [
@@ -2828,6 +2841,232 @@ FOLLOWUP_INTEREST_LABELS = {
     "pes": "ver meus pés",
     "geral": "me ver completinha",
 }
+
+
+def _get_vip_audio_file_id(uid, kind):
+    """Busca o file_id específico da IA; se não existir, usa a variável do Railway."""
+    try:
+        ia_config = get_router().get_ia_config(uid=uid) or {}
+    except Exception:
+        ia_config = {}
+
+    if kind == "intro":
+        return str(
+            ia_config.get("audio_vip_intro")
+            or VIP_INTRO_AUDIO_FILE_ID
+            or ""
+        ).strip()
+
+    if kind == "moan":
+        return str(
+            ia_config.get("audio_moan")
+            or VIP_MOAN_AUDIO_FILE_ID
+            or ""
+        ).strip()
+
+    return ""
+
+
+async def _send_telegram_audio_file(bot, chat_id, file_id):
+    """Reutiliza o file_id do Telegram; tenta voice note e depois áudio normal."""
+    if not file_id:
+        return False
+
+    try:
+        await bot.send_voice(
+            chat_id=chat_id,
+            voice=file_id,
+            connect_timeout=15,
+            read_timeout=20,
+            write_timeout=20,
+        )
+        return True
+    except Exception as voice_err:
+        logger.info(f"[VIP AUDIO] file_id não aceito como voice; tentando audio: {voice_err}")
+
+    try:
+        await bot.send_audio(
+            chat_id=chat_id,
+            audio=file_id,
+            connect_timeout=15,
+            read_timeout=20,
+            write_timeout=20,
+        )
+        return True
+    except Exception as audio_err:
+        logger.error(f"[VIP AUDIO] Erro enviando file_id: {audio_err}")
+        return False
+
+
+async def send_vip_intro_audio_once(bot, chat_id, uid):
+    """Áudio que apresenta o VIP: uma vez por usuário, antes do pitch/botão PIX."""
+    try:
+        if user_has_paid(uid):
+            return False
+
+        key = vip_intro_audio_sent_key(uid)
+        if r.exists(key):
+            return False
+
+        file_id = _get_vip_audio_file_id(uid, "intro")
+        if not file_id:
+            return False
+
+        await bot.send_message(
+            chat_id=chat_id,
+            text="Amor, deixa eu te explicar rapidinho por áudio como funciona meu VIP 👇"
+        )
+        await asyncio.sleep(0.5)
+
+        sent = await _send_telegram_audio_file(bot, chat_id, file_id)
+        if not sent:
+            return False
+
+        r.setex(key, timedelta(days=365), "1")
+        save_message(uid, "system", "🔊 ÁUDIO DE APRESENTAÇÃO DO VIP ENVIADO")
+        logger.info(f"🔊 [VIP AUDIO] apresentação enviada uma vez uid={uid}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[VIP AUDIO] Erro apresentação uid={uid}: {e}")
+        return False
+
+
+async def send_vip_moan_audio_once(bot, chat_id, uid, reason="sample"):
+    """Prévia de áudio: pode ser usada por objeção ou recuperação do PIX, uma única vez."""
+    try:
+        if user_has_paid(uid):
+            return False
+
+        key = vip_moan_audio_sent_key(uid)
+        if r.exists(key):
+            return False
+
+        file_id = _get_vip_audio_file_id(uid, "moan")
+        if not file_id:
+            return False
+
+        sent = await _send_telegram_audio_file(bot, chat_id, file_id)
+        if not sent:
+            return False
+
+        r.setex(key, timedelta(days=365), "1")
+        save_message(uid, "system", f"🔊 PRÉVIA DE ÁUDIO ENVIADA ({reason})")
+        logger.info(f"🔊 [VIP AUDIO] prévia enviada uma vez uid={uid} reason={reason}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[VIP AUDIO] Erro prévia uid={uid}: {e}")
+        return False
+
+
+VIP_MOAN_SAMPLE_TRIGGERS = [
+    "é quente mesmo", "e quente mesmo", "mas é quente", "mas e quente",
+    "é bom mesmo", "e bom mesmo", "vale a pena", "quero ver se vale",
+    "tem áudio", "tem audio", "manda áudio", "manda audio",
+    "quero ouvir", "manda uma prévia", "manda uma previa",
+    "tem prévia", "tem previa", "tem amostra", "manda uma amostra",
+    "é pesado", "e pesado", "é explícito", "e explicito",
+    "tem vídeo mesmo", "tem video mesmo", "gemido", "gemendo",
+]
+
+
+def should_send_vip_moan_sample(uid, text):
+    """Detecta quando o lead pede uma amostra/quer validar a intensidade do conteúdo."""
+    if user_has_paid(uid):
+        return False
+    if r.exists(vip_moan_audio_sent_key(uid)):
+        return False
+    if not _get_vip_audio_file_id(uid, "moan"):
+        return False
+
+    text_lower = (text or "").lower().strip()
+    return any(term in text_lower for term in VIP_MOAN_SAMPLE_TRIGGERS)
+
+
+def _pending_pix_age_minutes(uid):
+    """Idade do PIX pendente em minutos, a partir do created_at salvo pela SyncPay."""
+    try:
+        raw = r.get(f"sp:pix:{uid}")
+        if not raw:
+            return None
+
+        payload = json.loads(raw)
+        created_at = payload.get("created_at")
+        if not created_at:
+            return None
+
+        created = datetime.fromisoformat(created_at)
+        return max(0.0, (datetime.utcnow() - created).total_seconds() / 60.0)
+    except Exception:
+        return None
+
+
+async def maybe_send_pending_pix_audio_recovery(bot, uid):
+    """
+    Se o usuário gerou PIX e ainda não pagou, envia a prévia de áudio uma vez
+    após o atraso configurado. Se o estágio 1 ainda não saiu, essa recuperação
+    ocupa o primeiro contato para evitar mensagens duplicadas no mesmo momento.
+    """
+    try:
+        if is_ai_manually_paused(uid):
+            return False
+        if user_has_paid(uid) or not user_has_pending_pix(uid):
+            return False
+        if r.exists(vip_moan_audio_sent_key(uid)):
+            return False
+        if not _get_vip_audio_file_id(uid, "moan"):
+            return False
+
+        age_minutes = _pending_pix_age_minutes(uid)
+        if age_minutes is None or age_minutes < PIX_AUDIO_RECOVERY_DELAY_MINUTES:
+            return False
+
+        await bot.send_message(
+            chat_id=uid,
+            text="Vi que seu PIX ainda está pendente. Escuta essa prévia antes de decidir 👇"
+        )
+        await asyncio.sleep(0.5)
+
+        sent = await send_vip_moan_audio_once(
+            bot,
+            uid,
+            uid,
+            reason="pix_pending"
+        )
+        if not sent:
+            return False
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+        ]])
+
+        await asyncio.sleep(0.7)
+        await bot.send_message(
+            chat_id=uid,
+            text="Se quiser concluir, seu PIX continua disponível aqui 👇",
+            reply_markup=keyboard
+        )
+
+        current_stage = int(r.get(followup_stage_key(uid)) or 0)
+        if current_stage < 1:
+            r.set(followup_stage_key(uid), 1)
+            r.expire(followup_stage_key(uid), timedelta(days=30))
+            save_message(uid, "system", "🔥 FOLLOW-UP #1 SUBSTITUÍDO PELA RECUPERAÇÃO DE PIX COM ÁUDIO")
+
+        # A recuperação vira a nova âncora de silêncio para o próximo estágio.
+        r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
+
+        logger.info(
+            f"🔊 [VIP AUDIO] recuperação PIX enviada uid={uid} "
+            f"age={age_minutes:.1f}min"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"[VIP AUDIO] Erro recovery PIX uid={uid}: {e}")
+        return False
+
 
 def _followup_contains_term(text, term):
     text = (text or "").lower()
@@ -3110,6 +3349,11 @@ async def followup5_scheduler(bot):
                     if user_has_paid(uid):
                         cancel_followup5(uid, paid=True)
                         continue
+
+                    # PIX gerado e ainda não pago: prévia de áudio uma única vez.
+                    if await maybe_send_pending_pix_audio_recovery(bot, uid):
+                        continue
+
                     if not is_followup5_active(uid) or is_followup5_silent(uid):
                         continue
                     current_stage = int(r.get(followup_stage_key(uid)) or 0)
@@ -3831,6 +4075,26 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_message(uid, "maya", response_text)
             return
 
+        # 1.25) Se o lead pedir uma amostra/duvidar da intensidade, envia a prévia uma vez.
+        if should_send_vip_moan_sample(uid, text):
+            await update.message.reply_text("Você quer saber como é? Escuta um pedacinho da prévia 👇")
+            sent_audio = await send_vip_moan_audio_once(
+                context.bot,
+                update.effective_chat.id,
+                uid,
+                reason="sample_request"
+            )
+            if sent_audio:
+                activate_sales_hard_wall(uid)
+                await asyncio.sleep(0.8)
+                await send_sales_hard_wall_response(
+                    context.bot,
+                    update.effective_chat.id,
+                    uid,
+                    text
+                )
+                return
+
         # 1.5) HARD WALL: depois do pitch/PIX, corta a fantasia grátis.
         # O interesse continua sendo atualizado pelo texto do usuário para que
         # os 5 follow-ups sejam segmentados no desejo real dele.
@@ -3966,6 +4230,35 @@ import admin_commands
 # 🚀 SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
+async def audioid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: responda a um voice/audio com /audioid para obter o file_id do Telegram."""
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    reply = update.message.reply_to_message if update.message else None
+    if not reply:
+        await update.message.reply_text(
+            "Responda ao áudio com /audioid para eu mostrar o file_id."
+        )
+        return
+
+    if reply.voice:
+        await update.message.reply_text(
+            f"TIPO: voice\nFILE_ID:\n{reply.voice.file_id}"
+        )
+        return
+
+    if reply.audio:
+        await update.message.reply_text(
+            f"TIPO: audio\nFILE_ID:\n{reply.audio.file_id}"
+        )
+        return
+
+    await update.message.reply_text(
+        "A mensagem respondida não contém voice nem audio."
+    )
+
+
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     admin_funcs = {
@@ -3988,6 +4281,7 @@ def setup_application():
     application.add_handler(CommandHandler("resetall", lambda u, c: admin_commands.resetall_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
+    application.add_handler(CommandHandler("audioid", audioid_cmd))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs), pattern="^bc_(?!confirm)"))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK), pattern="^bc_confirm$"))
@@ -4032,6 +4326,7 @@ syncpay_integration.init(
         "cancel_followup5": cancel_followup5,
         "activate_hard_wall": activate_sales_hard_wall,
         "clear_hard_wall": clear_sales_hard_wall,
+        "send_vip_intro_audio": send_vip_intro_audio_once,
     }
 )
 
@@ -4600,6 +4895,8 @@ def admin_conversations():
                 pipe.get(clicked_vip_key(uid))
                 pipe.get(saw_teaser_key(uid))
                 pipe.get(teaser_count_key(uid))
+                pipe.get(f"sp:pix:{uid}")
+                pipe.get(f"sp:paid:{uid}")
             vals = pipe.execute()
             idx = 0
 
@@ -4612,6 +4909,8 @@ def admin_conversations():
                 clicked_raw = vals[idx]; idx += 1
                 saw_raw = vals[idx]; idx += 1
                 teaser_count_raw = vals[idx]; idx += 1
+                pix_raw = vals[idx]; idx += 1
+                paid_raw = vals[idx]; idx += 1
 
                 hours = None
                 if last_raw:
@@ -4633,6 +4932,8 @@ def admin_conversations():
                 in_cooldown = bool(cooldown_raw)
                 clicked = bool(clicked_raw)
                 saw = bool(saw_raw)
+                pix_pending = bool(pix_raw) and not bool(paid_raw)
+                paid = bool(paid_raw)
 
                 if phase_filter != "all":
                     try:
@@ -4645,7 +4946,7 @@ def admin_conversations():
                     continue
                 elif filter_type == "cooldown" and not in_cooldown:
                     continue
-                elif filter_type in {"converted", "vip"} and not clicked:
+                elif filter_type in {"converted", "vip"} and not paid:
                     continue
                 elif filter_type == "manual" and not ai_paused:
                     continue
@@ -4661,8 +4962,12 @@ def admin_conversations():
                 else:
                     last_activity = f"{int(hours / 24)}d"
 
-                if clicked:
-                    status, status_class = "💎 Comprou VIP", "vip"
+                if paid:
+                    status, status_class = "💎 Pagou VIP", "vip"
+                elif pix_pending:
+                    status, status_class = "🧾 PIX gerado — aguardando pagamento", "warm"
+                elif clicked:
+                    status, status_class = "💳 Clicou no VIP", "warm"
                 elif in_cooldown:
                     status, status_class = "🚫 Cooldown", "cooldown"
                 elif msg_count > 20:
@@ -4679,6 +4984,8 @@ def admin_conversations():
                     "totalMessages": msg_count,
                     "inCooldown": in_cooldown,
                     "clickedVip": clicked,
+                    "pixPending": pix_pending,
+                    "paid": paid,
                     "sawTeaser": saw,
                     "teaserCount": teaser_count,
                     "lastActivity": last_activity,
@@ -4770,7 +5077,7 @@ def admin_conversations_export():
                         item.get("text", ""),
                         source.get("source", ""),
                         source.get("campaign", ""),
-                        "sim" if clicked_vip(uid) else "não",
+                        "sim" if user_has_paid(uid) else "não",
                         "sim" if is_in_rejection_cooldown(uid) else "não",
                     ])
                     exported += 1
@@ -4846,7 +5153,7 @@ def admin_user_detail(user_id):
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
         profile = get_user_profile(user_id)
         memory = get_memory(user_id)
-        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "leadProfile": get_lead_profile(user_id), "dailyLimit": get_user_daily_limit(user_id), "aiPaused": is_ai_manually_paused(user_id), "pauseInfo": get_ai_manual_pause_info(user_id)}, "chatlog": chatlog, "memory": memory}, 200
+        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "pixPending": user_has_pending_pix(user_id) and not user_has_paid(user_id), "paid": user_has_paid(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "leadProfile": get_lead_profile(user_id), "dailyLimit": get_user_daily_limit(user_id), "aiPaused": is_ai_manually_paused(user_id), "pauseInfo": get_ai_manual_pause_info(user_id)}, "chatlog": chatlog, "memory": memory}, 200
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
@@ -4942,7 +5249,7 @@ def admin_broadcast():
         elif target_group == "saw_teaser":
             users = [u for u in users if saw_teaser(u)]
         elif target_group == "not_converted":
-            users = [u for u in users if saw_teaser(u) and not clicked_vip(u)]
+            users = [u for u in users if saw_teaser(u) and not user_has_paid(u)]
 
         async def send_broadcast():
             sent = 0
