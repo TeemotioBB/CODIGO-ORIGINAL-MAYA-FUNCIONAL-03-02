@@ -190,44 +190,64 @@
         const btnText = document.getElementById('btnText');
         const errorDiv = document.getElementById('error');
 
-        // Verifica se já está logado
+        async function validateToken(token) {
+            try {
+                const res = await fetch('/admin/auth/check', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return res.ok;
+            } catch (_) {
+                throw new Error('Não foi possível conectar ao servidor.');
+            }
+        }
+
+        // Só reutiliza sessão local se o backend confirmar o token.
         const savedToken = localStorage.getItem('adminToken');
         if (savedToken) {
-            // Redireciona IMEDIATAMENTE sem validar
-            window.location.href = '/admin/dashboard';
+            validateToken(savedToken).then(ok => {
+                if (ok) {
+                    window.location.href = '/admin/dashboard';
+                } else {
+                    localStorage.removeItem('adminToken');
+                }
+            }).catch(() => {});
         }
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const token = tokenInput.value.trim();
-            
+
             if (!token) {
                 showError('Por favor, digite o token de acesso');
                 return;
             }
 
-            // LOGIN INSTANTÂNEO - sem validação
             loginBtn.disabled = true;
             btnText.innerHTML = '<span class="loader"></span>';
 
-            // Pequeno delay apenas pra dar feedback visual
-            await new Promise(resolve => setTimeout(resolve, 300));
+            try {
+                const ok = await validateToken(token);
+                if (!ok) {
+                    localStorage.removeItem('adminToken');
+                    showError('Token de acesso inválido.');
+                    btnText.textContent = 'Acessar Dashboard';
+                    return;
+                }
 
-            // Salva o token e redireciona
-            localStorage.setItem('adminToken', token);
-            btnText.textContent = '✓ Acesso autorizado!';
-            
-            // Redireciona IMEDIATAMENTE
-            setTimeout(() => {
+                localStorage.setItem('adminToken', token);
+                btnText.textContent = '✓ Acesso autorizado!';
                 window.location.href = '/admin/dashboard';
-            }, 200);
+            } catch (e) {
+                showError(e.message || 'Erro ao validar o acesso.');
+                btnText.textContent = 'Acessar Dashboard';
+            } finally {
+                loginBtn.disabled = false;
+            }
         });
 
         function showError(message) {
             errorDiv.textContent = message;
             errorDiv.classList.remove('show');
-            // Force reflow
             void errorDiv.offsetWidth;
             errorDiv.classList.add('show');
 
@@ -236,16 +256,12 @@
             }, 5000);
         }
 
-        // Clear error on input
         tokenInput.addEventListener('input', () => {
             errorDiv.classList.remove('show');
         });
 
-        // Auto-focus no input
         tokenInput.focus();
-
-        // Allow paste
-        tokenInput.addEventListener('paste', (e) => {
+        tokenInput.addEventListener('paste', () => {
             setTimeout(() => {
                 tokenInput.value = tokenInput.value.trim();
             }, 10);
