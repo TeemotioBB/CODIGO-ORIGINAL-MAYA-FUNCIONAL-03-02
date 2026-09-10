@@ -498,6 +498,10 @@ def last_reengagement_key(uid): return f"last_reengagement:{uid}"
 def daily_messages_sent_key(uid): return f"daily_msg_sent:{uid}:{date.today()}"
 def ignored_count_key(uid): return f"ignored:{uid}"
 def engagement_paused_key(uid): return f"paused:{uid}"
+# Pausa manual é separada do pause de reengajamento. O pause de reengajamento
+# é apagado quando o lead responde; o modo manual só sai por ação do admin.
+def manual_ai_paused_key(uid): return f"manual_ai_paused:{uid}"
+def manual_ai_pause_meta_key(uid): return f"manual_ai_pause_meta:{uid}"
 def awaiting_response_key(uid): return f"awaiting:{uid}"
 def streak_key(uid): return f"streak:{uid}"
 def streak_last_day_key(uid): return f"streak_last:{uid}"
@@ -1625,6 +1629,53 @@ def get_funnel_stats():
         return {}
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 🖐️ MODO MANUAL / HANDOFF HUMANO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def is_ai_manually_paused(uid):
+    try:
+        return bool(r.exists(manual_ai_paused_key(uid)))
+    except Exception:
+        return False
+
+def get_ai_manual_pause_info(uid):
+    try:
+        raw = r.get(manual_ai_pause_meta_key(uid))
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {}
+
+def pause_ai_for_user(uid, source="admin"):
+    """Coloca somente este lead em modo manual até o admin retomar."""
+    try:
+        paused_at = local_now().isoformat(timespec="seconds")
+        r.set(manual_ai_paused_key(uid), paused_at)
+        r.set(manual_ai_pause_meta_key(uid), json.dumps({
+            "paused_at": paused_at,
+            "source": source,
+        }, ensure_ascii=False))
+        logger.info(f"🖐️ [MODO MANUAL] IA pausada uid={uid} source={source}")
+        return True
+    except Exception as e:
+        logger.error(f"Erro pausando IA manualmente uid={uid}: {e}")
+        return False
+
+def resume_ai_for_user(uid):
+    """Retoma a automação e reinicia o relógio dos follow-ups para evitar disparo imediato."""
+    try:
+        r.delete(manual_ai_paused_key(uid))
+        r.delete(manual_ai_pause_meta_key(uid))
+        if is_followup5_active(uid):
+            r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
+        logger.info(f"▶️ [MODO MANUAL] IA retomada uid={uid}")
+        return True
+    except Exception as e:
+        logger.error(f"Erro retomando IA uid={uid}: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🎮 ENGAGEMENT
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2718,6 +2769,9 @@ async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
 
 async def send_followup5_stage(bot, uid, stage):
     try:
+        if is_ai_manually_paused(uid):
+            logger.info(f"🖐️ [MODO MANUAL] Follow-up bloqueado uid={uid} stage={stage}")
+            return False
         if user_has_paid(uid):
             cancel_followup5(uid, paid=True)
             return False
@@ -2754,6 +2808,8 @@ async def followup5_scheduler(bot):
                 try:
                     if is_blacklisted(uid):
                         continue
+                    if is_ai_manually_paused(uid):
+                        continue
                     if user_has_paid(uid):
                         cancel_followup5(uid, paid=True)
                         continue
@@ -2783,6 +2839,8 @@ async def followup5_scheduler(bot):
 async def send_inactivity_followup(bot, uid, chat_id):
     """Envia follow-up após pitch com CTA A/B."""
     try:
+        if is_ai_manually_paused(uid):
+            return False
         messages = RESPONSE_POOLS.get("followup_safado", [])
         if not messages:
             return False
@@ -2802,6 +2860,8 @@ async def send_inactivity_followup(bot, uid, chat_id):
 async def send_pending_pix_followup(bot, uid, chat_id, level=1):
     """Follow-up específico para quem gerou PIX e ainda não pagou."""
     try:
+        if is_ai_manually_paused(uid):
+            return False
         if user_has_paid(uid):
             return False
         key = f"pending_pix_followup:{uid}:{level}"
@@ -2834,7 +2894,7 @@ send_teaser_and_apex = send_teaser_and_apex   # usa nossa função custom v9
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def send_reengagement_message(bot, uid, level):
-    if is_engagement_paused(uid):
+    if is_ai_manually_paused(uid) or is_engagement_paused(uid):
         return False
     messages = REENGAGEMENT_MESSAGES["pt"].get(level, [])
     if not messages:
@@ -2855,7 +2915,7 @@ async def process_engagement_jobs(bot):
     users = get_all_active_users()
     random.shuffle(users)
     for uid in users:
-        if is_blacklisted(uid) or is_engagement_paused(uid):
+        if is_blacklisted(uid) or is_ai_manually_paused(uid) or is_engagement_paused(uid):
             continue
         if user_has_paid(uid) or is_followup5_active(uid) or is_followup5_silent(uid):
             continue
@@ -2892,6 +2952,8 @@ async def retarget_locked_users(bot):
 
         for uid in users:
             try:
+                if is_ai_manually_paused(uid):
+                    continue
                 if not is_user_locked(uid):
                     continue
                 hours_since_activity = get_hours_since_activity(uid)
@@ -3008,6 +3070,8 @@ async def recover_silent_users(bot):
         for uid in users:
             try:
                 if is_blacklisted(uid):
+                    continue
+                if is_ai_manually_paused(uid):
                     continue
                 msg_count = get_conversation_messages_count(uid)
                 if msg_count > 0:
@@ -3138,6 +3202,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blacklisted(uid):
         return
 
+    # Se o admin assumiu este lead, /start também não dispara conversa automática.
+    if is_ai_manually_paused(uid):
+        update_last_activity(uid)
+        save_message(uid, "user", "/start")
+        logger.info(f"🖐️ [MODO MANUAL] /start recebido e automação suprimida uid={uid}")
+        return
+
     update_last_activity(uid)
     track_funnel(uid, "start")
     track_source_event(uid, "start_realistic_flow")
@@ -3214,6 +3285,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_last_activity(uid)
         reset_ignored(uid)
 
+        # Botões antigos de conversa/teaser não furam o handoff manual.
+        # Ações transacionais (PIX/VIP) continuam permitidas.
+        if is_ai_manually_paused(uid) and query.data in {"quick_teaser", "quick_chat"}:
+            logger.info(f"🖐️ [MODO MANUAL] Callback conversacional bloqueado uid={uid} data={query.data}")
+            return
+
         if query.data == "quick_teaser":
             track_source_event(uid, "legacy_quick_teaser")
             await send_teaser_and_apex(context.bot, query.message.chat_id, uid)
@@ -3255,14 +3332,29 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_blacklisted(uid):
         return
 
-    # Guarda a inatividade ANTES de atualizar last_activity.
-    hours_since = get_hours_since_activity(uid)
-
     incoming_text = ""
     try:
         incoming_text = (update.message.text or update.message.caption or "") if update.message else ""
     except Exception:
         incoming_text = ""
+
+    # HANDOFF HUMANO: registra o que o lead falou, mas não chama Grok, não oferece
+    # VIP, não envia hard-wall, não mexe no funil e não agenda respostas automáticas.
+    if is_ai_manually_paused(uid):
+        update_last_activity(uid)
+        increment_conversation_messages(uid)
+        if incoming_text:
+            save_message(uid, "user", incoming_text)
+        elif update.message and getattr(update.message, "photo", None):
+            save_message(uid, "user", "[FOTO RECEBIDA DURANTE MODO MANUAL]")
+        else:
+            save_message(uid, "user", "[MENSAGEM RECEBIDA DURANTE MODO MANUAL]")
+        logger.info(f"🖐️ [MODO MANUAL] Mensagem recebida sem resposta automática uid={uid}")
+        return
+
+    # Guarda a inatividade ANTES de atualizar last_activity.
+    hours_since = get_hours_since_activity(uid)
+
     touch_followup5_from_user(uid, incoming_text, update.effective_user.first_name or "")
 
     update_last_activity(uid)
@@ -3346,6 +3438,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msgs_since = get_msgs_since_offer(uid)
                     if msgs_since <= 4:
                         grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                        if is_ai_manually_paused(uid):
+                            logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
+                            return
                         await update.message.reply_text(grok_response["response"])
                     else:
                         response_text = random.choice([
@@ -3358,6 +3453,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         grok_response = {"response": response_text, "offer_teaser": False}
                 else:
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                    if is_ai_manually_paused(uid):
+                        logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
+                        return
                     await update.message.reply_text(grok_response["response"])
                 # =================================================================
 
@@ -3471,6 +3569,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msgs_since = get_msgs_since_offer(uid)
             if msgs_since <= 4:
                 grok_response = await grok.reply(uid, text)
+                if is_ai_manually_paused(uid):
+                    logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
+                    return
                 await update.message.reply_text(grok_response["response"])
             else:
                 response_text = random.choice([
@@ -3483,6 +3584,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = {"response": response_text, "offer_teaser": False, "interest_level": "medium"}
         else:
             grok_response = await grok.reply(uid, text)
+            if is_ai_manually_paused(uid):
+                logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
+                return
             await update.message.reply_text(grok_response["response"])
 
         maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
@@ -3689,6 +3793,11 @@ def telegram_webhook():
 
 @app.route("/limpar-pix-cache", methods=["GET"])
 def limpar_pix_cache():
+    # Esta rota apaga estado de pagamento; nunca deve ficar pública.
+    admin_token = os.getenv("ADMIN_TOKEN")
+    auth = (request.headers.get("Authorization") or "").strip()
+    if not admin_token or auth != f"Bearer {admin_token}":
+        return {"error": "Unauthorized"}, 401
     keys = r.keys("sp:pix:*")
     for key in keys:
         r.delete(key)
@@ -3698,7 +3807,19 @@ def limpar_pix_cache():
 # 📊 ADMIN DASHBOARD ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "seu_token_super_secreto_aqui_123")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+if not ADMIN_TOKEN:
+    raise RuntimeError("❌ Configure ADMIN_TOKEN nas variáveis de ambiente")
+
+def admin_request_authorized():
+    auth = (request.headers.get("Authorization") or "").strip()
+    return auth == f"Bearer {ADMIN_TOKEN}"
+
+@app.route("/admin/auth/check", methods=["GET"])
+def admin_auth_check():
+    if not admin_request_authorized():
+        return {"ok": False, "error": "Unauthorized"}, 401
+    return {"ok": True}, 200
 
 @app.route("/admin/login", methods=["GET"])
 def admin_login_page():
@@ -3785,6 +3906,20 @@ def admin_stats():
             except:
                 pass
 
+        # Novos usuários por hora de hoje: útil para cruzar picos com campanhas.
+        growth_labels = [f"{h}h" for h in range(24)]
+        growth_users = [0] * 24
+        for uid in users:
+            try:
+                first_raw = r.get(first_contact_key(uid))
+                if not first_raw:
+                    continue
+                first_dt = datetime.fromisoformat(first_raw)
+                if first_dt.date() == now.date():
+                    growth_users[first_dt.hour] += 1
+            except Exception:
+                pass
+
         user_data = []
         for uid in users:
             msgs = get_conversation_messages_count(uid)
@@ -3859,6 +3994,7 @@ def admin_stats():
             "activity": {"labels": activity_labels, "messages": activity_messages},
             "interest": interest_levels,
             "hourly": {"labels": hourly_labels, "offers": hourly_offers},
+            "growthHourly": {"labels": growth_labels, "users": growth_users},
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
             "dropoff": dropoff,
@@ -3888,42 +4024,100 @@ def admin_acquisition():
 
 @app.route("/admin/conversations", methods=["GET"])
 def admin_conversations():
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    if not admin_request_authorized():
         return {"error": "Unauthorized"}, 401
-    token = auth_header.replace("Bearer ", "")
-    if token != ADMIN_TOKEN:
-        return {"error": "Invalid token"}, 401
 
     try:
-        filter_type = request.args.get('filter', 'all')
+        filter_type = (request.args.get("filter") or "all").strip().lower()
+        phase_filter = (request.args.get("phase") or "all").strip().lower()
+        query_uid = (request.args.get("q") or "").strip()
+
         users = get_all_active_users()
+        exact_search = False
+        if query_uid:
+            if not query_uid.isdigit():
+                return {"conversations": []}, 200
+            wanted_uid = int(query_uid)
+            users = [wanted_uid] if r.sismember(all_users_key(), str(wanted_uid)) else []
+            exact_search = True
+
         conversations = []
 
         for uid in users:
             hours = get_hours_since_activity(uid)
-            if not hours or hours > 24:
+            # Busca por UID atravessa o limite de 24h; listagem normal continua leve.
+            if not exact_search and (hours is None or hours > 24):
                 continue
-            if filter_type == 'hot' and get_conversation_messages_count(uid) < 10:
+
+            current_phase = get_current_phase(uid)
+            phase_name = get_phase_name(current_phase)
+            ai_paused = is_ai_manually_paused(uid)
+
+            if phase_filter != "all":
+                try:
+                    if int(phase_filter) != int(current_phase):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+
+            msg_count = get_conversation_messages_count(uid)
+            if filter_type == "hot" and msg_count <= 20:
                 continue
-            elif filter_type == 'cooldown' and not is_in_rejection_cooldown(uid):
+            elif filter_type == "cooldown" and not is_in_rejection_cooldown(uid):
                 continue
-            elif filter_type == 'converted' and not clicked_vip(uid):
+            elif filter_type == "converted" and not clicked_vip(uid):
+                continue
+            elif filter_type == "manual" and not ai_paused:
                 continue
 
             chatlog = r.lrange(chatlog_key(uid), -50, -1)
-            if hours < 1: last_activity = "< 1 min"
-            elif hours < 1/60: last_activity = f"{int(hours * 60)} min"
-            else: last_activity = f"{int(hours)}h"
+            if hours is None:
+                last_activity = "—"
+                sort_hours = 999999
+            elif hours < (1 / 60):
+                last_activity = "< 1 min"
+                sort_hours = hours
+            elif hours < 1:
+                last_activity = f"{max(1, int(hours * 60))} min"
+                sort_hours = hours
+            elif hours < 24:
+                last_activity = f"{int(hours)}h"
+                sort_hours = hours
+            else:
+                last_activity = f"{int(hours / 24)}d"
+                sort_hours = hours
 
-            if clicked_vip(uid): status, status_class = "💎 Comprou VIP", "vip"
-            elif is_in_rejection_cooldown(uid): status, status_class = "🚫 Cooldown", "cooldown"
-            elif get_conversation_messages_count(uid) > 20: status, status_class = "🔥 Quente", "hot"
-            else: status, status_class = "💬 Conversando", "normal"
+            if clicked_vip(uid):
+                status, status_class = "💎 Comprou VIP", "vip"
+            elif is_in_rejection_cooldown(uid):
+                status, status_class = "🚫 Cooldown", "cooldown"
+            elif msg_count > 20:
+                status, status_class = "🔥 Quente", "hot"
+            else:
+                status, status_class = "💬 Conversando", "normal"
 
-            conversations.append({"userId": uid, "messages": chatlog, "totalMessages": get_conversation_messages_count(uid), "lastActivity": last_activity, "status": status, "statusClass": status_class, "sawTeaser": saw_teaser(uid), "teaserCount": get_teaser_count(uid), "inCooldown": is_in_rejection_cooldown(uid), "clickedVip": clicked_vip(uid), "source": get_user_source(uid)})
+            conversations.append({
+                "userId": uid,
+                "messages": chatlog,
+                "totalMessages": msg_count,
+                "lastActivity": last_activity,
+                "status": status,
+                "statusClass": status_class,
+                "sawTeaser": saw_teaser(uid),
+                "teaserCount": get_teaser_count(uid),
+                "inCooldown": is_in_rejection_cooldown(uid),
+                "clickedVip": clicked_vip(uid),
+                "source": get_user_source(uid),
+                "currentPhase": current_phase,
+                "phaseName": phase_name,
+                "aiPaused": ai_paused,
+                "pauseInfo": get_ai_manual_pause_info(uid),
+                "_sortHours": sort_hours,
+            })
 
-        conversations.sort(key=lambda x: x['lastActivity'])
+        conversations.sort(key=lambda x: x.get("_sortHours", 999999))
+        for item in conversations:
+            item.pop("_sortHours", None)
         return {"conversations": conversations}, 200
 
     except Exception as e:
@@ -4015,22 +4209,100 @@ def admin_conversations_export():
 
 @app.route("/admin/user/<int:user_id>", methods=["GET"])
 def admin_user_detail(user_id):
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
     try:
         if not r.sismember(all_users_key(), str(user_id)):
             return {"error": "User not found"}, 404
         chatlog = r.lrange(chatlog_key(user_id), 0, -1)
         profile = get_user_profile(user_id)
         memory = get_memory(user_id)
-        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "leadProfile": get_lead_profile(user_id), "dailyLimit": get_user_daily_limit(user_id)}, "chatlog": chatlog, "memory": memory}, 200
+        return {"id": user_id, "profile": profile, "stats": {"messages": get_conversation_messages_count(user_id), "streak": get_streak(user_id), "teasers": get_teaser_count(user_id), "sawTeaser": saw_teaser(user_id), "clickedVip": clicked_vip(user_id), "inCooldown": is_in_rejection_cooldown(user_id), "cooldownRemaining": get_rejection_cooldown_remaining(user_id), "vipOffersToday": get_vip_offers_today(user_id), "bonusMessages": get_bonus_msgs(user_id), "todayCount": today_count(user_id), "ignored": get_ignored_count(user_id), "lastActivity": r.get(last_activity_key(user_id)), "firstContact": r.get(first_contact_key(user_id)), "source": get_user_source(user_id), "leadProfile": get_lead_profile(user_id), "dailyLimit": get_user_daily_limit(user_id), "aiPaused": is_ai_manually_paused(user_id), "pauseInfo": get_ai_manual_pause_info(user_id)}, "chatlog": chatlog, "memory": memory}, 200
     except Exception as e:
         logger.exception(f"Erro user detail: {e}")
         return {"error": str(e)}, 500
 
 
+@app.route("/admin/user/<int:user_id>/ai", methods=["POST"])
+def admin_user_ai_control(user_id):
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
+    if not r.sismember(all_users_key(), str(user_id)):
+        return {"error": "User not found"}, 404
+
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "").strip().lower()
+
+    if action == "pause":
+        if not pause_ai_for_user(user_id, source="admin_panel"):
+            return {"error": "Could not pause AI"}, 500
+        save_message(user_id, "system", "🖐️ MODO MANUAL ATIVADO PELO ADMIN")
+    elif action == "resume":
+        if not resume_ai_for_user(user_id):
+            return {"error": "Could not resume AI"}, 500
+        save_message(user_id, "system", "▶️ IA RETOMADA PELO ADMIN")
+    else:
+        return {"error": "action must be pause or resume"}, 400
+
+    return {
+        "success": True,
+        "userId": user_id,
+        "aiPaused": is_ai_manually_paused(user_id),
+        "pauseInfo": get_ai_manual_pause_info(user_id),
+    }, 200
+
+
+@app.route("/admin/user/<int:user_id>/message", methods=["POST"])
+def admin_send_user_message(user_id):
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
+    if not r.sismember(all_users_key(), str(user_id)):
+        return {"error": "User not found"}, 404
+
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message") or "").strip()
+    pause_ai = bool(data.get("pause_ai", True))
+
+    if not message:
+        return {"error": "Message required"}, 400
+    if len(message) > 4096:
+        return {"error": "Telegram text messages support at most 4096 characters"}, 400
+
+    was_paused = is_ai_manually_paused(user_id)
+    if pause_ai and not was_paused:
+        if not pause_ai_for_user(user_id, source="admin_message"):
+            return {"error": "Could not pause AI before sending"}, 500
+
+    async def _send_manual_message():
+        return await application.bot.send_message(chat_id=user_id, text=message)
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(_send_manual_message(), loop)
+        sent = future.result(timeout=15)
+        if pause_ai and not was_paused:
+            save_message(user_id, "system", "🖐️ MODO MANUAL ATIVADO AUTOMATICAMENTE PELO ENVIO DO ADMIN")
+        save_message(user_id, "admin", message)
+        logger.info(f"📨 [ADMIN] Mensagem manual enviada uid={user_id} message_id={getattr(sent, 'message_id', None)}")
+        return {
+            "success": True,
+            "userId": user_id,
+            "messageId": getattr(sent, "message_id", None),
+            "aiPaused": is_ai_manually_paused(user_id),
+        }, 200
+    except Exception as e:
+        # Se a rota pausou automaticamente e o envio falhou, volta ao estado anterior.
+        if pause_ai and not was_paused:
+            resume_ai_for_user(user_id)
+        logger.exception(f"Erro enviando mensagem manual para {user_id}: {e}")
+        return {"error": str(e)}, 500
+
+
 @app.route("/admin/broadcast", methods=["POST"])
 def admin_broadcast():
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
     try:
-        data = request.json
+        data = request.json or {}
         message = data.get("message")
         target_group = data.get("target", "all")
         if not message:
