@@ -1298,8 +1298,8 @@ def get_cta_label(uid, context="pix"):
     """A/B de CTA: PIX direto vs benefício. Não muda callback_data, só o texto do botão."""
     group = get_ab_group(uid)
     if group == "B":
-        return "QUERO ACESSO (R$ 9,00) 🔓"
-    return "🔥 GERAR PIX AGORA 🔥"
+        return "QUERO VER TUDO AGORA 😈"
+    return "QUERO VER TUDO AGORA 😈"
 
 
 def get_acquisition_breakdown(users=None):
