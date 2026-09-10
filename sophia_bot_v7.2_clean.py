@@ -4259,6 +4259,75 @@ async def audioid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def videoid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: responda a um vídeo com /videoid para obter o file_id do Telegram."""
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    reply = update.message.reply_to_message if update.message else None
+
+    if not reply:
+        await update.message.reply_text(
+            "Responda ao vídeo com /videoid para eu mostrar o file_id."
+        )
+        return
+
+    if reply.video:
+        await update.message.reply_text(
+            f"TIPO: video\nFILE_ID:\n{reply.video.file_id}"
+        )
+        return
+
+    if reply.video_note:
+        await update.message.reply_text(
+            f"TIPO: video_note\nFILE_ID:\n{reply.video_note.file_id}"
+        )
+        return
+
+    if reply.document and reply.document.mime_type:
+        if reply.document.mime_type.startswith("video/"):
+            await update.message.reply_text(
+                f"TIPO: video_document\nFILE_ID:\n{reply.document.file_id}"
+            )
+            return
+
+    await update.message.reply_text(
+        "A mensagem respondida não contém um vídeo."
+    )
+
+
+async def imagemid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: responda a uma imagem com /imagemid para obter o file_id do Telegram."""
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    reply = update.message.reply_to_message if update.message else None
+
+    if not reply:
+        await update.message.reply_text(
+            "Responda à imagem com /imagemid para eu mostrar o file_id."
+        )
+        return
+
+    if reply.photo:
+        photo = reply.photo[-1]
+        await update.message.reply_text(
+            f"TIPO: photo\nFILE_ID:\n{photo.file_id}"
+        )
+        return
+
+    if reply.document and reply.document.mime_type:
+        if reply.document.mime_type.startswith("image/"):
+            await update.message.reply_text(
+                f"TIPO: image_document\nFILE_ID:\n{reply.document.file_id}"
+            )
+            return
+
+    await update.message.reply_text(
+        "A mensagem respondida não contém uma imagem."
+    )
+
+
 def setup_application():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     admin_funcs = {
@@ -4282,6 +4351,8 @@ def setup_application():
     application.add_handler(CommandHandler("givebonus", lambda u, c: admin_commands.givebonus_cmd(u, c, ADMIN_IDS, admin_funcs)))
     application.add_handler(CommandHandler("help", lambda u, c: admin_commands.help_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CommandHandler("audioid", audioid_cmd))
+    application.add_handler(CommandHandler("videoid", videoid_cmd))
+    application.add_handler(CommandHandler("imagemid", imagemid_cmd))
     application.add_handler(CommandHandler("broadcast", lambda u, c: admin_commands.broadcast_cmd(u, c, ADMIN_IDS)))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_callback_handler(u, c, ADMIN_IDS, admin_funcs), pattern="^bc_(?!confirm)"))
     application.add_handler(CallbackQueryHandler(lambda u, c: admin_commands.broadcast_confirm_handler(u, c, ADMIN_IDS, admin_funcs, CANAL_VIP_LINK), pattern="^bc_confirm$"))
