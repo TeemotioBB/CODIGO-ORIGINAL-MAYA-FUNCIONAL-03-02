@@ -1151,10 +1151,24 @@ function buildCharts(d) {
   state.charts.funnel = new Chart($('funnelChart'), {
     type: 'bar',
     data: {
-      labels: ['Iniciaram', '1ª msg', 'Teaser', 'VIP'],
+      labels: ['Iniciaram', '1ª msg', 'Teaser', 'Clique VIP', 'PIX', 'Compra'],
       datasets: [{
-        data: [d.funnel.started, d.funnel.firstMessage, d.funnel.sawTeaser, d.funnel.clickedVip],
-        backgroundColor: [CHART_COLORS.muted, CHART_COLORS.info, CHART_COLORS.warn, CHART_COLORS.accent],
+        data: [
+          d.funnel.started || 0,
+          d.funnel.firstMessage || 0,
+          d.funnel.sawTeaser || 0,
+          d.funnel.clickedVip || 0,
+          d.funnel.pixCreated || 0,
+          d.funnel.paid || 0
+        ],
+        backgroundColor: [
+          CHART_COLORS.muted,
+          CHART_COLORS.info,
+          CHART_COLORS.warn,
+          CHART_COLORS.accent,
+          CHART_COLORS.info,
+          CHART_COLORS.success
+        ],
         borderRadius: 4,
         borderSkipped: false,
       }],
@@ -1246,7 +1260,15 @@ function buildCharts(d) {
 function refreshCharts(d) {
   // update data in place — way faster than destroy + recreate
   const f = state.charts.funnel;
-  f.data.datasets[0].data = [d.funnel.started, d.funnel.firstMessage, d.funnel.sawTeaser, d.funnel.clickedVip];
+  f.data.labels = ['Iniciaram', '1ª msg', 'Teaser', 'Clique VIP', 'PIX', 'Compra'];
+  f.data.datasets[0].data = [
+    d.funnel.started || 0,
+    d.funnel.firstMessage || 0,
+    d.funnel.sawTeaser || 0,
+    d.funnel.clickedVip || 0,
+    d.funnel.pixCreated || 0,
+    d.funnel.paid || 0
+  ];
   f.update('none');
 
   const a = state.charts.activity;
@@ -1413,6 +1435,12 @@ function updateCooldown(d) {
 }
 
 // ─── dropoff ─────────────────────────────────────────────
+// Backend envia:
+// fromUsers = quantos chegaram ao estágio anterior
+// toUsers   = quantos avançaram para o próximo estágio
+// users     = quantos foram perdidos nessa transição
+// percent   = conversão entre as duas etapas
+// dropRate  = abandono entre as duas etapas
 function updateDropoff(d) {
   const wrap = $('dropoffList');
   if (!d.dropoff || d.dropoff.length === 0) {
@@ -1420,35 +1448,59 @@ function updateDropoff(d) {
     return;
   }
 
-  const cards = d.dropoff.map(s => `
-    <div class="row-card">
-      <div class="row-card-head">
-        <span style="font-weight:600;">${s.name}</span>
-        <span class="badge ${s.dropClass}">${s.dropRate}% drop</span>
-      </div>
-      <div class="row-card-meta">
-        <span>usuários <b>${s.users}</b></span>
-        <span><b>${s.percent}%</b> do total</span>
-        <span>${s.status}</span>
-      </div>
-    </div>
-  `).join('');
+  const cards = d.dropoff.map(s => {
+    const fromUsers = Number(s.fromUsers ?? 0);
+    const toUsers = Number(s.toUsers ?? Math.max(0, fromUsers - Number(s.users || 0)));
+    const lostUsers = Number(s.users ?? Math.max(0, fromUsers - toUsers));
+    const conversion = Number(s.percent || 0);
+    const dropRate = Number(s.dropRate || 0);
+
+    return `
+      <div class="row-card">
+        <div class="row-card-head">
+          <span style="font-weight:600;">${s.name}</span>
+          <span class="badge ${s.dropClass}">${dropRate.toFixed(1)}% drop</span>
+        </div>
+        <div class="row-card-meta">
+          <span>Entraram <b>${fromUsers}</b></span>
+          <span>Avançaram <b>${toUsers}</b></span>
+          <span>Perdidos <b>${lostUsers}</b></span>
+          <span>Conversão <b>${conversion.toFixed(1)}%</b></span>
+          <span>${s.status}</span>
+        </div>
+      </div>`;
+  }).join('');
 
   const table = `
     <table>
       <thead><tr>
-        <th>Estágio</th><th>Usuários</th><th>% total</th><th>Drop</th><th>Status</th>
+        <th>Transição</th>
+        <th>Entraram</th>
+        <th>Avançaram</th>
+        <th>Perdidos</th>
+        <th>Conversão</th>
+        <th>Drop</th>
+        <th>Status</th>
       </tr></thead>
       <tbody>
-        ${d.dropoff.map(s => `
-          <tr>
-            <td>${s.name}</td>
-            <td><b>${s.users}</b></td>
-            <td><b>${s.percent}%</b></td>
-            <td><span class="badge ${s.dropClass}">${s.dropRate}%</span></td>
-            <td>${s.status}</td>
-          </tr>
-        `).join('')}
+        ${d.dropoff.map(s => {
+          const fromUsers = Number(s.fromUsers ?? 0);
+          const toUsers = Number(s.toUsers ?? Math.max(0, fromUsers - Number(s.users || 0)));
+          const lostUsers = Number(s.users ?? Math.max(0, fromUsers - toUsers));
+          const conversion = Number(s.percent || 0);
+          const dropRate = Number(s.dropRate || 0);
+
+          return `
+            <tr>
+              <td>${s.name}</td>
+              <td class="mono"><b>${fromUsers}</b></td>
+              <td class="mono"><b>${toUsers}</b></td>
+              <td class="mono"><b>${lostUsers}</b></td>
+              <td class="mono"><b>${conversion.toFixed(1)}%</b></td>
+              <td><span class="badge ${s.dropClass}">${dropRate.toFixed(1)}%</span></td>
+              <td>${s.status}</td>
+            </tr>`;
+        }).join('')}
       </tbody>
     </table>
   `;
@@ -1787,7 +1839,7 @@ function generateMockData() {
       sawTeaser: 543, clickedVip: 87, totalMessages: 18934, avgStreak: 3.2,
       inCooldown: 124, rejectedVip: 89, ignored: 35,
     },
-    funnel: { started: 1247, firstMessage: 1089, sawTeaser: 543, clickedVip: 87 },
+    funnel: { started: 1247, firstMessage: 1089, sawTeaser: 543, clickedVip: 187, pixCreated: 92, paid: 41 },
     activity: {
       labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
       messages: [2340, 2890, 3120, 2750, 3450, 2980, 2100],
@@ -1822,9 +1874,11 @@ function generateMockData() {
       lastContact: `${Math.floor(Math.random() * 12)}h atrás`,
     })),
     dropoff: [
-      { name: 'Start → 1ª msg',    users: 158, percent: 87.3, dropRate: '12.7', dropClass: 'warm', status: 'Normal' },
-      { name: '1ª msg → Teaser',   users: 546, percent: 49.9, dropRate: '50.1', dropClass: 'hot',  status: 'Alto' },
-      { name: 'Teaser → VIP',      users: 456, percent: 16.0, dropRate: '84.0', dropClass: 'hot',  status: 'Crítico' },
+      { name: 'Start → 1ª Msg',          fromUsers: 1247, toUsers: 1089, users: 158, percent: 87.3, dropRate: '12.7', dropClass: 'cold', status: '✅ Normal' },
+      { name: '1ª Msg → Teaser',         fromUsers: 1089, toUsers: 543,  users: 546, percent: 49.9, dropRate: '50.1', dropClass: 'warm', status: '⚠️ Alto' },
+      { name: 'Teaser → Clique VIP',     fromUsers: 543,  toUsers: 187,  users: 356, percent: 34.4, dropRate: '65.6', dropClass: 'warm', status: '⚠️ Alto' },
+      { name: 'Clique VIP → PIX gerado', fromUsers: 187,  toUsers: 92,   users: 95,  percent: 49.2, dropRate: '50.8', dropClass: 'warm', status: '⚠️ Alto' },
+      { name: 'PIX gerado → Compra',     fromUsers: 92,   toUsers: 41,   users: 51,  percent: 44.6, dropRate: '55.4', dropClass: 'warm', status: '⚠️ Alto' },
     ],
     acquisition: [
       { source: 'instagram', users: 420, sawTeaser: 260, pixCreated: 72, paid: 34, conversionRate: 8.1, estimatedCost: 252.00, estimatedRevenue: 306.00, estimatedProfit: 54.00 },
