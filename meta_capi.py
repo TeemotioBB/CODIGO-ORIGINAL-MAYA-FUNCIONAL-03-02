@@ -15,13 +15,18 @@ logger = logging.getLogger(__name__)
 # ==================== CONFIGURAÇÕES ====================
 META_PIXEL_ID     = os.getenv("META_PIXEL_ID", "988265177099445")
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")  # ⚠️ defina no ambiente, nunca no código
-REDIS_URL         = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
+REDIS_URL         = os.getenv("REDIS_URL", "").strip()
 TEST_EVENT_CODE   = os.getenv("META_TEST_EVENT_CODE")  # deixe vazio em produção
+META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v26.0").strip() or "v26.0"
+if not META_GRAPH_VERSION.startswith("v"):
+    META_GRAPH_VERSION = f"v{META_GRAPH_VERSION}"
 
 redis_client = None
 
 async def get_redis():
     global redis_client
+    if not REDIS_URL:
+        raise RuntimeError("REDIS_URL não definido")
     if redis_client is None:
         redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
     return redis_client
@@ -40,11 +45,23 @@ def normalize_timestamp(ts) -> int:
     return ts
 
 def extract_country_from_language(language_code: str) -> str:
-    """Ex: 'pt-br' → 'br', 'en-us' → 'us'"""
+    """Só infere país quando o locale realmente o contém: pt-br -> br, en-us -> us."""
     if not language_code:
         return ""
-    parts = language_code.strip().lower().split("-")
-    return parts[-1] if len(parts) > 1 else parts[0]
+    parts = language_code.strip().lower().replace("_", "-").split("-")
+    if len(parts) > 1 and len(parts[-1]) == 2 and parts[-1].isalpha():
+        return parts[-1]
+    return ""
+
+
+def clean_unhashed(value) -> str:
+    """FBC, FBP, IP e User-Agent devem ser enviados sem SHA-256."""
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if not value or value.lower() in {"null", "none", "undefined"}:
+        return ""
+    return value
 
 # ==================== ENVIO PARA META ====================
 async def send_to_meta(event_name: str, apex_event: dict):
@@ -91,6 +108,21 @@ async def send_to_meta(event_name: str, apex_event: dict):
         if country:
             user_data["country"] = [hash_value(country)]
 
+        # Identificadores/headers de matching Meta: NÃO aplicar hash.
+        fbc = clean_unhashed(customer.get("fbc"))
+        fbp = clean_unhashed(customer.get("fbp"))
+        client_ip = clean_unhashed(customer.get("client_ip_address"))
+        client_ua = clean_unhashed(customer.get("client_user_agent"))
+
+        if fbc:
+            user_data["fbc"] = fbc
+        if fbp:
+            user_data["fbp"] = fbp
+        if client_ip:
+            user_data["client_ip_address"] = client_ip
+        if client_ua:
+            user_data["client_user_agent"] = client_ua
+
         # ── custom_data ───────────────────────────────────────────────────────
         custom_data = {
             "currency":     transaction.get("currency", "BRL"),
@@ -106,12 +138,19 @@ async def send_to_meta(event_name: str, apex_event: dict):
         # ── payload ───────────────────────────────────────────────────────────
         ts = normalize_timestamp(apex_event.get("timestamp"))
 
+        transaction_id = (
+            transaction.get("internal_transaction_id")
+            or transaction.get("external_transaction_id")
+            or f"{customer.get('chat_id')}_{ts}"
+        )
+
         payload = {
             "data": [{
                 "event_name":    event_name,
                 "event_time":    ts,
+                # Telegram é um app de mensagens; 'chat' é o action_source apropriado.
                 "action_source": "chat",
-                "event_id":      f"{event_name}_{customer.get('chat_id')}_{ts}",
+                "event_id":      f"{event_name}_{transaction_id}",
                 "user_data":     user_data,
                 "custom_data":   custom_data,
             }],
@@ -123,7 +162,7 @@ async def send_to_meta(event_name: str, apex_event: dict):
 
         # ── envio ─────────────────────────────────────────────────────────────
         async with aiohttp.ClientSession() as session:
-            url = f"https://graph.facebook.com/v21.0/{META_PIXEL_ID}/events"
+            url = f"https://graph.facebook.com/{META_GRAPH_VERSION}/{META_PIXEL_ID}/events"
             async with session.post(url, json=payload) as resp:
                 result = await resp.json()
 
