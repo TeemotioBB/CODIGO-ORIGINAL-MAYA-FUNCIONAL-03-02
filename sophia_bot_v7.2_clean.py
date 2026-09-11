@@ -1727,7 +1727,7 @@ def _tracking_cors_headers():
         allow_origin = ""
 
     headers = {
-        "Access-Control-Allow-Methods": "POST, PATCH, OPTIONS",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "86400",
         "Cache-Control": "no-store",
@@ -1789,13 +1789,7 @@ def get_meta_tracking(uid):
 
 
 def consume_meta_tracking_token(uid, start_param):
-    """
-    Vincula um token trk_* ao Telegram UID.
-
-    O token não é apagado imediatamente: ele fica por alguns minutos marcado com
-    linked_uid para que a landing consiga complementar _fbp em background mesmo
-    se o usuário já tiver aberto o Telegram. Outro UID não pode reutilizar o token.
-    """
+    """Vincula um token trk_* ao Telegram UID e invalida o token temporário."""
     token = _tracking_clean(start_param, 64)
     if not token or not re.fullmatch(r"trk_[A-Za-z0-9_-]{8,48}", token):
         return None
@@ -1808,14 +1802,6 @@ def consume_meta_tracking_token(uid, start_param):
             return None
 
         data = json.loads(raw)
-
-        linked_uid = _tracking_clean(data.get("linked_uid"), 32)
-        if linked_uid and linked_uid != str(uid):
-            logger.warning(
-                f"[META TRACKING] tentativa de reutilizar token por outro uid={uid}"
-            )
-            return None
-
         mapping = {
             "fbclid": _tracking_clean(data.get("fbclid"), 500),
             "fbc": _tracking_valid_meta_cookie(data.get("fbc")),
@@ -1832,15 +1818,10 @@ def consume_meta_tracking_token(uid, start_param):
             "linked_at": datetime.now().isoformat(),
             "start_token": token,
         }
-
+        # Redis HASH facilita inspeção/admin; strings vazias são permitidas mas nunca enviadas ao Meta.
         r.hset(meta_tracking_user_key(uid), mapping=mapping)
         r.expire(meta_tracking_user_key(uid), timedelta(days=META_TRACKING_TTL_DAYS))
-
-        # Mantém o token por 10 minutos para aceitar o PATCH tardio do _fbp.
-        # linked_uid impede que outro Telegram ID reutilize o mesmo token.
-        data["linked_uid"] = str(uid)
-        data["linked_at"] = mapping["linked_at"]
-        r.setex(key, 600, json.dumps(data, ensure_ascii=False))
+        r.delete(key)  # token de uso único; evita que outro Telegram ID reutilize o mesmo link.
 
         logger.info(
             f"[META TRACKING] token vinculado uid={uid} | "
@@ -1855,6 +1836,7 @@ def consume_meta_tracking_token(uid, start_param):
     except Exception as e:
         logger.error(f"[META TRACKING] Erro consumindo token uid={uid}: {e}")
         return None
+
 
 def track_source_event(uid, event, amount=None):
     try:
@@ -5215,12 +5197,12 @@ def health():
     return {"status": "ok", "version": "8.3-apex"}, 200
 
 
-@app.route("/tracking/telegram", methods=["POST", "PATCH", "OPTIONS"])
+@app.route("/tracking/telegram", methods=["POST", "OPTIONS"])
 def tracking_telegram():
     """
-    POST: cria imediatamente um token curto para o Telegram, sem esperar _fbp.
-    PATCH: complementa fbp/fbc no token e, se ele já foi vinculado ao Telegram,
-           atualiza também o HASH meta:tracking:<uid>.
+    Recebe os identificadores capturados na landing e devolve apenas um token curto.
+    O token cabe com folga no parâmetro /start do Telegram e é associado ao UID
+    somente quando o usuário realmente abre o bot.
     """
     if request.method == "OPTIONS":
         response = app.make_response(("", 204))
@@ -5228,6 +5210,7 @@ def tracking_telegram():
             response.headers[key] = value
         return response
 
+    # Se a origem estiver restrita por env e não for permitida, rejeita o POST.
     origin = request.headers.get("Origin", "")
     if "*" not in TRACKING_ALLOWED_ORIGINS and origin not in TRACKING_ALLOWED_ORIGINS:
         return _tracking_json({"error": "origin_not_allowed"}, 403)
@@ -5237,85 +5220,21 @@ def tracking_telegram():
         if not isinstance(payload, dict):
             return _tracking_json({"error": "invalid_json"}, 400)
 
-        # ── PATCH: complementa identificadores que apareceram depois ──────────
-        if request.method == "PATCH":
-            token = _tracking_clean(payload.get("start_token"), 64)
-            if not token or not re.fullmatch(r"trk_[A-Za-z0-9_-]{8,48}", token):
-                return _tracking_json({"error": "invalid_start_token"}, 400)
-
-            key = meta_tracking_token_key(token)
-            raw = r.get(key)
-            if not raw:
-                return _tracking_json({"error": "token_not_found"}, 404)
-
-            data = json.loads(raw)
-            changed = {}
-
-            fbp = _tracking_valid_meta_cookie(payload.get("fbp"))
-            fbc = _tracking_valid_meta_cookie(payload.get("fbc"))
-
-            if fbp and fbp != _tracking_valid_meta_cookie(data.get("fbp")):
-                data["fbp"] = fbp
-                changed["fbp"] = fbp
-
-            if fbc and fbc != _tracking_valid_meta_cookie(data.get("fbc")):
-                data["fbc"] = fbc
-                changed["fbc"] = fbc
-
-            # Preserva o TTL atual do token.
-            ttl = r.ttl(key)
-            if ttl is None or ttl <= 0:
-                ttl = 600 if data.get("linked_uid") else TRACKING_TOKEN_TTL_SECONDS
-            r.setex(key, int(ttl), json.dumps(data, ensure_ascii=False))
-
-            linked_uid = _tracking_clean(data.get("linked_uid"), 32)
-            if linked_uid and linked_uid.isdigit() and changed:
-                uid = int(linked_uid)
-                user_updates = {}
-                if "fbp" in changed:
-                    user_updates["fbp"] = changed["fbp"]
-                if "fbc" in changed:
-                    user_updates["fbc"] = changed["fbc"]
-                if user_updates:
-                    r.hset(meta_tracking_user_key(uid), mapping=user_updates)
-                    r.expire(
-                        meta_tracking_user_key(uid),
-                        timedelta(days=META_TRACKING_TTL_DAYS),
-                    )
-
-            logger.info(
-                f"[META TRACKING] token atualizado | "
-                f"linked={bool(linked_uid)} "
-                f"fbc={bool(_tracking_valid_meta_cookie(data.get('fbc')))} "
-                f"fbp={bool(_tracking_valid_meta_cookie(data.get('fbp')))}"
-            )
-            return _tracking_json(
-                {
-                    "updated": bool(changed),
-                    "linked": bool(linked_uid),
-                    "has_fbc": bool(_tracking_valid_meta_cookie(data.get("fbc"))),
-                    "has_fbp": bool(_tracking_valid_meta_cookie(data.get("fbp"))),
-                },
-                200,
-            )
-
-        # ── POST: cria token imediatamente ────────────────────────────────────
         fbclid = _tracking_clean(payload.get("fbclid"), 500)
         fbc = _tracking_valid_meta_cookie(payload.get("fbc"))
         fbp = _tracking_valid_meta_cookie(payload.get("fbp"))
 
-        # Se veio de anúncio, o fbclid já permite criar fbc sem esperar o Pixel.
+        # Fallback oficial: fbc pode ser construído quando existe fbclid.
         if not fbc and fbclid:
             timestamp_ms = int(time.time() * 1000)
             fbc = f"fb.1.{timestamp_ms}.{fbclid}"[:500]
 
-        # IP/UA vêm do próprio request; a landing não precisa consultar IP externo.
+        # IP/UA observados no request são preferidos; payload é fallback.
         client_ip = _request_client_ip() or _tracking_valid_ip(payload.get("ip"))
-        client_ua = (
-            _tracking_clean(request.headers.get("User-Agent"), 1024)
-            or _tracking_clean(payload.get("user_agent"), 1024)
-        )
+        client_ua = _tracking_clean(request.headers.get("User-Agent"), 1024) or _tracking_clean(payload.get("user_agent"), 1024)
 
+        # Localização aproximada derivada do IP, somente no backend.
+        # A landing não precisa mandar cidade/estado.
         geo = _lookup_ip_geo(client_ip)
 
         tracking_data = {
@@ -5334,6 +5253,7 @@ def tracking_telegram():
             "created_at": datetime.now().isoformat(),
         }
 
+        # Token curto e compatível com Telegram: letras/números/_/- e << 64 chars.
         start_token = None
         for _ in range(5):
             candidate = f"trk_{secrets.token_urlsafe(12)}"
@@ -5364,6 +5284,7 @@ def tracking_telegram():
     except Exception as e:
         logger.error(f"[META TRACKING] Erro /tracking/telegram: {e}")
         return _tracking_json({"error": "internal_error"}, 500)
+
 
 @app.route("/set-webhook", methods=["GET"])
 def set_webhook_route():
