@@ -4578,6 +4578,21 @@ syncpay_integration.init(
         "clear_hard_wall": clear_sales_hard_wall,
         "send_vip_intro_audio": send_vip_intro_audio_once,
         "get_meta_tracking": get_meta_tracking,
+
+        # SyncPay recebe referências do processo principal em vez de reimportar
+        # sophia_bot_v7.2_clean.py a cada teaser/PIX.
+        "FOTOS_TEASER": FOTOS_TEASER,
+        "can_offer_vip": can_offer_vip,
+        "get_ab_group": get_ab_group,
+        "set_saw_teaser": set_saw_teaser,
+        "track_funnel": track_funnel,
+        "increment_vip_offers": increment_vip_offers,
+        "reset_msgs_since_offer": reset_msgs_since_offer,
+        "TEASER_INTRO_MESSAGES": TEASER_INTRO_MESSAGES,
+        "get_urgency_message": get_urgency_message,
+        "get_cta_label": get_cta_label,
+        "mark_vip_just_offered": mark_vip_just_offered,
+        "get_teaser_count": get_teaser_count,
     }
 )
 

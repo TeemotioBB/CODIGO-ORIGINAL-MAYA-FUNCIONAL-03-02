@@ -9,7 +9,6 @@ import json
 import asyncio
 import logging
 import random
-import importlib.util
 import requests
 import time
 
@@ -46,15 +45,11 @@ _callbacks  = {}
 _token_cache = {"token": None, "expires_at": None}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔧  HELPER — carrega o módulo principal pelo caminho do arquivo
+# 🔧  INTEGRAÇÃO COM O BOT PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def _load_bot_main():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sophia_bot_v7.2_clean.py")
-    spec = importlib.util.spec_from_file_location("bot_main", path)
-    mod  = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+# IMPORTANTE: não reimportamos sophia_bot_v7.2_clean.py aqui.
+# Tudo que o SyncPay precisa do bot principal chega por callbacks no init().
+# Isso evita executar novamente o startup, Redis, handlers e schedulers a cada PIX.
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑  REDIS KEYS
@@ -321,35 +316,61 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
 async def send_teaser_com_pix(bot, chat_id: int, uid: int):
     try:
-        bot_main = _load_bot_main()
-    except Exception as e:
-        logger.error(f"[SyncPay] Não consegui carregar o bot principal: {e}")
-        return False
+        get_router = _callbacks.get("get_router")
+        ia_config = get_router().get_ia_config(uid=uid) if get_router else {}
 
-    try:
-        get_router   = _callbacks.get("get_router")
-        ia_config    = get_router().get_ia_config(uid=uid) if get_router else {}
-        fotos_teaser = ia_config.get("fotos_teaser", bot_main.FOTOS_TEASER)
-        preco        = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,00"))
+        fotos_teaser_default = _callbacks.get("FOTOS_TEASER", [])
+        fotos_teaser = ia_config.get("fotos_teaser", fotos_teaser_default)
+        preco = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,00"))
 
-        can_offer, reason = bot_main.can_offer_vip(uid)
+        can_offer_vip = _callbacks.get("can_offer_vip")
+        get_ab_group = _callbacks.get("get_ab_group")
+        set_saw_teaser = _callbacks.get("set_saw_teaser")
+        track_funnel = _callbacks.get("track_funnel")
+        increment_vip_offers = _callbacks.get("increment_vip_offers")
+        reset_msgs_since_offer = _callbacks.get("reset_msgs_since_offer")
+        teaser_intro_messages = _callbacks.get("TEASER_INTRO_MESSAGES", {})
+        get_urgency_message = _callbacks.get("get_urgency_message")
+        get_cta_label = _callbacks.get("get_cta_label")
+        mark_vip_just_offered = _callbacks.get("mark_vip_just_offered")
+        get_teaser_count = _callbacks.get("get_teaser_count")
+
+        required = {
+            "can_offer_vip": can_offer_vip,
+            "get_ab_group": get_ab_group,
+            "set_saw_teaser": set_saw_teaser,
+            "track_funnel": track_funnel,
+            "increment_vip_offers": increment_vip_offers,
+            "reset_msgs_since_offer": reset_msgs_since_offer,
+            "get_urgency_message": get_urgency_message,
+            "mark_vip_just_offered": mark_vip_just_offered,
+            "get_teaser_count": get_teaser_count,
+        }
+        missing = [name for name, fn in required.items() if not fn]
+        if missing:
+            logger.error(f"[SyncPay] Callbacks ausentes: {', '.join(missing)}")
+            return False
+
+        can_offer, reason = can_offer_vip(uid)
         if not can_offer:
             logger.info(f"[SyncPay] 🚫 Teaser bloqueado para {uid}: {reason}")
             return False
 
-        ab_group = bot_main.get_ab_group(uid)
+        ab_group = get_ab_group(uid)
 
-        bot_main.set_saw_teaser(uid)
-        bot_main.track_funnel(uid, "saw_teaser")
-        bot_main.increment_vip_offers(uid)
-        bot_main.reset_msgs_since_offer(uid)
+        set_saw_teaser(uid)
+        track_funnel(uid, "saw_teaser")
+        increment_vip_offers(uid)
+        reset_msgs_since_offer(uid)
 
-        intro = random.choice(bot_main.TEASER_INTRO_MESSAGES[ab_group])
-        await bot.send_message(chat_id=chat_id, text=intro)
-        await asyncio.sleep(2)
+        intro_pool = teaser_intro_messages.get(ab_group) or teaser_intro_messages.get("A") or []
+        if intro_pool:
+            intro = random.choice(intro_pool)
+            await bot.send_message(chat_id=chat_id, text=intro)
+            await asyncio.sleep(2)
 
         num_photos = random.randint(3, 4)
-        selected   = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser)))
+        selected = random.sample(fotos_teaser, min(num_photos, len(fotos_teaser))) if fotos_teaser else []
 
         for i, photo_url in enumerate(selected):
             try:
@@ -363,7 +384,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 
         await asyncio.sleep(3)
 
-        # Áudio de apresentação do VIP: uma única vez e antes do botão/PIX.
         send_vip_intro_audio = _callbacks.get("send_vip_intro_audio")
         if send_vip_intro_audio:
             try:
@@ -372,7 +392,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
             except Exception as audio_err:
                 logger.error(f"[SyncPay] Erro no áudio de apresentação uid={uid}: {audio_err}")
 
-        urgencia = bot_main.get_urgency_message(uid)
+        urgencia = get_urgency_message(uid)
         pitch = (
             f"E aí amor, curtiu o gostinho? 😈\n\n"
             f"Isso que você viu agora é só uma **prévia**...\n\n"
@@ -386,8 +406,9 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
             f"Quer garantir seu acesso agora? Clica no botão abaixo 👇"
         )
 
+        cta_label = get_cta_label(uid) if get_cta_label else "🔥 GERAR PIX AGORA 🔥"
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(bot_main.get_cta_label(uid) if hasattr(bot_main, "get_cta_label") else "🔥 GERAR PIX AGORA 🔥", callback_data="pagar_vip")
+            InlineKeyboardButton(cta_label, callback_data="pagar_vip")
         ]])
 
         await bot.send_message(
@@ -397,17 +418,18 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
             parse_mode="Markdown"
         )
 
-        bot_main.mark_vip_just_offered(uid)
+        mark_vip_just_offered(uid)
         activate_hard_wall = _callbacks.get("activate_hard_wall")
         if activate_hard_wall:
             activate_hard_wall(uid)
         activate_followup5 = _callbacks.get("activate_followup5")
         if activate_followup5:
             activate_followup5(uid, reset_stage=False)
+
         logger.info(f"[SyncPay] 🎯 Teaser+pitch PIX enviado: uid={uid}")
         save_message = _callbacks.get("save_message")
         if save_message:
-            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado (#{bot_main.get_teaser_count(uid)})")
+            save_message(uid, "system", f"💳 TEASER+PITCH PIX enviado (#{get_teaser_count(uid)})")
 
         return True
 
@@ -500,11 +522,14 @@ async def _pagar_vip_callback(update: Update, context):
         # ─────────────────────────────────────────────────────────────────────
 
         try:
-            bot_main = _load_bot_main()
-            bot_main.set_clicked_vip(uid)
-            bot_main.track_funnel(uid, "clicked_vip")
-        except Exception:
-            pass
+            set_clicked_vip = _callbacks.get("set_clicked_vip")
+            track_funnel = _callbacks.get("track_funnel")
+            if set_clicked_vip:
+                set_clicked_vip(uid)
+            if track_funnel:
+                track_funnel(uid, "clicked_vip")
+        except Exception as funnel_err:
+            logger.error(f"[Tracking] Erro clicked_vip uid={uid}: {funnel_err}")
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
