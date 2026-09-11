@@ -1456,6 +1456,23 @@ def user_has_pending_pix(uid):
         return False
 
 
+def user_has_created_pix(uid):
+    """Retorna True se o usuário já gerou PIX alguma vez.
+
+    A chave persistente sp:pix_created:<uid> é gravada pelo SyncPay quando um PIX
+    é criado com sucesso. Para compatibilidade com dados anteriores, PIX ainda
+    pendente ou pagamento confirmado também contam como PIX gerado.
+    """
+    try:
+        return bool(
+            r.exists(f"sp:pix_created:{uid}")
+            or r.exists(f"sp:pix:{uid}")
+            or r.exists(f"sp:paid:{uid}")
+        )
+    except Exception:
+        return False
+
+
 def get_user_daily_limit(uid):
     """Limite dinâmico: Ads e PIX pendente recebem limite menor, orgânico mantém LIMITE_DIARIO."""
     try:
@@ -1507,7 +1524,7 @@ def get_acquisition_breakdown(users=None):
                 row["estimatedCost"] += USER_ADS_COST_CENTS / 100
             row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
             if saw_teaser(uid): row["sawTeaser"] += 1
-            if user_has_pending_pix(uid): row["pixCreated"] += 1
+            if user_has_created_pix(uid): row["pixCreated"] += 1
             if clicked_vip(uid):
                 row["clickedVip"] += 1
             if user_has_paid(uid):
@@ -5047,6 +5064,7 @@ def admin_stats():
                 pipe.get(vip_offers_today_key(uid))
                 pipe.hgetall(source_meta_key(uid))
                 pipe.exists(f"sp:pix:{uid}")
+                pipe.exists(f"sp:pix_created:{uid}")
                 pipe.exists(f"sp:paid:{uid}")
                 pipe.hgetall(lead_profile_key(uid))
                 pipe.get(return_count_key(uid))
@@ -5071,7 +5089,11 @@ def admin_stats():
                 vip_offers_raw = values[idx]; idx += 1
                 source_meta = values[idx] or {}; idx += 1
                 pix_pending = bool(values[idx]); idx += 1
+                pix_created = bool(values[idx]); idx += 1
                 paid = bool(values[idx]); idx += 1
+                # Compatibilidade com histórico: quem está com PIX pendente ou já pagou
+                # necessariamente chegou ao estágio "PIX gerado".
+                pix_created = bool(pix_created or pix_pending or paid)
                 lead_profile = values[idx] or {}; idx += 1
                 return_count_raw = values[idx]; idx += 1
                 burst_count_raw = values[idx]; idx += 1
@@ -5135,6 +5157,7 @@ def admin_stats():
                     "vip_offers": vip_offers,
                     "source_meta": source_meta,
                     "pix_pending": pix_pending,
+                    "pix_created": pix_created,
                     "paid": paid,
                     "lead_profile": lead_profile,
                     "return_count": return_count,
@@ -5158,10 +5181,34 @@ def admin_stats():
         streaks = [x["streak"] for x in snapshots if x["streak"] > 0]
         avg_streak = sum(streaks) / len(streaks) if streaks else 0
 
+        # O valor salvo em funnel:<uid> é o MAIOR estágio já alcançado pelo usuário.
+        # Portanto, contar apenas funnel == 1/2/3/4 mede onde ele PAROU, não quantos
+        # passaram por cada etapa. A análise abaixo é cumulativa: quem chegou numa
+        # etapa posterior também conta em todas as anteriores.
         funnel_stages = {i: 0 for i in range(5)}
         for x in snapshots:
             if x["funnel"] in funnel_stages:
                 funnel_stages[x["funnel"]] += 1
+
+        def reached_funnel_flags(x):
+            # Sinais posteriores também validam as etapas anteriores. Isso protege
+            # o painel de dados legados em que um flag anterior possa ter faltado.
+            paid_reached = bool(x.get("paid"))
+            pix_reached = bool(x.get("pix_created") or x.get("pix_pending") or paid_reached)
+            click_reached = bool(x.get("clicked") or pix_reached)
+            teaser_reached = bool(x.get("saw") or click_reached)
+            first_message_reached = bool((x.get("funnel") or 0) >= 2 or teaser_reached)
+            start_reached = bool((x.get("funnel") or 0) >= 1 or first_message_reached)
+            return {
+                "start": start_reached,
+                "first_message": first_message_reached,
+                "saw_teaser": teaser_reached,
+                "clicked_vip": click_reached,
+                "pix_created": pix_reached,
+                "paid": paid_reached,
+            }
+
+        funnel_reached = [reached_funnel_flags(x) for x in snapshots]
 
         activity_labels = []
         activity_messages = []
@@ -5249,18 +5296,17 @@ def admin_stats():
                 "lastContact": last_contact
             })
 
-        started = funnel_stages[1]
-        first_message = funnel_stages[2]
-        saw_teaser_funnel = funnel_stages[3]
-        clicked_vip_funnel = funnel_stages[4]
+        started = sum(1 for f in funnel_reached if f["start"])
+        first_message = sum(1 for f in funnel_reached if f["first_message"])
+        saw_teaser_funnel = sum(1 for f in funnel_reached if f["saw_teaser"])
+        clicked_vip_funnel = sum(1 for f in funnel_reached if f["clicked_vip"])
+        pix_created_funnel = sum(1 for f in funnel_reached if f["pix_created"])
+        paid_funnel = sum(1 for f in funnel_reached if f["paid"])
 
         def calc_drop(from_stage, to_stage):
-            if from_stage == 0: return 0
-            return ((from_stage - to_stage) / from_stage * 100)
-
-        drop_1 = calc_drop(started, first_message)
-        drop_2 = calc_drop(first_message, saw_teaser_funnel)
-        drop_3 = calc_drop(saw_teaser_funnel, clicked_vip_funnel)
+            if from_stage <= 0:
+                return 0.0
+            return max(0.0, ((from_stage - to_stage) / from_stage * 100))
 
         def get_drop_class(rate):
             if rate > 70: return "hot"
@@ -5272,10 +5318,27 @@ def admin_stats():
             elif rate > 40: return "⚠️ Alto"
             return "✅ Normal"
 
+        def make_drop_row(name, from_stage, to_stage):
+            drop_rate = calc_drop(from_stage, to_stage)
+            lost_users = max(0, from_stage - to_stage)
+            conversion = (to_stage / from_stage * 100) if from_stage > 0 else 0
+            return {
+                "name": name,
+                "users": lost_users,
+                "fromUsers": from_stage,
+                "toUsers": to_stage,
+                "percent": round(conversion, 1),
+                "dropRate": f"{drop_rate:.1f}",
+                "dropClass": get_drop_class(drop_rate),
+                "status": get_status(drop_rate),
+            }
+
         dropoff = [
-            {"name": "Start → 1ª Msg", "users": started - first_message, "percent": round((first_message / started * 100) if started > 0 else 0, 1), "dropRate": f"{drop_1:.1f}", "dropClass": get_drop_class(drop_1), "status": get_status(drop_1)},
-            {"name": "1ª Msg → Teaser", "users": first_message - saw_teaser_funnel, "percent": round((saw_teaser_funnel / first_message * 100) if first_message > 0 else 0, 1), "dropRate": f"{drop_2:.1f}", "dropClass": get_drop_class(drop_2), "status": get_status(drop_2)},
-            {"name": "Teaser → Clique VIP", "users": saw_teaser_funnel - clicked_vip_funnel, "percent": round((clicked_vip_funnel / saw_teaser_funnel * 100) if saw_teaser_funnel > 0 else 0, 1), "dropRate": f"{drop_3:.1f}", "dropClass": get_drop_class(drop_3), "status": get_status(drop_3)}
+            make_drop_row("Start → 1ª Msg", started, first_message),
+            make_drop_row("1ª Msg → Teaser", first_message, saw_teaser_funnel),
+            make_drop_row("Teaser → Clique VIP", saw_teaser_funnel, clicked_vip_funnel),
+            make_drop_row("Clique VIP → PIX gerado", clicked_vip_funnel, pix_created_funnel),
+            make_drop_row("PIX gerado → Compra", pix_created_funnel, paid_funnel),
         ]
 
         # Aquisição usando o mesmo snapshot; evita percorrer o Redis inteiro uma segunda vez.
@@ -5301,7 +5364,7 @@ def admin_stats():
                 row["estimatedCost"] += USER_ADS_COST_CENTS / 100
             row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
             if x["saw"]: row["sawTeaser"] += 1
-            if x["pix_pending"]: row["pixCreated"] += 1
+            if x["pix_created"]: row["pixCreated"] += 1
             if x["clicked"]: row["clickedVip"] += 1
             if x["paid"]:
                 row["paid"] += 1
@@ -5318,8 +5381,8 @@ def admin_stats():
         acquisition = sorted(by_source.values(), key=lambda x: (x["estimatedProfit"], x["paid"], x["users"]), reverse=True)
 
         payload = {
-            "stats": {"totalUsers": total_users, "newUsers24h": new_users_24h, "activeToday": active_today, "activeWeek": active_week, "sawTeaser": saw_teaser_count, "clickedVip": clicked_vip_count, "totalMessages": total_messages, "avgStreak": round(avg_streak, 1), "inCooldown": in_cooldown_count, "rejectedVip": rejected_vip_count, "ignored": ignored_count},
-            "funnel": {"started": started, "firstMessage": first_message, "sawTeaser": saw_teaser_funnel, "clickedVip": clicked_vip_funnel},
+            "stats": {"totalUsers": total_users, "newUsers24h": new_users_24h, "activeToday": active_today, "activeWeek": active_week, "sawTeaser": saw_teaser_count, "clickedVip": clicked_vip_count, "pixCreated": pix_created_funnel, "paid": paid_funnel, "totalMessages": total_messages, "avgStreak": round(avg_streak, 1), "inCooldown": in_cooldown_count, "rejectedVip": rejected_vip_count, "ignored": ignored_count},
+            "funnel": {"started": started, "firstMessage": first_message, "sawTeaser": saw_teaser_funnel, "clickedVip": clicked_vip_funnel, "pixCreated": pix_created_funnel, "paid": paid_funnel},
             "activity": {"labels": activity_labels, "messages": activity_messages},
             "interest": interest_levels,
             "hourly": {"labels": hourly_labels, "offers": hourly_offers},

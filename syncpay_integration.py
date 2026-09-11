@@ -64,6 +64,10 @@ def _sp_id_to_uid_key(identifier):
 def _sp_paid_key(uid):
     return f"sp:paid:{uid}"
 
+def _sp_pix_created_key(uid):
+    """Marca persistente de que o usuário já gerou ao menos um PIX."""
+    return f"sp:pix_created:{uid}"
+
 def _sp_notified_key(uid, date_str):
     return f"sp:notified:{uid}:{date_str}"
 
@@ -178,6 +182,14 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
         _sp_id_to_uid_key(identifier),
         timedelta(hours=2),
         str(uid)
+    )
+
+    # Mantém um marco cumulativo para o funil do painel. Diferente de sp:pix:<uid>,
+    # esta chave não some quando o PIX expira ou quando o pagamento é concluído.
+    _r.setex(
+        _sp_pix_created_key(uid),
+        timedelta(days=365),
+        "1"
     )
 
     logger.info(f"[SyncPay] 💸 PIX gerado: uid={uid} identifier={identifier} valor=R${amount}")
