@@ -457,6 +457,18 @@ async def _pagar_vip_callback(update: Update, context):
     if activate_hard_wall:
         activate_hard_wall(uid)
 
+    # O clique no CTA é um sinal comercial por si só. Marcamos imediatamente,
+    # antes de consultar/criar o PIX, para o lead score não depender do sucesso da API.
+    try:
+        set_clicked_vip = _callbacks.get("set_clicked_vip")
+        track_funnel = _callbacks.get("track_funnel")
+        if set_clicked_vip:
+            set_clicked_vip(uid)
+        if track_funnel:
+            track_funnel(uid, "clicked_vip")
+    except Exception as funnel_err:
+        logger.error(f"[Tracking] Erro clicked_vip uid={uid}: {funnel_err}")
+
     try:
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
@@ -520,16 +532,6 @@ async def _pagar_vip_callback(update: Update, context):
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
         # ─────────────────────────────────────────────────────────────────────
-
-        try:
-            set_clicked_vip = _callbacks.get("set_clicked_vip")
-            track_funnel = _callbacks.get("track_funnel")
-            if set_clicked_vip:
-                set_clicked_vip(uid)
-            if track_funnel:
-                track_funnel(uid, "clicked_vip")
-        except Exception as funnel_err:
-            logger.error(f"[Tracking] Erro clicked_vip uid={uid}: {funnel_err}")
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
