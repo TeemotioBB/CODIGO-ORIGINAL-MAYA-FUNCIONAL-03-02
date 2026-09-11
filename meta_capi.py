@@ -8,6 +8,8 @@ import aiohttp
 import hashlib
 import logging
 import time
+import re
+import unicodedata
 from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,36 @@ def extract_country_from_language(language_code: str) -> str:
     return ""
 
 
+
+def normalize_meta_location(value, field="generic") -> str:
+    """
+    Normaliza localização antes do SHA-256.
+    - cidade: minúscula, sem acentos/espaços/pontuação
+    - estado: idem; preferencialmente código de 2 letras vindo do GeoIP
+    - CEP: somente letras/números
+    - país: código ISO de 2 letras em minúsculo
+    """
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if not text or text.lower() in {"null", "none", "undefined"}:
+        return ""
+
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+
+    if field in {"city", "state", "zip"}:
+        text = re.sub(r"[^a-z0-9]", "", text)
+    elif field == "country":
+        text = re.sub(r"[^a-z]", "", text)[:2]
+    else:
+        text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
 def clean_unhashed(value) -> str:
     """FBC, FBP, IP e User-Agent devem ser enviados sem SHA-256."""
     if value is None:
@@ -93,17 +125,24 @@ async def send_to_meta(event_name: str, apex_event: dict):
             if len(names) > 1:
                 user_data["ln"] = [hash_value(" ".join(names[1:]))]
 
-        # Localização explícita (se o bot coleta)
-        if customer.get("city"):
-            user_data["ct"] = [hash_value(customer.get("city"))]
-        if customer.get("state"):
-            user_data["st"] = [hash_value(customer.get("state"))]
-        if customer.get("zip"):
-            user_data["zp"] = [hash_value(customer.get("zip"))]
+        # Localização: city/state/zip podem vir do GeoIP capturado na landing.
+        city = normalize_meta_location(customer.get("city"), "city")
+        state = normalize_meta_location(customer.get("state"), "state")
+        zip_code = normalize_meta_location(customer.get("zip"), "zip")
 
-        # País: tenta explícito primeiro, depois infere pelo language_code do Telegram
-        country = customer.get("country") or extract_country_from_language(
-            customer.get("language_code", "")
+        if city:
+            user_data["ct"] = [hash_value(city)]
+        if state:
+            user_data["st"] = [hash_value(state)]
+        if zip_code:
+            user_data["zp"] = [hash_value(zip_code)]
+
+        # País: tenta GeoIP explícito primeiro, depois infere pelo language_code do Telegram.
+        country = normalize_meta_location(
+            customer.get("country") or extract_country_from_language(
+                customer.get("language_code", "")
+            ),
+            "country",
         )
         if country:
             user_data["country"] = [hash_value(country)]
