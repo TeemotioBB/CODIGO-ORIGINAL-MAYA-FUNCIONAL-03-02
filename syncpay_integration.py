@@ -245,8 +245,11 @@ def _salvar_customer(uid: int, tg_user) -> dict:
     logger.info(
         f"[Meta Tracking] snapshot PIX uid={uid} | "
         f"fbc={bool(customer_data['fbc'])} fbp={bool(customer_data['fbp'])} "
-        f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])} "
-        f"city={bool(customer_data['city'])} state={bool(customer_data['state'])}"
+        f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])} | "
+        f"city='{customer_data.get('city', '')}' "
+        f"state='{customer_data.get('state', '')}' "
+        f"zip='{customer_data.get('zip', '')}' "
+        f"country='{customer_data.get('country', '')}'"
     )
     return customer_data
 

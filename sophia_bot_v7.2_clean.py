@@ -1695,9 +1695,12 @@ def _lookup_ip_geo(ip):
                 json.dumps(result, ensure_ascii=False),
             )
             logger.info(
-                f"[META GEOIP] ok | city={bool(result.get('city'))} "
-                f"state={bool(result.get('state'))} "
-                f"zip={bool(result.get('zip'))} country={bool(result.get('country'))}"
+                f"[META GEOIP] ok | "
+                f"city='{result.get('city', '')}' "
+                f"state='{result.get('state', '')}' "
+                f"zip='{result.get('zip', '')}' "
+                f"country='{result.get('country', '')}' "
+                f"source='{result.get('geo_source', '')}'"
             )
             return result
 
@@ -1823,8 +1826,11 @@ def consume_meta_tracking_token(uid, start_param):
         logger.info(
             f"[META TRACKING] token vinculado uid={uid} | "
             f"fbc={bool(mapping['fbc'])} fbp={bool(mapping['fbp'])} "
-            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])} "
-            f"city={bool(mapping['city'])} state={bool(mapping['state'])}"
+            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])} | "
+            f"city='{mapping.get('city', '')}' "
+            f"state='{mapping.get('state', '')}' "
+            f"zip='{mapping.get('zip', '')}' "
+            f"country='{mapping.get('country', '')}'"
         )
         return mapping
     except Exception as e:
@@ -5265,9 +5271,13 @@ def tracking_telegram():
             return _tracking_json({"error": "token_generation_failed"}, 503)
 
         logger.info(
-            f"[META TRACKING] token criado | fbc={bool(fbc)} fbp={bool(fbp)} "
-            f"ip={bool(client_ip)} ua={bool(client_ua)} "
-            f"city={bool(tracking_data.get('city'))} state={bool(tracking_data.get('state'))}"
+            f"[META TRACKING] token criado | "
+            f"fbc={bool(fbc)} fbp={bool(fbp)} "
+            f"ip={bool(client_ip)} ua={bool(client_ua)} | "
+            f"city='{tracking_data.get('city', '')}' "
+            f"state='{tracking_data.get('state', '')}' "
+            f"zip='{tracking_data.get('zip', '')}' "
+            f"country='{tracking_data.get('country', '')}'"
         )
         return _tracking_json({"start_token": start_token}, 201)
 
