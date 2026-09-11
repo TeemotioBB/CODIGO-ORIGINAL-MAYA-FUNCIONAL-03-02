@@ -513,15 +513,28 @@ def _admin_index_ignored(uid, ttl_seconds=86400 * 14):
         pass
 
 
+def _admin_record_funnel_time(uid, stage_name, when_ts=None):
+    """Registra somente a PRIMEIRA chegada do UID à etapa do funil."""
+    try:
+        if stage_name not in {"started", "first_message", "saw_teaser", "clicked_vip", "pix_created", "paid"}:
+            return False
+        ts = float(when_ts or time.time())
+        return bool(r.zadd(admin_funnel_time_key(stage_name), {str(uid): ts}, nx=True))
+    except Exception:
+        return False
+
+
 def _admin_record_funnel(uid, stage_number):
     """Cada conjunto representa usuários que alcançaram pelo menos aquele estágio."""
     try:
         stage_number = max(0, min(int(stage_number or 0), 4))
         names = {1: "started", 2: "first_message", 3: "saw_teaser", 4: "clicked_vip"}
         for stage in range(1, stage_number + 1):
-            field = f"funnel_{names[stage]}"
+            stage_name = names[stage]
+            field = f"funnel_{stage_name}"
             if r.sadd(admin_counted_set(field), str(uid)):
                 r.hincrby(admin_stats_hash_key(), field, 1)
+            _admin_record_funnel_time(uid, stage_name)
     except Exception:
         pass
 
@@ -682,6 +695,250 @@ def bootstrap_admin_stats_once():
             pass
 
 
+def _safe_iso_timestamp(raw, fallback=None):
+    if not raw:
+        return fallback
+    try:
+        return datetime.fromisoformat(str(raw)).timestamp()
+    except Exception:
+        return fallback
+
+
+def _estimate_timestamp_from_ttl(ttl_seconds, lifetime_seconds, now_ts):
+    """Reconstrói aproximadamente quando uma chave setex foi criada."""
+    try:
+        ttl = int(ttl_seconds)
+        if ttl <= 0:
+            return None
+        elapsed = max(0, int(lifetime_seconds) - ttl)
+        return float(now_ts - elapsed)
+    except Exception:
+        return None
+
+
+def bootstrap_admin_funnel_time_indexes_once():
+    """
+    Cria uma única vez os índices temporais necessários ao filtro por data.
+
+    O backfill usa timestamps já existentes quando disponíveis. Para chaves
+    antigas com TTL de 365 dias (1ª mensagem / PIX / pagamento), estima a data
+    a partir do TTL restante. É uma migração best-effort; eventos novos passam
+    a ser registrados com timestamp exato.
+    """
+    try:
+        if r.exists(admin_funnel_time_ready_key()):
+            return True
+        if not r.set(admin_funnel_time_lock_key(), "1", nx=True, ex=300):
+            return False
+
+        users = get_all_active_users()
+        now_ts = time.time()
+        lifetime_365 = 86400 * 365
+        chunk_size = 500
+
+        for start in range(0, len(users), chunk_size):
+            chunk = users[start:start + chunk_size]
+            pipe = r.pipeline(transaction=False)
+            for uid in chunk:
+                pipe.get(first_contact_key(uid))
+                pipe.exists(first_message_seen_key(uid))
+                pipe.ttl(first_message_seen_key(uid))
+                pipe.get(saw_teaser_key(uid))
+                pipe.get(clicked_vip_key(uid))
+                pipe.get(funnel_key(uid))
+                pipe.get(f"sp:pix:{uid}")
+                pipe.exists(f"sp:pix_created:{uid}")
+                pipe.ttl(f"sp:pix_created:{uid}")
+                pipe.exists(f"sp:paid:{uid}")
+                pipe.ttl(f"sp:paid:{uid}")
+
+            vals = pipe.execute()
+            idx = 0
+            write = r.pipeline(transaction=False)
+
+            for uid in chunk:
+                first_raw = vals[idx]; idx += 1
+                first_msg_exists = bool(vals[idx]); idx += 1
+                first_msg_ttl = vals[idx]; idx += 1
+                saw_raw = vals[idx]; idx += 1
+                clicked_raw = vals[idx]; idx += 1
+                funnel_raw = vals[idx]; idx += 1
+                pix_pending_raw = vals[idx]; idx += 1
+                pix_created_exists = bool(vals[idx]); idx += 1
+                pix_created_ttl = vals[idx]; idx += 1
+                paid_exists = bool(vals[idx]); idx += 1
+                paid_ttl = vals[idx]; idx += 1
+
+                try:
+                    funnel_stage = max(0, min(int(funnel_raw or 0), 4))
+                except Exception:
+                    funnel_stage = 0
+
+                started_ts = _safe_iso_timestamp(first_raw)
+                first_msg_ts = (
+                    _estimate_timestamp_from_ttl(first_msg_ttl, lifetime_365, now_ts)
+                    if first_msg_exists else None
+                )
+                saw_ts = _safe_iso_timestamp(saw_raw)
+                clicked_ts = _safe_iso_timestamp(clicked_raw)
+
+                pix_pending_ts = None
+                if pix_pending_raw:
+                    try:
+                        pending_data = json.loads(pix_pending_raw)
+                        pix_pending_ts = _safe_iso_timestamp(pending_data.get("created_at"))
+                    except Exception:
+                        pass
+
+                pix_created_ts = (
+                    pix_pending_ts
+                    or (_estimate_timestamp_from_ttl(pix_created_ttl, lifetime_365, now_ts)
+                        if pix_created_exists else None)
+                )
+                paid_ts = (
+                    _estimate_timestamp_from_ttl(paid_ttl, lifetime_365, now_ts)
+                    if paid_exists else None
+                )
+
+                # Downstream garante que etapas anteriores também foram alcançadas.
+                if paid_exists and not pix_created_ts:
+                    pix_created_ts = paid_ts
+                if pix_created_ts and not clicked_ts:
+                    clicked_ts = pix_created_ts
+                if clicked_ts and not saw_ts:
+                    saw_ts = clicked_ts
+                if saw_ts and not first_msg_ts:
+                    first_msg_ts = saw_ts
+                if first_msg_ts and not started_ts:
+                    started_ts = first_msg_ts
+
+                # Fallback para dados legados que só possuem funnel:<uid>.
+                if funnel_stage >= 1 and not started_ts:
+                    started_ts = now_ts
+                if funnel_stage >= 2 and not first_msg_ts:
+                    first_msg_ts = started_ts or now_ts
+                if funnel_stage >= 3 and not saw_ts:
+                    saw_ts = first_msg_ts or started_ts or now_ts
+                if funnel_stage >= 4 and not clicked_ts:
+                    clicked_ts = saw_ts or first_msg_ts or started_ts or now_ts
+
+                stage_times = {
+                    "started": started_ts,
+                    "first_message": first_msg_ts,
+                    "saw_teaser": saw_ts,
+                    "clicked_vip": clicked_ts,
+                    "pix_created": pix_created_ts,
+                    "paid": paid_ts,
+                }
+                for stage_name, ts in stage_times.items():
+                    if ts:
+                        write.zadd(admin_funnel_time_key(stage_name), {str(uid): float(ts)}, nx=True)
+
+            write.execute()
+
+        r.set(admin_funnel_time_ready_key(), datetime.now().isoformat())
+        logger.info(f"📅 Índices temporais do funil prontos: {len(users)} usuários")
+        return True
+    except Exception as e:
+        logger.exception(f"Erro bootstrap índices temporais do funil: {e}")
+        return False
+    finally:
+        try:
+            r.delete(admin_funnel_time_lock_key())
+        except Exception:
+            pass
+
+
+def _admin_parse_funnel_period():
+    """
+    start/end são datas locais (America/Sao_Paulo por padrão).
+    O filtro usa COORTE: seleciona leads cujo /start ocorreu no período e mede
+    até onde esses mesmos leads já avançaram. Assim o funil permanece monotônico.
+    """
+    start_raw = (request.args.get("start") or "").strip()
+    end_raw = (request.args.get("end") or "").strip()
+
+    if not start_raw and not end_raw:
+        return None, None
+
+    if not start_raw or not end_raw:
+        raise ValueError("Informe start e end no formato YYYY-MM-DD")
+
+    try:
+        start_date = datetime.strptime(start_raw, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_raw, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError("Use start e end no formato YYYY-MM-DD")
+
+    if end_date < start_date:
+        raise ValueError("A data final não pode ser anterior à data inicial")
+
+    if (end_date - start_date).days > 366:
+        raise ValueError("O intervalo máximo por filtro é de 367 dias")
+
+    start_local = datetime(
+        start_date.year, start_date.month, start_date.day,
+        0, 0, 0, tzinfo=LOCAL_TZ
+    )
+    end_local = datetime(
+        end_date.year, end_date.month, end_date.day,
+        23, 59, 59, 999999, tzinfo=LOCAL_TZ
+    )
+
+    return {
+        "start": start_raw,
+        "end": end_raw,
+        "startTs": start_local.timestamp(),
+        "endTs": end_local.timestamp(),
+        "timezone": APP_TIMEZONE,
+        "mode": "start_cohort",
+    }, f"{start_raw}:{end_raw}"
+
+
+def _admin_funnel_counts_for_period(period):
+    """Conta o avanço dos leads que INICIARAM dentro do período selecionado."""
+    zero = {
+        "started": 0, "first_message": 0, "saw_teaser": 0,
+        "clicked_vip": 0, "pix_created": 0, "paid": 0,
+    }
+    if not period:
+        return zero
+
+    cohort = r.zrangebyscore(
+        admin_funnel_time_key("started"),
+        period["startTs"],
+        period["endTs"],
+    ) or []
+
+    if not cohort:
+        return zero
+
+    counts = dict(zero)
+    counts["started"] = len(cohort)
+    stages = ["first_message", "saw_teaser", "clicked_vip", "pix_created", "paid"]
+    chunk_size = 1000
+
+    for stage_name in stages:
+        reached = 0
+        key = admin_funnel_time_key(stage_name)
+
+        for pos in range(0, len(cohort), chunk_size):
+            members = cohort[pos:pos + chunk_size]
+            try:
+                scores = r.zmscore(key, members)
+            except Exception:
+                pipe = r.pipeline(transaction=False)
+                for uid in members:
+                    pipe.zscore(key, uid)
+                scores = pipe.execute()
+
+            reached += sum(1 for score in scores if score is not None)
+
+        counts[stage_name] = reached
+
+    return counts
+
+
 async def admin_stats_maintenance_scheduler():
     """Mantém compras e índices expirados atualizados fora do caminho crítico do painel."""
     while True:
@@ -690,6 +947,9 @@ async def admin_stats_maintenance_scheduler():
                 await asyncio.to_thread(bootstrap_admin_stats_once)
             else:
                 await asyncio.to_thread(reconcile_admin_paid_stats)
+
+            if not r.exists(admin_funnel_time_ready_key()):
+                await asyncio.to_thread(bootstrap_admin_funnel_time_indexes_once)
 
             now_ts = datetime.now().timestamp()
             # Remove membros cujo TTL lógico já venceu.
@@ -797,6 +1057,13 @@ def admin_streak_values_key(): return "admin:streak_values"
 def admin_counted_set(event): return f"admin:counted:{event}"
 def admin_stats_ready_key(): return "admin:stats:ready:v2"
 def admin_stats_bootstrap_lock_key(): return "admin:stats:bootstrap_lock:v2"
+
+# Índices temporais do funil. Cada ZSET guarda UID -> timestamp da PRIMEIRA vez
+# em que aquele lead alcançou a etapa. Isso permite filtros por data sem scan
+# completo do Redis a cada abertura do painel.
+def admin_funnel_time_key(stage): return f"admin:funnel:ts:{stage}"
+def admin_funnel_time_ready_key(): return "admin:funnel:ts:ready:v1"
+def admin_funnel_time_lock_key(): return "admin:funnel:ts:bootstrap_lock:v1"
 
 # Origem / campanha / custo
 # Ex.: /start ads_instagram_reels_01 → channel=instagram, campaign=ads_instagram_reels_01
@@ -5029,11 +5296,22 @@ def admin_stats():
         return {"error": "Unauthorized"}, 401
 
     try:
-        # Cache curtíssimo: evita recalcular centenas de chaves em refreshes próximos,
-        # sem deixar o painel perceptivelmente defasado.
+        try:
+            funnel_period, period_cache_key = _admin_parse_funnel_period()
+        except ValueError as period_err:
+            return {"error": str(period_err)}, 400
+
+        # Garante que o primeiro filtro após o deploy já encontre o backfill.
+        if funnel_period and not r.exists(admin_funnel_time_ready_key()):
+            bootstrap_admin_funnel_time_indexes_once()
+
+        # Cache curtíssimo POR PERÍODO: evita devolver "Hoje" quando o usuário
+        # acabou de trocar para "7 dias", por exemplo.
         now_ts = datetime.now().timestamp()
         cache_ttl = int(os.getenv("ADMIN_STATS_CACHE_SECONDS", "15"))
-        cached = getattr(admin_stats, "_cache", None)
+        cache_key = period_cache_key or "all"
+        cache_map = getattr(admin_stats, "_cache", {}) or {}
+        cached = cache_map.get(cache_key)
         if cached and cached.get("data") is not None and now_ts - cached.get("ts", 0) < cache_ttl:
             return cached["data"], 200
 
@@ -5303,6 +5581,18 @@ def admin_stats():
         pix_created_funnel = sum(1 for f in funnel_reached if f["pix_created"])
         paid_funnel = sum(1 for f in funnel_reached if f["paid"])
 
+        # Quando há filtro por data, usamos uma COORTE de leads que deram /start
+        # no período. Isso impede situações impossíveis como "mais compras que starts"
+        # causadas por comparar eventos de pessoas que entraram em dias diferentes.
+        if funnel_period:
+            period_counts = _admin_funnel_counts_for_period(funnel_period)
+            started = period_counts["started"]
+            first_message = period_counts["first_message"]
+            saw_teaser_funnel = period_counts["saw_teaser"]
+            clicked_vip_funnel = period_counts["clicked_vip"]
+            pix_created_funnel = period_counts["pix_created"]
+            paid_funnel = period_counts["paid"]
+
         def calc_drop(from_stage, to_stage):
             if from_stage <= 0:
                 return 0.0
@@ -5390,7 +5680,18 @@ def admin_stats():
             "topUsers": top_users,
             "cooldownUsers": cooldown_users,
             "dropoff": dropoff,
-            "acquisition": acquisition
+            "acquisition": acquisition,
+            "funnelPeriod": (
+                {
+                    "start": funnel_period["start"],
+                    "end": funnel_period["end"],
+                    "timezone": funnel_period["timezone"],
+                    "mode": funnel_period["mode"],
+                    "cohortUsers": started,
+                }
+                if funnel_period else
+                {"start": None, "end": None, "timezone": APP_TIMEZONE, "mode": "all", "cohortUsers": started}
+            ),
         }
 
         try:
@@ -5410,7 +5711,13 @@ def admin_stats():
         except Exception:
             pass
 
-        admin_stats._cache = {"ts": now_ts, "data": payload}
+        cache_map[cache_key] = {"ts": now_ts, "data": payload}
+        # Evita crescimento ilimitado se o admin consultar muitas datas diferentes.
+        if len(cache_map) > 24:
+            oldest = sorted(cache_map.items(), key=lambda item: item[1].get("ts", 0))[:-24]
+            for old_key, _ in oldest:
+                cache_map.pop(old_key, None)
+        admin_stats._cache = cache_map
         return payload, 200
 
     except Exception as e:
