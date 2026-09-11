@@ -811,6 +811,7 @@ def meta_tracking_token_key(token): return f"meta:tracking_token:{token}"
 def meta_tracking_user_key(uid): return f"meta:tracking:{uid}"
 def grok_usage_key(uid): return f"grok:usage:{uid}:{date.today()}"
 def lead_profile_key(uid): return f"lead:profile:{uid}"
+def lead_reply_burst_key(uid): return f"lead:reply_burst:{uid}"
 def cold_open_sent_key(uid): return f"cold_open_sent:{uid}"
 
 def current_phase_key(uid): return f"phase:{uid}"
@@ -1640,6 +1641,170 @@ def get_lead_profile(uid):
         }
     except Exception:
         return {"first_type": "unknown", "last_type": "unknown", "first_intent": "neutral", "last_intent": "neutral"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🌡️ LEAD SCORE COMPORTAMENTAL — FRIO / MORNO / QUENTE
+# ═══════════════════════════════════════════════════════════════════════════════
+# O score usa ações reais do funil. Grok não decide a temperatura do lead.
+# Isso evita classificar como "quente" alguém que apenas entrou recentemente.
+LEAD_SCORE_COLD_MAX = 24
+LEAD_SCORE_WARM_MAX = 59
+LEAD_REPLY_BURST_WINDOW_HOURS = 0.25  # 15 minutos
+
+
+def update_lead_reply_burst(uid, hours_since=None):
+    """Conta respostas do lead em sequência dentro de uma janela curta."""
+    try:
+        key = lead_reply_burst_key(uid)
+        if hours_since is not None and hours_since <= LEAD_REPLY_BURST_WINDOW_HOURS:
+            count = int(r.incr(key) or 0)
+        else:
+            r.set(key, 1)
+            count = 1
+        # TTL maior que a janela para o painel conseguir ler o sinal recente.
+        r.expire(key, timedelta(minutes=30))
+        return count
+    except Exception as e:
+        logger.debug(f"lead reply burst uid={uid}: {e}")
+        return 0
+
+
+def get_lead_reply_burst(uid):
+    try:
+        return int(r.get(lead_reply_burst_key(uid)) or 0)
+    except Exception:
+        return 0
+
+
+def calculate_lead_temperature(
+    uid,
+    *,
+    hours=None,
+    msg_count=None,
+    clicked=None,
+    saw=None,
+    pix_pending=None,
+    paid=None,
+    return_count=None,
+    burst_count=None,
+    lead_profile=None,
+):
+    """
+    Score comercial determinístico baseado em comportamento real.
+
+    Pesos:
+      PIX pendente                  +100
+      clicou em GERAR PIX/VIP        +70
+      viu teaser/prévia              +25
+      pediu/aceitou conteúdo          +25
+      6+ mensagens                    +20
+      voltou após 6h+                 +20
+      3+ respostas em sequência       +15
+      ativo <2h                       +10
+      ativo <24h                       +5
+      inativo >=24h                   -15
+
+    0-24 = frio | 25-59 = morno | 60+ = quente | pago = cliente.
+    """
+    try:
+        if msg_count is None:
+            msg_count = get_conversation_messages_count(uid)
+        if clicked is None:
+            clicked = clicked_vip(uid)
+        if saw is None:
+            saw = saw_teaser(uid)
+        if pix_pending is None:
+            pix_pending = bool(r.exists(f"sp:pix:{uid}")) and not bool(r.exists(f"sp:paid:{uid}"))
+        if paid is None:
+            paid = bool(r.exists(f"sp:paid:{uid}"))
+        if return_count is None:
+            return_count = int(r.get(return_count_key(uid)) or 0)
+        if burst_count is None:
+            burst_count = get_lead_reply_burst(uid)
+        if lead_profile is None:
+            lead_profile = get_lead_profile(uid)
+        if hours is None:
+            hours = get_hours_since_activity(uid)
+    except Exception:
+        pass
+
+    try: msg_count = int(msg_count or 0)
+    except Exception: msg_count = 0
+    try: return_count = int(return_count or 0)
+    except Exception: return_count = 0
+    try: burst_count = int(burst_count or 0)
+    except Exception: burst_count = 0
+    lead_profile = lead_profile or {}
+
+    if paid:
+        return {
+            "score": 999,
+            "status": "vip",
+            "statusText": "💎 Cliente",
+            "interest": "hot",
+            "interestText": "Cliente",
+            "reasons": ["pagamento confirmado"],
+        }
+
+    score = 0
+    reasons = []
+
+    def add(points, reason):
+        nonlocal score
+        score += points
+        reasons.append(f"{points:+d} {reason}")
+
+    if pix_pending:
+        add(100, "PIX gerado")
+    if clicked:
+        add(70, "clicou no VIP/PIX")
+    if saw:
+        add(25, "viu teaser/prévia")
+
+    last_type = str(lead_profile.get("last_type") or "").strip().lower()
+    last_intent = str(lead_profile.get("last_intent") or "").strip().lower()
+    if last_type == "quer_conteudo" or last_intent in {"pedido_conteudo", "hot", "interesse_vip"}:
+        add(25, "demonstrou interesse em conteúdo")
+
+    if msg_count >= 6:
+        add(20, "6+ mensagens")
+    if return_count > 0:
+        add(20, "voltou após inatividade")
+    if burst_count >= 3:
+        add(15, "3+ respostas em sequência")
+
+    if hours is not None:
+        try:
+            h = float(hours)
+            if h < 2:
+                add(10, "ativo há menos de 2h")
+            elif h < 24:
+                add(5, "ativo há menos de 24h")
+            else:
+                add(-15, "inativo há 24h+")
+        except Exception:
+            pass
+
+    score = max(0, score)
+    if score >= 60:
+        status, status_text = "hot", "🔥 Quente"
+        interest, interest_text = "hot", "Alto"
+    elif score >= 25:
+        status, status_text = "warm", "😊 Morno"
+        interest, interest_text = "warm", "Médio"
+    else:
+        status, status_text = "cold", "❄️ Frio"
+        interest, interest_text = "cold", "Baixo"
+
+    return {
+        "score": score,
+        "status": status,
+        "statusText": status_text,
+        "interest": interest,
+        "interestText": interest_text,
+        "reasons": reasons,
+    }
 
 
 def should_send_trust_response(lead_type, text):
@@ -4074,6 +4239,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Guarda a inatividade ANTES de atualizar last_activity.
     hours_since = get_hours_since_activity(uid)
+    # Sinal comportamental: 3+ respostas em sequência dentro de 15 minutos.
+    update_lead_reply_burst(uid, hours_since)
 
     touch_followup5_from_user(uid, incoming_text, update.effective_user.first_name or "")
 
@@ -4881,6 +5048,9 @@ def admin_stats():
                 pipe.hgetall(source_meta_key(uid))
                 pipe.exists(f"sp:pix:{uid}")
                 pipe.exists(f"sp:paid:{uid}")
+                pipe.hgetall(lead_profile_key(uid))
+                pipe.get(return_count_key(uid))
+                pipe.get(lead_reply_burst_key(uid))
                 for day in days:
                     pipe.get(f"daily_msg_sent:{uid}:{day.date()}")
 
@@ -4902,6 +5072,9 @@ def admin_stats():
                 source_meta = values[idx] or {}; idx += 1
                 pix_pending = bool(values[idx]); idx += 1
                 paid = bool(values[idx]); idx += 1
+                lead_profile = values[idx] or {}; idx += 1
+                return_count_raw = values[idx]; idx += 1
+                burst_count_raw = values[idx]; idx += 1
                 daily = []
                 for _ in days:
                     daily.append(values[idx]); idx += 1
@@ -4918,6 +5091,10 @@ def admin_stats():
                 except Exception: vip_offers = 0
                 try: ignored = int(ignored_raw or 0)
                 except Exception: ignored = 0
+                try: return_count = int(return_count_raw or 0)
+                except Exception: return_count = 0
+                try: burst_count = int(burst_count_raw or 0)
+                except Exception: burst_count = 0
 
                 last_dt = None
                 hours = None
@@ -4959,6 +5136,9 @@ def admin_stats():
                     "source_meta": source_meta,
                     "pix_pending": pix_pending,
                     "paid": paid,
+                    "lead_profile": lead_profile,
+                    "return_count": return_count,
+                    "burst_count": burst_count,
                     "daily": daily_counts,
                 })
 
@@ -4992,9 +5172,16 @@ def admin_stats():
 
         interest_levels = {"high": 0, "medium": 0, "low": 0}
         for x in snapshots:
-            if x["msgs"] > 20 and x["saw"]:
+            temp = calculate_lead_temperature(
+                x["uid"], hours=x["hours"], msg_count=x["msgs"], clicked=x["clicked"],
+                saw=x["saw"], pix_pending=x["pix_pending"], paid=x["paid"],
+                return_count=x["return_count"], burst_count=x["burst_count"],
+                lead_profile=x["lead_profile"],
+            )
+            x["lead_temperature"] = temp
+            if temp["status"] in {"hot", "vip"}:
                 interest_levels["high"] += 1
-            elif x["msgs"] > 10 or x["saw"]:
+            elif temp["status"] == "warm":
                 interest_levels["medium"] += 1
             else:
                 interest_levels["low"] += 1
@@ -5017,24 +5204,33 @@ def admin_stats():
                 growth_users[first_dt.hour] += 1
 
         user_data = [x for x in snapshots if x["msgs"] > 0]
-        user_data.sort(key=lambda x: x["msgs"] * (x["streak"] + 1), reverse=True)
+        # Temperatura comercial vem antes de volume bruto de mensagens.
+        user_data.sort(
+            key=lambda x: (
+                (x.get("lead_temperature") or {}).get("score", 0),
+                x["msgs"],
+                x["streak"],
+            ),
+            reverse=True,
+        )
         top_users = []
         for user in user_data[:20]:
             hours = user["hours"] if user["hours"] is not None else 999
-            if hours < 2: status, status_text = "hot", "🔥 Quente"
-            elif hours < 24: status, status_text = "warm", "😊 Morno"
-            else: status, status_text = "cold", "❄️ Frio"
-            if user["msgs"] > 20: interest, interest_text = "hot", "Alto"
-            elif user["msgs"] > 10: interest, interest_text = "warm", "Médio"
-            else: interest, interest_text = "cold", "Baixo"
+            temp = user.get("lead_temperature") or calculate_lead_temperature(
+                user["uid"], hours=user["hours"], msg_count=user["msgs"], clicked=user["clicked"],
+                saw=user["saw"], pix_pending=user["pix_pending"], paid=user["paid"],
+                return_count=user["return_count"], burst_count=user["burst_count"],
+                lead_profile=user["lead_profile"],
+            )
             if hours < 1: last_activity = "< 1h atrás"
             elif hours < 24: last_activity = f"{int(hours)}h atrás"
             else: last_activity = f"{int(hours/24)}d atrás"
             top_users.append({
                 "id": user["uid"], "messages": user["msgs"], "streak": user["streak"],
                 "teasers": user["teaser_count"], "lastActivity": last_activity,
-                "status": status, "statusText": status_text,
-                "interest": interest, "interestText": interest_text
+                "status": temp["status"], "statusText": temp["statusText"],
+                "interest": temp["interest"], "interestText": temp["interestText"],
+                "leadScore": temp["score"], "leadScoreReasons": temp["reasons"],
             })
 
         cooldown_users = []
@@ -5239,6 +5435,9 @@ def admin_conversations():
                 pipe.get(teaser_count_key(uid))
                 pipe.get(f"sp:pix:{uid}")
                 pipe.get(f"sp:paid:{uid}")
+                pipe.hgetall(lead_profile_key(uid))
+                pipe.get(return_count_key(uid))
+                pipe.get(lead_reply_burst_key(uid))
             vals = pipe.execute()
             idx = 0
 
@@ -5253,6 +5452,9 @@ def admin_conversations():
                 teaser_count_raw = vals[idx]; idx += 1
                 pix_raw = vals[idx]; idx += 1
                 paid_raw = vals[idx]; idx += 1
+                lead_profile = vals[idx] or {}; idx += 1
+                return_count_raw = vals[idx]; idx += 1
+                burst_count_raw = vals[idx]; idx += 1
 
                 hours = None
                 if last_raw:
@@ -5269,6 +5471,10 @@ def admin_conversations():
                 except Exception: msg_count = 0
                 try: teaser_count = int(teaser_count_raw or 0)
                 except Exception: teaser_count = 0
+                try: return_count = int(return_count_raw or 0)
+                except Exception: return_count = 0
+                try: burst_count = int(burst_count_raw or 0)
+                except Exception: burst_count = 0
 
                 ai_paused = bool(manual_raw)
                 in_cooldown = bool(cooldown_raw)
@@ -5277,6 +5483,12 @@ def admin_conversations():
                 pix_pending = bool(pix_raw) and not bool(paid_raw)
                 paid = bool(paid_raw)
 
+                lead_temp = calculate_lead_temperature(
+                    uid, hours=hours, msg_count=msg_count, clicked=clicked, saw=saw,
+                    pix_pending=pix_pending, paid=paid, return_count=return_count,
+                    burst_count=burst_count, lead_profile=lead_profile,
+                )
+
                 if phase_filter != "all":
                     try:
                         if int(phase_filter) != current_phase:
@@ -5284,7 +5496,7 @@ def admin_conversations():
                     except (TypeError, ValueError):
                         pass
 
-                if filter_type == "hot" and msg_count <= 20:
+                if filter_type == "hot" and lead_temp["status"] not in {"hot", "vip"}:
                     continue
                 elif filter_type == "cooldown" and not in_cooldown:
                     continue
@@ -5307,15 +5519,13 @@ def admin_conversations():
                 if paid:
                     status, status_class = "💎 Pagou VIP", "vip"
                 elif pix_pending:
-                    status, status_class = "🧾 PIX gerado — aguardando pagamento", "warm"
+                    status, status_class = f"{lead_temp['statusText']} · 🧾 PIX gerado", lead_temp["status"]
                 elif clicked:
-                    status, status_class = "💳 Clicou no VIP", "warm"
+                    status, status_class = f"{lead_temp['statusText']} · 💳 Clicou no VIP", lead_temp["status"]
                 elif in_cooldown:
-                    status, status_class = "🚫 Cooldown", "cooldown"
-                elif msg_count > 20:
-                    status, status_class = "🔥 Quente", "hot"
+                    status, status_class = f"{lead_temp['statusText']} · 🚫 Cooldown", "cooldown"
                 else:
-                    status, status_class = "💬 Conversando", "normal"
+                    status, status_class = lead_temp["statusText"], lead_temp["status"]
 
                 candidates.append({
                     "userId": uid,
@@ -5333,6 +5543,14 @@ def admin_conversations():
                     "lastActivity": last_activity,
                     "status": status,
                     "statusClass": status_class,
+                    "temperature": lead_temp["status"],
+                    "temperatureText": lead_temp["statusText"],
+                    "leadScore": lead_temp["score"],
+                    "leadScoreReasons": lead_temp["reasons"],
+                    "returnCount": return_count,
+                    "replyBurst": burst_count,
+                    "leadType": lead_profile.get("last_type", "unknown"),
+                    "leadIntent": lead_profile.get("last_intent", "neutral"),
                 })
 
         candidates.sort(key=lambda x: x["hours"] if x["hours"] is not None else 999999)
