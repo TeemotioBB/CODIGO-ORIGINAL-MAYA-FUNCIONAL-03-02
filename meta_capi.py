@@ -130,13 +130,6 @@ async def send_to_meta(event_name: str, apex_event: dict):
         state = normalize_meta_location(customer.get("state"), "state")
         zip_code = normalize_meta_location(customer.get("zip"), "zip")
 
-        if city:
-            user_data["ct"] = [hash_value(city)]
-        if state:
-            user_data["st"] = [hash_value(state)]
-        if zip_code:
-            user_data["zp"] = [hash_value(zip_code)]
-
         # País: tenta GeoIP explícito primeiro, depois infere pelo language_code do Telegram.
         country = normalize_meta_location(
             customer.get("country") or extract_country_from_language(
@@ -144,6 +137,25 @@ async def send_to_meta(event_name: str, apex_event: dict):
             ),
             "country",
         )
+
+        if city:
+            user_data["ct"] = [hash_value(city)]
+        if state:
+            user_data["st"] = [hash_value(state)]
+
+        # Para Brasil, só envia CEP quando tiver exatamente 8 dígitos.
+        # Ex.: "30111000" -> envia | "30111" -> ignora.
+        if zip_code:
+            if country == "br":
+                if zip_code.isdigit() and len(zip_code) == 8:
+                    user_data["zp"] = [hash_value(zip_code)]
+                else:
+                    logger.info(
+                        f"[META CAPI] CEP BR ignorado por estar incompleto/inválido: '{zip_code}'"
+                    )
+            else:
+                user_data["zp"] = [hash_value(zip_code)]
+
         if country:
             user_data["country"] = [hash_value(country)]
 
