@@ -611,6 +611,24 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
 @media (max-width: 480px) {
   .btn-text-hide { display: none; }
 }
+
+.hidden { display: none !important; }
+
+.funnel-period-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.funnel-period-note {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+@media (max-width: 640px) {
+  .funnel-period-tools { width: 100%; }
+  .funnel-period-tools .select,
+  .funnel-period-tools .btn { flex: 1; min-width: 0; }
+}
 </style>
 </head>
 <body>
@@ -697,7 +715,24 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
   </div>
 
   <!-- charts -->
-  <div class="section-head"><h2>Performance</h2></div>
+  <div class="section-head">
+    <h2>Performance</h2>
+    <div class="actions funnel-period-tools">
+      <select class="select" id="funnelPeriodPreset" aria-label="Período do funil">
+        <option value="today" selected>Hoje</option>
+        <option value="7d">Últimos 7 dias</option>
+        <option value="30d">Últimos 30 dias</option>
+        <option value="all">Tudo</option>
+        <option value="custom">Personalizado</option>
+      </select>
+      <input class="select hidden" type="date" id="funnelStart" aria-label="Data inicial do funil">
+      <input class="select hidden" type="date" id="funnelEnd" aria-label="Data final do funil">
+      <button class="btn hidden" id="applyFunnelPeriod" type="button">Aplicar</button>
+    </div>
+  </div>
+  <div class="funnel-period-note" id="funnelPeriodNote" style="margin:-6px 0 12px;">
+    Funil por coorte: leads que iniciaram hoje.
+  </div>
   <div class="charts-grid">
     <div class="card">
       <div class="card-head"><h3>Funil de conversão</h3></div>
@@ -810,6 +845,7 @@ const state = {
   leadPagination: { offset: 0, limit: 40, total: 0, hasMore: false },
   openChats: new Set(),
   chatCache: {},
+  funnelPeriod: { preset: 'today', start: '', end: '' },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -898,7 +934,9 @@ async function loadChartsData() {
   state.loadingCharts = true;
 
   try {
-    const data = await fetchAdminJSON('/admin/charts', 30000);
+    const query = getFunnelPeriodQuery();
+    const chartsPath = query ? `/admin/charts?${query}` : '/admin/charts';
+    const data = await fetchAdminJSON(chartsPath, 30000);
     if (!data) return;
 
     // Mantém KPIs da rota rápida; usa a rota pesada apenas para conteúdo analítico.
@@ -913,10 +951,110 @@ async function loadChartsData() {
     schedule(() => updateTopUsers(merged));
     schedule(() => updateCooldown(merged));
     schedule(() => updateDropoff(merged));
+
+    if (data.funnelPeriod && $('funnelPeriodNote')) {
+      const p = data.funnelPeriod;
+      if (p.mode === 'all') {
+        $('funnelPeriodNote').textContent = `Funil acumulado · ${p.cohortUsers || 0} leads no histórico disponível.`;
+      } else {
+        $('funnelPeriodNote').textContent =
+          `Coorte ${p.start} → ${p.end} · ${p.cohortUsers || 0} leads iniciaram no período.`;
+      }
+    }
   } finally {
     state.loadingCharts = false;
   }
 }
+
+// ─── período do funil / drop-off ─────────────────────────
+function formatDateInputLocal(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function resolveFunnelPreset(preset) {
+  const today = new Date();
+
+  if (preset === 'all') return { start: '', end: '' };
+
+  if (preset === 'today') {
+    const value = formatDateInputLocal(today);
+    return { start: value, end: value };
+  }
+
+  if (preset === '7d' || preset === '30d') {
+    const days = preset === '7d' ? 7 : 30;
+    const start = new Date(today);
+    start.setDate(today.getDate() - (days - 1));
+    return { start: formatDateInputLocal(start), end: formatDateInputLocal(today) };
+  }
+
+  return {
+    start: $('funnelStart')?.value || '',
+    end: $('funnelEnd')?.value || '',
+  };
+}
+
+function getFunnelPeriodQuery() {
+  const preset = $('funnelPeriodPreset')?.value || state.funnelPeriod.preset || 'today';
+  const period = resolveFunnelPreset(preset);
+
+  state.funnelPeriod = { preset, start: period.start, end: period.end };
+
+  if (preset === 'all') return '';
+  if (!period.start || !period.end) return '';
+
+  return new URLSearchParams({ start: period.start, end: period.end }).toString();
+}
+
+function updateFunnelPeriodUI() {
+  const preset = $('funnelPeriodPreset')?.value || 'today';
+  const isCustom = preset === 'custom';
+
+  $('funnelStart')?.classList.toggle('hidden', !isCustom);
+  $('funnelEnd')?.classList.toggle('hidden', !isCustom);
+  $('applyFunnelPeriod')?.classList.toggle('hidden', !isCustom);
+
+  const note = $('funnelPeriodNote');
+  if (!note) return;
+
+  if (preset === 'all') {
+    note.textContent = 'Funil acumulado de todo o histórico disponível.';
+  } else if (preset === 'today') {
+    note.textContent = 'Funil por coorte: leads que iniciaram hoje.';
+  } else if (preset === '7d') {
+    note.textContent = 'Funil por coorte: leads que iniciaram nos últimos 7 dias.';
+  } else if (preset === '30d') {
+    note.textContent = 'Funil por coorte: leads que iniciaram nos últimos 30 dias.';
+  } else {
+    const start = $('funnelStart')?.value || '—';
+    const end = $('funnelEnd')?.value || '—';
+    note.textContent = `Funil por coorte: leads que iniciaram de ${start} até ${end}.`;
+  }
+}
+
+async function applyFunnelPeriodFilter() {
+  const preset = $('funnelPeriodPreset')?.value || 'today';
+
+  if (preset === 'custom') {
+    const start = $('funnelStart')?.value || '';
+    const end = $('funnelEnd')?.value || '';
+    if (!start || !end) {
+      alert('Selecione a data inicial e final do funil.');
+      return;
+    }
+    if (end < start) {
+      alert('A data final não pode ser anterior à data inicial.');
+      return;
+    }
+  }
+
+  updateFunnelPeriodUI();
+  await loadChartsData();
+}
+
 
 // ─── main loader: Onda 1 → Onda 2 → Onda 3 ───────────────
 async function loadAllData() {
@@ -2002,6 +2140,17 @@ async function init() {
   $('fabRefresh')?.addEventListener('click', loadAllData);
   $('conversationFilter')?.addEventListener('change', () => loadConversations({ append: false }));
   $('conversationPhase')?.addEventListener('change', () => loadConversations({ append: false }));
+
+  $('funnelPeriodPreset')?.addEventListener('change', async () => {
+    updateFunnelPeriodUI();
+    if (($('funnelPeriodPreset')?.value || '') !== 'custom') {
+      await loadChartsData();
+    }
+  });
+  $('applyFunnelPeriod')?.addEventListener('click', applyFunnelPeriodFilter);
+  $('funnelStart')?.addEventListener('change', updateFunnelPeriodUI);
+  $('funnelEnd')?.addEventListener('change', updateFunnelPeriodUI);
+  updateFunnelPeriodUI();
 
   let searchTimer;
   $('conversationSearch')?.addEventListener('input', () => {
