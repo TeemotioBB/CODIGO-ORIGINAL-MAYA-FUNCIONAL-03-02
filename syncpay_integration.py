@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 # ⚙️  CONFIGURAÇÕES SYNCPAY
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SYNCPAY_CLIENT_ID     = "dc43fc03-63ea-4743-9898-e4fc174940e5"
-SYNCPAY_CLIENT_SECRET = "33afed10-d4e7-4480-8afc-67e56fcf54d1"
+SYNCPAY_CLIENT_ID     = os.getenv("SYNCPAY_CLIENT_ID", "").strip()
+SYNCPAY_CLIENT_SECRET = os.getenv("SYNCPAY_CLIENT_SECRET", "").strip()
 SYNCPAY_BASE_URL      = "https://api.syncpayments.com.br/api/partner/v1"
 WEBHOOK_BASE_URL      = os.getenv("WEBHOOK_BASE_URL", "")
 SYNCPAY_WEBHOOK_PATH  = "/webhook/syncpay"
@@ -75,6 +75,31 @@ def _sp_notified_key(uid, date_str):
 def _sp_customer_key(uid):
     """Chave para salvar dados do cliente no momento do PIX"""
     return f"sp:customer:{uid}"
+
+
+def _meta_tracking_key(uid):
+    return f"meta:tracking:{uid}"
+
+
+def _get_meta_tracking(uid: int) -> dict:
+    """Lê os identificadores Meta vinculados ao Telegram UID."""
+    try:
+        callback = _callbacks.get("get_meta_tracking")
+        if callback:
+            data = callback(uid) or {}
+        else:
+            data = _r.hgetall(_meta_tracking_key(uid)) or {}
+        return {
+            "fbc": str(data.get("fbc") or "").strip(),
+            "fbp": str(data.get("fbp") or "").strip(),
+            "client_ip_address": str(data.get("ip") or data.get("client_ip_address") or "").strip(),
+            "client_user_agent": str(data.get("user_agent") or data.get("client_user_agent") or "").strip(),
+            "page_url": str(data.get("page_url") or "").strip(),
+            "referrer": str(data.get("referrer") or "").strip(),
+        }
+    except Exception as e:
+        logger.error(f"[Meta Tracking] Erro lendo tracking uid={uid}: {e}")
+        return {}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔐  AUTENTICAÇÃO SYNCPAY
@@ -176,33 +201,61 @@ def _get_pix_pendente(uid: int):
 
 def _salvar_customer(uid: int, tg_user) -> dict:
     """
-    Salva os dados do usuário Telegram no Redis no momento do PIX.
-    Esses dados serão recuperados no webhook de confirmação,
-    onde o objeto tg_user não está mais disponível.
+    Salva os dados do usuário Telegram + identificadores Meta no momento do PIX.
+    O webhook de pagamento usa esse snapshot para manter exatamente o mesmo match data.
     """
+    tracking = _get_meta_tracking(uid)
     customer_data = {
         "chat_id":       uid,
-        "full_name":     tg_user.full_name or "",       # ← campo correto para o CAPI
+        "full_name":     tg_user.full_name or "",
         "username":      tg_user.username or "",
         "language_code": tg_user.language_code or "pt-br",
+        "fbc": tracking.get("fbc", ""),
+        "fbp": tracking.get("fbp", ""),
+        "client_ip_address": tracking.get("client_ip_address", ""),
+        "client_user_agent": tracking.get("client_user_agent", ""),
+        "page_url": tracking.get("page_url", ""),
+        "referrer": tracking.get("referrer", ""),
     }
     _r.setex(
         _sp_customer_key(uid),
         timedelta(hours=2),
         json.dumps(customer_data)
     )
+    logger.info(
+        f"[Meta Tracking] snapshot PIX uid={uid} | "
+        f"fbc={bool(customer_data['fbc'])} fbp={bool(customer_data['fbp'])} "
+        f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])}"
+    )
     return customer_data
 
 
 def _recuperar_customer(uid: int) -> dict:
-    """Recupera os dados do cliente salvos no momento da geração do PIX."""
+    """Recupera cliente do PIX e completa tracking caso o snapshot esteja ausente/incompleto."""
+    tracking = _get_meta_tracking(uid)
+    fallback = {
+        "chat_id": uid,
+        "full_name": "",
+        "username": "",
+        "language_code": "pt-br",
+        "fbc": tracking.get("fbc", ""),
+        "fbp": tracking.get("fbp", ""),
+        "client_ip_address": tracking.get("client_ip_address", ""),
+        "client_user_agent": tracking.get("client_user_agent", ""),
+        "page_url": tracking.get("page_url", ""),
+        "referrer": tracking.get("referrer", ""),
+    }
     raw = _r.get(_sp_customer_key(uid))
     if not raw:
-        return {"chat_id": uid, "full_name": "", "username": "", "language_code": "pt-br"}
+        return fallback
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
+        for key, value in fallback.items():
+            if not data.get(key) and value:
+                data[key] = value
+        return data
     except Exception:
-        return {"chat_id": uid, "full_name": "", "username": "", "language_code": "pt-br"}
+        return fallback
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -428,12 +481,7 @@ async def _pagar_vip_callback(update: Update, context):
             event_data = {
                 "event":     "payment_created",
                 "timestamp": int(time.time()),
-                "customer": {
-                    "chat_id":       uid,
-                    "full_name":     customer_data["full_name"],    # ← corrigido
-                    "username":      customer_data["username"],
-                    "language_code": customer_data["language_code"],
-                },
+                "customer": dict(customer_data),
                 "transaction": {
                     "internal_transaction_id": pix_data["identifier"],
                     "sale_code":      f"SALE-{uid}-{int(time.time())}",
@@ -540,12 +588,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             event_data = {
                 "event":     "payment_approved",
                 "timestamp": int(time.time()),
-                "customer": {
-                    "chat_id":       uid,
-                    "full_name":     customer_data["full_name"],    # ← agora tem dado
-                    "username":      customer_data["username"],
-                    "language_code": customer_data["language_code"],
-                },
+                "customer": dict(customer_data),
                 "transaction": {
                     "internal_transaction_id": identifier,
                     "external_transaction_id": identifier,
