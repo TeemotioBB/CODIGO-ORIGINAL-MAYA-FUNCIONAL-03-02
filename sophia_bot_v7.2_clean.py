@@ -26,10 +26,14 @@ import hashlib
 import base64
 import csv
 import io
+import time
+import secrets
+import ipaddress
+from urllib.parse import urlparse, parse_qs
 import syncpay_integration
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -349,7 +353,7 @@ GROK_API_URL = os.getenv(
     "GROK_API_URL",
     "https://api.x.ai/v1/chat/completions"
 )
-REDIS_URL = os.getenv("REDIS_URL", "redis://default:DcddfJOHLXZdFPjEhRjHeodNgdtrsevl@shuttle.proxy.rlwy.net:12241")
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://codigo-original-maya-funcional-03-02-production.up.railway.app")
 WEBHOOK_PATH = "/telegram"
@@ -360,6 +364,13 @@ PRECO_VIP = os.getenv("PRECO_VIP", "R$ 9,00")
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
 PORT = int(os.getenv("PORT", 8080))
 
+# Meta Ads -> Landing -> Telegram tracking
+TRACKING_TOKEN_TTL_SECONDS = int(os.getenv("TRACKING_TOKEN_TTL_SECONDS", "86400"))
+META_TRACKING_TTL_DAYS = int(os.getenv("META_TRACKING_TTL_DAYS", "30"))
+TRACKING_ALLOWED_ORIGINS = {
+    item.strip() for item in os.getenv("TRACKING_ALLOWED_ORIGINS", "*").split(",") if item.strip()
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ VALIDAÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -368,6 +379,8 @@ if not TELEGRAM_TOKEN:
     raise RuntimeError("❌ Configure TELEGRAM_TOKEN nas variáveis de ambiente")
 if not GROK_API_KEY:
     raise RuntimeError("❌ Configure GROK_API_KEY nas variáveis de ambiente")
+if not REDIS_URL:
+    raise RuntimeError("❌ Configure REDIS_URL nas variáveis de ambiente")
 
 if not WEBHOOK_BASE_URL.startswith("http"):
     WEBHOOK_BASE_URL = f"https://{WEBHOOK_BASE_URL}"
@@ -792,6 +805,10 @@ def source_meta_key(uid): return f"source:meta:{uid}"
 def source_users_key(source): return f"source:users:{source}"
 def source_campaign_users_key(campaign): return f"source:campaign_users:{campaign}"
 def source_stats_key(d): return f"source:stats:{d}"
+
+# Meta Ads: token temporário da landing e dados vinculados ao Telegram UID.
+def meta_tracking_token_key(token): return f"meta:tracking_token:{token}"
+def meta_tracking_user_key(uid): return f"meta:tracking:{uid}"
 def grok_usage_key(uid): return f"grok:usage:{uid}:{date.today()}"
 def lead_profile_key(uid): return f"lead:profile:{uid}"
 def cold_open_sent_key(uid): return f"cold_open_sent:{uid}"
@@ -1249,6 +1266,163 @@ def get_user_source(uid):
 
 def is_ads_user(uid):
     return bool(get_user_source(uid).get("is_ads"))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 META ADS TRACKING — Landing -> token curto -> Telegram /start
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _tracking_clean(value, max_len=2048):
+    """Normaliza valores vindos da landing sem transformar 'null' em dado real."""
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if not value or value.lower() in {"null", "none", "undefined", "nan"}:
+        return ""
+    return value[:max_len]
+
+
+def _tracking_valid_meta_cookie(value):
+    """Aceita somente o formato esperado de _fbc/_fbp (fb.<subdomain>.<timestamp>.<id>)."""
+    value = _tracking_clean(value, 500)
+    if not value:
+        return ""
+    if re.match(r"^fb\.\d+\.\d{10,16}\..+", value):
+        return value
+    return ""
+
+
+def _tracking_valid_ip(value):
+    value = _tracking_clean(value, 80)
+    if not value:
+        return ""
+    # X-Forwarded-For pode conter uma lista; o primeiro IP é o cliente original.
+    candidate = value.split(",", 1)[0].strip()
+    try:
+        ipaddress.ip_address(candidate)
+        return candidate
+    except ValueError:
+        return ""
+
+
+def _request_client_ip():
+    """Obtém o IP visto pelo backend; prioriza headers do proxy da Railway."""
+    for candidate in (
+        request.headers.get("CF-Connecting-IP"),
+        request.headers.get("X-Forwarded-For"),
+        request.remote_addr,
+    ):
+        valid = _tracking_valid_ip(candidate)
+        if valid:
+            return valid
+    return ""
+
+
+def _tracking_cors_headers():
+    origin = request.headers.get("Origin", "")
+    if "*" in TRACKING_ALLOWED_ORIGINS:
+        allow_origin = "*"
+    elif origin and origin in TRACKING_ALLOWED_ORIGINS:
+        allow_origin = origin
+    else:
+        allow_origin = ""
+
+    headers = {
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400",
+        "Cache-Control": "no-store",
+        "Vary": "Origin",
+    }
+    if allow_origin:
+        headers["Access-Control-Allow-Origin"] = allow_origin
+    return headers
+
+
+def _tracking_json(payload, status=200):
+    response = jsonify(payload)
+    response.status_code = status
+    for key, value in _tracking_cors_headers().items():
+        response.headers[key] = value
+    return response
+
+
+def _tracking_source_payload(data):
+    """Mantém seu painel de aquisição útil sem gravar o token como campanha."""
+    if data.get("fbc") or data.get("fbclid"):
+        return "ads_meta_landing"
+
+    page_url = data.get("page_url") or ""
+    try:
+        params = parse_qs(urlparse(page_url).query)
+        utm_source = _safe_slug((params.get("utm_source") or [""])[0], "")
+        utm_campaign = _safe_slug((params.get("utm_campaign") or [""])[0], "")
+        if utm_source or utm_campaign:
+            value = "_".join(part for part in [utm_source, utm_campaign] if part)
+            return f"landing_{value}"[:80]
+    except Exception:
+        pass
+    return "landing_organic"
+
+
+def get_meta_tracking(uid):
+    """Dados de correspondência Meta vinculados ao Telegram UID."""
+    try:
+        data = r.hgetall(meta_tracking_user_key(uid)) or {}
+        return {
+            "fbclid": _tracking_clean(data.get("fbclid"), 500),
+            "fbc": _tracking_valid_meta_cookie(data.get("fbc")),
+            "fbp": _tracking_valid_meta_cookie(data.get("fbp")),
+            "ip": _tracking_valid_ip(data.get("ip")),
+            "user_agent": _tracking_clean(data.get("user_agent"), 1024),
+            "page_url": _tracking_clean(data.get("page_url"), 2048),
+            "referrer": _tracking_clean(data.get("referrer"), 2048),
+            "linked_at": _tracking_clean(data.get("linked_at"), 80),
+        }
+    except Exception as e:
+        logger.error(f"[META TRACKING] Erro lendo uid={uid}: {e}")
+        return {}
+
+
+def consume_meta_tracking_token(uid, start_param):
+    """Vincula um token trk_* ao Telegram UID e invalida o token temporário."""
+    token = _tracking_clean(start_param, 64)
+    if not token or not re.fullmatch(r"trk_[A-Za-z0-9_-]{8,48}", token):
+        return None
+
+    key = meta_tracking_token_key(token)
+    try:
+        raw = r.get(key)
+        if not raw:
+            logger.info(f"[META TRACKING] token ausente/expirado uid={uid}")
+            return None
+
+        data = json.loads(raw)
+        mapping = {
+            "fbclid": _tracking_clean(data.get("fbclid"), 500),
+            "fbc": _tracking_valid_meta_cookie(data.get("fbc")),
+            "fbp": _tracking_valid_meta_cookie(data.get("fbp")),
+            "ip": _tracking_valid_ip(data.get("ip")),
+            "user_agent": _tracking_clean(data.get("user_agent"), 1024),
+            "page_url": _tracking_clean(data.get("page_url"), 2048),
+            "referrer": _tracking_clean(data.get("referrer"), 2048),
+            "linked_at": datetime.now().isoformat(),
+            "start_token": token,
+        }
+        # Redis HASH facilita inspeção/admin; strings vazias são permitidas mas nunca enviadas ao Meta.
+        r.hset(meta_tracking_user_key(uid), mapping=mapping)
+        r.expire(meta_tracking_user_key(uid), timedelta(days=META_TRACKING_TTL_DAYS))
+        r.delete(key)  # token de uso único; evita que outro Telegram ID reutilize o mesmo link.
+
+        logger.info(
+            f"[META TRACKING] token vinculado uid={uid} | "
+            f"fbc={bool(mapping['fbc'])} fbp={bool(mapping['fbp'])} "
+            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])}"
+        )
+        return mapping
+    except Exception as e:
+        logger.error(f"[META TRACKING] Erro consumindo token uid={uid}: {e}")
+        return None
 
 
 def track_source_event(uid, event, amount=None):
@@ -3724,15 +3898,20 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     router = get_router()
     start_param = context.args[0] if context.args else None
-    detected_ia = router.parse_start_params(start_param)
+
+    # Se veio da landing, resolve o token curto antes de qualquer tracking de origem.
+    meta_tracking = consume_meta_tracking_token(uid, start_param)
+    router_start_param = None if meta_tracking else start_param
+    detected_ia = router.parse_start_params(router_start_param)
 
     if detected_ia:
         router.assign_ia(uid, detected_ia)
     else:
         router.assign_ia(uid, "maya")
 
-    # Tracking first-touch/last-touch de origem. Não interfere no IA Router.
-    save_user_source(uid, start_param)
+    # Não grava trk_xxx como campanha: converte para uma origem legível no painel.
+    source_start_param = _tracking_source_payload(meta_tracking) if meta_tracking else start_param
+    save_user_source(uid, source_start_param)
 
     ia_config = router.get_ia_config(uid=uid)
 
@@ -4398,12 +4577,89 @@ syncpay_integration.init(
         "activate_hard_wall": activate_sales_hard_wall,
         "clear_hard_wall": clear_sales_hard_wall,
         "send_vip_intro_audio": send_vip_intro_audio_once,
+        "get_meta_tracking": get_meta_tracking,
     }
 )
 
 @app.route("/", methods=["GET"])
 def health():
     return {"status": "ok", "version": "8.3-apex"}, 200
+
+
+@app.route("/tracking/telegram", methods=["POST", "OPTIONS"])
+def tracking_telegram():
+    """
+    Recebe os identificadores capturados na landing e devolve apenas um token curto.
+    O token cabe com folga no parâmetro /start do Telegram e é associado ao UID
+    somente quando o usuário realmente abre o bot.
+    """
+    if request.method == "OPTIONS":
+        response = app.make_response(("", 204))
+        for key, value in _tracking_cors_headers().items():
+            response.headers[key] = value
+        return response
+
+    # Se a origem estiver restrita por env e não for permitida, rejeita o POST.
+    origin = request.headers.get("Origin", "")
+    if "*" not in TRACKING_ALLOWED_ORIGINS and origin not in TRACKING_ALLOWED_ORIGINS:
+        return _tracking_json({"error": "origin_not_allowed"}, 403)
+
+    try:
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return _tracking_json({"error": "invalid_json"}, 400)
+
+        fbclid = _tracking_clean(payload.get("fbclid"), 500)
+        fbc = _tracking_valid_meta_cookie(payload.get("fbc"))
+        fbp = _tracking_valid_meta_cookie(payload.get("fbp"))
+
+        # Fallback oficial: fbc pode ser construído quando existe fbclid.
+        if not fbc and fbclid:
+            timestamp_ms = int(time.time() * 1000)
+            fbc = f"fb.1.{timestamp_ms}.{fbclid}"[:500]
+
+        # IP/UA observados no request são preferidos; payload é fallback.
+        client_ip = _request_client_ip() or _tracking_valid_ip(payload.get("ip"))
+        client_ua = _tracking_clean(request.headers.get("User-Agent"), 1024) or _tracking_clean(payload.get("user_agent"), 1024)
+
+        tracking_data = {
+            "fbclid": fbclid,
+            "fbc": fbc,
+            "fbp": fbp,
+            "ip": client_ip,
+            "user_agent": client_ua,
+            "page_url": _tracking_clean(payload.get("page_url"), 2048),
+            "referrer": _tracking_clean(payload.get("referrer"), 2048),
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # Token curto e compatível com Telegram: letras/números/_/- e << 64 chars.
+        start_token = None
+        for _ in range(5):
+            candidate = f"trk_{secrets.token_urlsafe(12)}"
+            if r.set(
+                meta_tracking_token_key(candidate),
+                json.dumps(tracking_data, ensure_ascii=False),
+                nx=True,
+                ex=TRACKING_TOKEN_TTL_SECONDS,
+            ):
+                start_token = candidate
+                break
+
+        if not start_token:
+            logger.error("[META TRACKING] Não foi possível gerar token único")
+            return _tracking_json({"error": "token_generation_failed"}, 503)
+
+        logger.info(
+            f"[META TRACKING] token criado | fbc={bool(fbc)} fbp={bool(fbp)} "
+            f"ip={bool(client_ip)} ua={bool(client_ua)}"
+        )
+        return _tracking_json({"start_token": start_token}, 201)
+
+    except Exception as e:
+        logger.error(f"[META TRACKING] Erro /tracking/telegram: {e}")
+        return _tracking_json({"error": "internal_error"}, 500)
+
 
 @app.route("/set-webhook", methods=["GET"])
 def set_webhook_route():
