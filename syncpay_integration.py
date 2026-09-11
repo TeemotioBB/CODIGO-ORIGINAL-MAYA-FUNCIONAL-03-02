@@ -191,6 +191,11 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
         timedelta(days=365),
         "1"
     )
+    # Índice temporal do funil: primeira criação de PIX por usuário.
+    try:
+        _r.zadd("admin:funnel:ts:pix_created", {str(uid): float(time.time())}, nx=True)
+    except Exception as idx_err:
+        logger.debug(f"[Admin Funnel] Erro indexando pix_created uid={uid}: {idx_err}")
 
     logger.info(f"[SyncPay] 💸 PIX gerado: uid={uid} identifier={identifier} valor=R${amount}")
     return {"pix_code": pix_code, "identifier": identifier}
@@ -603,6 +608,13 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
 
         _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
+        # Índice temporal do funil: primeira compra confirmada por usuário.
+        try:
+            _r.zadd("admin:funnel:ts:paid", {str(uid): float(time.time())}, nx=True)
+            # Compra implica que um PIX existiu, mesmo em dados legados.
+            _r.zadd("admin:funnel:ts:pix_created", {str(uid): float(time.time())}, nx=True)
+        except Exception as idx_err:
+            logger.debug(f"[Admin Funnel] Erro indexando pagamento uid={uid}: {idx_err}")
 
         cancel_followup5 = _callbacks.get("cancel_followup5")
         if cancel_followup5:
