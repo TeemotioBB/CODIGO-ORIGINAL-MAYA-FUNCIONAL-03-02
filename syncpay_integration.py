@@ -95,6 +95,10 @@ def _get_meta_tracking(uid: int) -> dict:
             "client_user_agent": str(data.get("user_agent") or data.get("client_user_agent") or "").strip(),
             "page_url": str(data.get("page_url") or "").strip(),
             "referrer": str(data.get("referrer") or "").strip(),
+            "city": str(data.get("city") or "").strip(),
+            "state": str(data.get("state") or "").strip(),
+            "zip": str(data.get("zip") or "").strip(),
+            "country": str(data.get("country") or "").strip().lower(),
         }
     except Exception as e:
         logger.error(f"[Meta Tracking] Erro lendo tracking uid={uid}: {e}")
@@ -228,6 +232,10 @@ def _salvar_customer(uid: int, tg_user) -> dict:
         "client_user_agent": tracking.get("client_user_agent", ""),
         "page_url": tracking.get("page_url", ""),
         "referrer": tracking.get("referrer", ""),
+        "city": tracking.get("city", ""),
+        "state": tracking.get("state", ""),
+        "zip": tracking.get("zip", ""),
+        "country": tracking.get("country", ""),
     }
     _r.setex(
         _sp_customer_key(uid),
@@ -237,7 +245,8 @@ def _salvar_customer(uid: int, tg_user) -> dict:
     logger.info(
         f"[Meta Tracking] snapshot PIX uid={uid} | "
         f"fbc={bool(customer_data['fbc'])} fbp={bool(customer_data['fbp'])} "
-        f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])}"
+        f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])} "
+        f"city={bool(customer_data['city'])} state={bool(customer_data['state'])}"
     )
     return customer_data
 
@@ -256,6 +265,10 @@ def _recuperar_customer(uid: int) -> dict:
         "client_user_agent": tracking.get("client_user_agent", ""),
         "page_url": tracking.get("page_url", ""),
         "referrer": tracking.get("referrer", ""),
+        "city": tracking.get("city", ""),
+        "state": tracking.get("state", ""),
+        "zip": tracking.get("zip", ""),
+        "country": tracking.get("country", ""),
     }
     raw = _r.get(_sp_customer_key(uid))
     if not raw:
