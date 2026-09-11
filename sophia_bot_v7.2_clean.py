@@ -18,6 +18,7 @@ import os
 import asyncio
 import logging
 import aiohttp
+import requests
 import redis
 import re
 import json
@@ -370,6 +371,14 @@ META_TRACKING_TTL_DAYS = int(os.getenv("META_TRACKING_TTL_DAYS", "30"))
 TRACKING_ALLOWED_ORIGINS = {
     item.strip() for item in os.getenv("TRACKING_ALLOWED_ORIGINS", "*").split(",") if item.strip()
 }
+
+# GeoIP para melhorar Event Match Quality da Meta.
+# Faz uma consulta apenas na primeira visita de cada IP e guarda o resultado em cache.
+GEOIP_ENABLED = os.getenv("GEOIP_ENABLED", "1") == "1"
+GEOIP_URL_TEMPLATE = os.getenv("GEOIP_URL_TEMPLATE", "https://ipwho.is/{ip}").strip()
+GEOIP_TIMEOUT_SECONDS = float(os.getenv("GEOIP_TIMEOUT_SECONDS", "1.8"))
+GEOIP_CACHE_DAYS = int(os.getenv("GEOIP_CACHE_DAYS", "7"))
+GEOIP_NEGATIVE_CACHE_SECONDS = int(os.getenv("GEOIP_NEGATIVE_CACHE_SECONDS", "3600"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ VALIDAÇÃO
@@ -1586,6 +1595,125 @@ def _request_client_ip():
     return ""
 
 
+
+def _tracking_public_ip(value):
+    """Retorna o IP apenas se for global/público; evita consultar IP interno da Railway."""
+    valid = _tracking_valid_ip(value)
+    if not valid:
+        return ""
+    try:
+        obj = ipaddress.ip_address(valid)
+        return valid if obj.is_global else ""
+    except ValueError:
+        return ""
+
+
+def _geoip_cache_key(ip):
+    """Não coloca o IP em texto puro no nome da chave de cache."""
+    digest = hashlib.sha256(str(ip).encode("utf-8")).hexdigest()[:32]
+    return f"meta:geoip:{digest}"
+
+
+def _lookup_ip_geo(ip):
+    """
+    GeoIP best-effort.
+    Retorna city/state/zip/country sem interromper o tracking se o provedor falhar.
+    O resultado é cacheado para reduzir latência/custo.
+    """
+    if not GEOIP_ENABLED:
+        return {}
+
+    ip = _tracking_public_ip(ip)
+    if not ip:
+        return {}
+
+    cache_key = _geoip_cache_key(ip)
+
+    try:
+        cached = r.get(cache_key)
+        if cached:
+            parsed = json.loads(cached)
+            if isinstance(parsed, dict):
+                return parsed
+    except Exception as e:
+        logger.debug(f"[META GEOIP] cache read falhou: {e}")
+
+    result = {}
+    try:
+        url = GEOIP_URL_TEMPLATE.format(ip=ip)
+        resp = requests.get(
+            url,
+            timeout=GEOIP_TIMEOUT_SECONDS,
+            headers={"User-Agent": "SophiaBot-MetaTracking/1.0"},
+        )
+        if resp.ok:
+            data = resp.json() if resp.content else {}
+
+            # ipwho.is retorna success=False em falhas. Outros provedores podem
+            # simplesmente não devolver o campo "success".
+            if data.get("success", True) is not False:
+                city = _tracking_clean(data.get("city"), 120)
+
+                # Meta prefere código de estado quando disponível (ex.: MG, SP).
+                state = _tracking_clean(
+                    data.get("region_code")
+                    or data.get("state_code")
+                    or data.get("region")
+                    or data.get("state"),
+                    80,
+                )
+
+                postal = _tracking_clean(
+                    data.get("postal")
+                    or data.get("zip")
+                    or data.get("postal_code"),
+                    40,
+                )
+
+                country = _tracking_clean(
+                    data.get("country_code")
+                    or data.get("countryCode")
+                    or "",
+                    8,
+                ).lower()
+
+                result = {
+                    "city": city,
+                    "state": state,
+                    "zip": postal,
+                    "country": country,
+                    "geo_source": "ip",
+                }
+
+                # Não guarda campos vazios desnecessários.
+                result = {k: v for k, v in result.items() if v}
+
+        if result:
+            r.setex(
+                cache_key,
+                timedelta(days=max(1, GEOIP_CACHE_DAYS)),
+                json.dumps(result, ensure_ascii=False),
+            )
+            logger.info(
+                f"[META GEOIP] ok | city={bool(result.get('city'))} "
+                f"state={bool(result.get('state'))} "
+                f"zip={bool(result.get('zip'))} country={bool(result.get('country'))}"
+            )
+            return result
+
+        # Negative cache evita insistir em um provedor temporariamente indisponível.
+        r.setex(cache_key, max(60, GEOIP_NEGATIVE_CACHE_SECONDS), "{}")
+
+    except Exception as e:
+        logger.warning(f"[META GEOIP] falha lookup (tracking continua): {e}")
+        try:
+            r.setex(cache_key, max(60, GEOIP_NEGATIVE_CACHE_SECONDS), "{}")
+        except Exception:
+            pass
+
+    return {}
+
+
 def _tracking_cors_headers():
     origin = request.headers.get("Origin", "")
     if "*" in TRACKING_ALLOWED_ORIGINS:
@@ -1645,6 +1773,11 @@ def get_meta_tracking(uid):
             "user_agent": _tracking_clean(data.get("user_agent"), 1024),
             "page_url": _tracking_clean(data.get("page_url"), 2048),
             "referrer": _tracking_clean(data.get("referrer"), 2048),
+            "city": _tracking_clean(data.get("city"), 120),
+            "state": _tracking_clean(data.get("state"), 80),
+            "zip": _tracking_clean(data.get("zip"), 40),
+            "country": _tracking_clean(data.get("country"), 8).lower(),
+            "geo_source": _tracking_clean(data.get("geo_source"), 40),
             "linked_at": _tracking_clean(data.get("linked_at"), 80),
         }
     except Exception as e:
@@ -1674,6 +1807,11 @@ def consume_meta_tracking_token(uid, start_param):
             "user_agent": _tracking_clean(data.get("user_agent"), 1024),
             "page_url": _tracking_clean(data.get("page_url"), 2048),
             "referrer": _tracking_clean(data.get("referrer"), 2048),
+            "city": _tracking_clean(data.get("city"), 120),
+            "state": _tracking_clean(data.get("state"), 80),
+            "zip": _tracking_clean(data.get("zip"), 40),
+            "country": _tracking_clean(data.get("country"), 8).lower(),
+            "geo_source": _tracking_clean(data.get("geo_source"), 40),
             "linked_at": datetime.now().isoformat(),
             "start_token": token,
         }
@@ -1685,7 +1823,8 @@ def consume_meta_tracking_token(uid, start_param):
         logger.info(
             f"[META TRACKING] token vinculado uid={uid} | "
             f"fbc={bool(mapping['fbc'])} fbp={bool(mapping['fbp'])} "
-            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])}"
+            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])} "
+            f"city={bool(mapping['city'])} state={bool(mapping['state'])}"
         )
         return mapping
     except Exception as e:
@@ -5088,6 +5227,10 @@ def tracking_telegram():
         client_ip = _request_client_ip() or _tracking_valid_ip(payload.get("ip"))
         client_ua = _tracking_clean(request.headers.get("User-Agent"), 1024) or _tracking_clean(payload.get("user_agent"), 1024)
 
+        # Localização aproximada derivada do IP, somente no backend.
+        # A landing não precisa mandar cidade/estado.
+        geo = _lookup_ip_geo(client_ip)
+
         tracking_data = {
             "fbclid": fbclid,
             "fbc": fbc,
@@ -5096,6 +5239,11 @@ def tracking_telegram():
             "user_agent": client_ua,
             "page_url": _tracking_clean(payload.get("page_url"), 2048),
             "referrer": _tracking_clean(payload.get("referrer"), 2048),
+            "city": _tracking_clean(geo.get("city"), 120),
+            "state": _tracking_clean(geo.get("state"), 80),
+            "zip": _tracking_clean(geo.get("zip"), 40),
+            "country": _tracking_clean(geo.get("country"), 8).lower(),
+            "geo_source": _tracking_clean(geo.get("geo_source"), 40),
             "created_at": datetime.now().isoformat(),
         }
 
@@ -5118,7 +5266,8 @@ def tracking_telegram():
 
         logger.info(
             f"[META TRACKING] token criado | fbc={bool(fbc)} fbp={bool(fbp)} "
-            f"ip={bool(client_ip)} ua={bool(client_ua)}"
+            f"ip={bool(client_ip)} ua={bool(client_ua)} "
+            f"city={bool(tracking_data.get('city'))} state={bool(tracking_data.get('state'))}"
         )
         return _tracking_json({"start_token": start_token}, 201)
 
