@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.4 - APEX FUNIL FIX (TEASER ANTES DO PIX + FOLLOW-UP)     ║
+║ 🔥 SOPHIA BOT v8.5 - FUNIL LITERAL + TRUST/PIX CONTEXT FIX     ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -162,7 +162,7 @@ RESPONSE_POOLS = {
     "pos_teaser_pitch": [
         "E aí, tá batendo punheta com minhas fotos agora? No VIP eu te mando vídeo meu gozando de verdade 🔥",
         "Quer me ver chupando, sentando e gozando tudo pra você? É só pagar R$9,00 e eu sou toda sua 💦",
-        "No VIP eu não tenho limite nenhum... posso até te mandar vídeo ao vivo se você quiser 😈",
+        "No VIP eu libero as prévias e o conteúdo que já estão disponíveis por lá 😈",
         "Tá com o pau na mão né? Paga logo que eu libero os vídeos mais quentes que você já viu 🔥",
         "No VIP é só você e eu... sem censura, sem limite, só tesão puro 💦"
     ],
@@ -435,7 +435,7 @@ MAX_MEMORIA = 12
 START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
 START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
-logger.info(f"🚀 Sophia Bot v8.3 APEX FUNIL iniciando...")
+logger.info(f"🚀 Sophia Bot v8.5 APEX FUNIL iniciando...")
 logger.info(f"🤖 Modelo Grok configurado: {GROK_MODEL}")
 logger.info(f"🌐 Endpoint Grok: {GROK_API_URL}")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
@@ -534,19 +534,19 @@ def _admin_record_funnel_time(uid, stage_name, when_ts=None):
 
 
 def _admin_record_funnel(uid, stage_number):
-    """Cada conjunto representa usuários que alcançaram pelo menos aquele estágio."""
+    """Registra somente a etapa LITERAL observada; nunca inventa etapas anteriores."""
     try:
         stage_number = max(0, min(int(stage_number or 0), 4))
         names = {1: "started", 2: "first_message", 3: "saw_teaser", 4: "clicked_vip"}
-        for stage in range(1, stage_number + 1):
-            stage_name = names[stage]
-            field = f"funnel_{stage_name}"
-            if r.sadd(admin_counted_set(field), str(uid)):
-                r.hincrby(admin_stats_hash_key(), field, 1)
-            _admin_record_funnel_time(uid, stage_name)
+        stage_name = names.get(stage_number)
+        if not stage_name:
+            return
+        field = f"funnel_{stage_name}"
+        if r.sadd(admin_counted_set(field), str(uid)):
+            r.hincrby(admin_stats_hash_key(), field, 1)
+        _admin_record_funnel_time(uid, stage_name)
     except Exception:
         pass
-
 
 def reconcile_admin_paid_stats():
     """
@@ -576,6 +576,11 @@ def bootstrap_admin_stats_once():
             return False
 
         users = get_all_active_users()
+        # v3: remove somente agregados de FUNIL antigos que inferiam etapas anteriores.
+        r.delete(
+            admin_counted_set("funnel_started"), admin_counted_set("funnel_first_message"),
+            admin_counted_set("funnel_saw_teaser"), admin_counted_set("funnel_clicked_vip")
+        )
         total_messages = 0
         streak_sum = 0
         streak_users = 0
@@ -591,11 +596,11 @@ def bootstrap_admin_stats_once():
             for uid in chunk:
                 pipe.get(first_contact_key(uid))
                 pipe.get(last_activity_key(uid))
+                pipe.exists(first_message_seen_key(uid))
                 pipe.get(saw_teaser_key(uid))
                 pipe.get(clicked_vip_key(uid))
                 pipe.get(conversation_messages_key(uid))
                 pipe.get(streak_key(uid))
-                pipe.get(funnel_key(uid))
                 pipe.get(rejection_cooldown_key(uid))
                 pipe.ttl(rejection_cooldown_key(uid))
                 pipe.get(ignored_count_key(uid))
@@ -608,11 +613,11 @@ def bootstrap_admin_stats_once():
             for uid in chunk:
                 first_raw = vals[idx]; idx += 1
                 last_raw = vals[idx]; idx += 1
+                first_msg_exists = bool(vals[idx]); idx += 1
                 saw_raw = vals[idx]; idx += 1
                 clicked_raw = vals[idx]; idx += 1
                 msgs_raw = vals[idx]; idx += 1
                 streak_raw = vals[idx]; idx += 1
-                funnel_raw = vals[idx]; idx += 1
                 cooldown_raw = vals[idx]; idx += 1
                 cooldown_ttl = vals[idx]; idx += 1
                 ignored_raw = vals[idx]; idx += 1
@@ -655,13 +660,15 @@ def bootstrap_admin_stats_once():
                     streak_sum += streak
                     streak_users += 1
 
-                try:
-                    funnel = max(0, min(int(funnel_raw or 0), 4))
-                except Exception:
-                    funnel = 0
-                for stage, name in ((1, "started"), (2, "first_message"), (3, "saw_teaser"), (4, "clicked_vip")):
-                    if funnel >= stage:
-                        write.sadd(admin_counted_set(f"funnel_{name}"), str(uid))
+                # Migração literal: cada flag só conta se a evidência daquela etapa existe.
+                if first_raw:
+                    write.sadd(admin_counted_set("funnel_started"), str(uid))
+                if first_msg_exists:
+                    write.sadd(admin_counted_set("funnel_first_message"), str(uid))
+                if saw_raw:
+                    write.sadd(admin_counted_set("funnel_saw_teaser"), str(uid))
+                if clicked_raw:
+                    write.sadd(admin_counted_set("funnel_clicked_vip"), str(uid))
 
                 if cooldown_raw:
                     ttl = cooldown_ttl if isinstance(cooldown_ttl, int) and cooldown_ttl > 0 else 86400
@@ -741,6 +748,8 @@ def bootstrap_admin_funnel_time_indexes_once():
             return False
 
         users = get_all_active_users()
+        # v2: zera índices antigos que inferiam etapas para reconstruir apenas eventos observados.
+        r.delete(*(admin_funnel_time_key(stage) for stage in ("started", "first_message", "saw_teaser", "clicked_vip", "pix_created", "paid")))
         now_ts = time.time()
         lifetime_365 = 86400 * 365
         chunk_size = 500
@@ -754,7 +763,6 @@ def bootstrap_admin_funnel_time_indexes_once():
                 pipe.ttl(first_message_seen_key(uid))
                 pipe.get(saw_teaser_key(uid))
                 pipe.get(clicked_vip_key(uid))
-                pipe.get(funnel_key(uid))
                 pipe.get(f"sp:pix:{uid}")
                 pipe.exists(f"sp:pix_created:{uid}")
                 pipe.ttl(f"sp:pix_created:{uid}")
@@ -771,17 +779,11 @@ def bootstrap_admin_funnel_time_indexes_once():
                 first_msg_ttl = vals[idx]; idx += 1
                 saw_raw = vals[idx]; idx += 1
                 clicked_raw = vals[idx]; idx += 1
-                funnel_raw = vals[idx]; idx += 1
                 pix_pending_raw = vals[idx]; idx += 1
                 pix_created_exists = bool(vals[idx]); idx += 1
                 pix_created_ttl = vals[idx]; idx += 1
                 paid_exists = bool(vals[idx]); idx += 1
                 paid_ttl = vals[idx]; idx += 1
-
-                try:
-                    funnel_stage = max(0, min(int(funnel_raw or 0), 4))
-                except Exception:
-                    funnel_stage = 0
 
                 started_ts = _safe_iso_timestamp(first_raw)
                 first_msg_ts = (
@@ -809,27 +811,10 @@ def bootstrap_admin_funnel_time_indexes_once():
                     if paid_exists else None
                 )
 
-                # Downstream garante que etapas anteriores também foram alcançadas.
+                # Não inferimos nenhuma etapa anterior a partir de uma posterior.
+                # A única compatibilidade mantida é PIX pago -> PIX existiu, que é uma relação técnica necessária.
                 if paid_exists and not pix_created_ts:
                     pix_created_ts = paid_ts
-                if pix_created_ts and not clicked_ts:
-                    clicked_ts = pix_created_ts
-                if clicked_ts and not saw_ts:
-                    saw_ts = clicked_ts
-                if saw_ts and not first_msg_ts:
-                    first_msg_ts = saw_ts
-                if first_msg_ts and not started_ts:
-                    started_ts = first_msg_ts
-
-                # Fallback para dados legados que só possuem funnel:<uid>.
-                if funnel_stage >= 1 and not started_ts:
-                    started_ts = now_ts
-                if funnel_stage >= 2 and not first_msg_ts:
-                    first_msg_ts = started_ts or now_ts
-                if funnel_stage >= 3 and not saw_ts:
-                    saw_ts = first_msg_ts or started_ts or now_ts
-                if funnel_stage >= 4 and not clicked_ts:
-                    clicked_ts = saw_ts or first_msg_ts or started_ts or now_ts
 
                 stage_times = {
                     "started": started_ts,
@@ -1064,15 +1049,15 @@ def admin_cooldown_zset_key(): return "admin:index:cooldown"
 def admin_ignored_zset_key(): return "admin:index:ignored"
 def admin_streak_values_key(): return "admin:streak_values"
 def admin_counted_set(event): return f"admin:counted:{event}"
-def admin_stats_ready_key(): return "admin:stats:ready:v2"
-def admin_stats_bootstrap_lock_key(): return "admin:stats:bootstrap_lock:v2"
+def admin_stats_ready_key(): return "admin:stats:ready:v3"
+def admin_stats_bootstrap_lock_key(): return "admin:stats:bootstrap_lock:v3"
 
 # Índices temporais do funil. Cada ZSET guarda UID -> timestamp da PRIMEIRA vez
 # em que aquele lead alcançou a etapa. Isso permite filtros por data sem scan
 # completo do Redis a cada abertura do painel.
 def admin_funnel_time_key(stage): return f"admin:funnel:ts:{stage}"
-def admin_funnel_time_ready_key(): return "admin:funnel:ts:ready:v1"
-def admin_funnel_time_lock_key(): return "admin:funnel:ts:bootstrap_lock:v1"
+def admin_funnel_time_ready_key(): return "admin:funnel:ts:ready:v2"
+def admin_funnel_time_lock_key(): return "admin:funnel:ts:bootstrap_lock:v2"
 
 # Origem / campanha / custo
 # Ex.: /start ads_instagram_reels_01 → channel=instagram, campaign=ads_instagram_reels_01
@@ -1116,6 +1101,10 @@ def followup_anchor_key(uid): return f"followup5:anchor:{uid}"
 def followup_interest_key(uid): return f"followup5:interest:{uid}"
 def followup_silent_key(uid): return f"followup5:silent:{uid}"
 def followup_first_name_key(uid): return f"followup5:first_name:{uid}"
+def silent_recovery_active_key(uid): return f"silent_recovery:active:{uid}"
+def silent_recovery_stage_key(uid): return f"silent_recovery:stage:{uid}"
+def silent_recovery_anchor_key(uid): return f"silent_recovery:anchor:{uid}"
+def pix_origin_key(uid): return f"sp:pix_origin:{uid}"
 def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
 def vip_intro_audio_sent_key(uid): return f"audio:vip_intro_sent:{uid}"
 def vip_moan_audio_sent_key(uid): return f"audio:moan_sent:{uid}"
@@ -1905,30 +1894,38 @@ def get_cta_label(uid, context="pix"):
         return "QUERO VER TUDO AGORA 😈"
     return "QUERO VER TUDO AGORA 😈"
 
+PAYMENT_ORIGINS = {
+    "teaser", "direct_intent", "followup", "limit", "objection",
+    "resend", "pix_recovery", "remarketing", "unknown"
+}
+
+def payment_callback_data(origin="unknown"):
+    """Callback curto e rastreável; permite saber o contexto REAL que originou o PIX."""
+    origin = re.sub(r"[^a-z0-9_]+", "_", str(origin or "unknown").lower()).strip("_")
+    if origin not in PAYMENT_ORIGINS:
+        origin = "unknown"
+    return f"pagar_vip|{origin}"
+
 
 def get_acquisition_breakdown(users=None):
-    """Resumo por origem para o painel admin: CAC estimado, conversão e lucro estimado."""
+    """Resumo por atribuição (campanha primeiro) para separar Ads x Telegram direto."""
     try:
         if users is None:
             users = get_all_active_users()
         by_source = {}
         for uid in users:
             meta = get_user_source(uid)
-            source = meta.get("source", "telegram")
-            row = by_source.setdefault(source, {
-                "source": source,
-                "users": 0,
-                "adsUsers": 0,
-                "sawTeaser": 0,
-                "pixCreated": 0,
-                "paid": 0,
-                "clickedVip": 0,
-                "messages": 0,
-                "estimatedCost": 0.0,
-                "estimatedRevenue": 0.0,
-                "estimatedProfit": 0.0,
-                "conversionRate": 0.0,
-                "costPerUser": 0.0,
+            channel = meta.get("source", "telegram")
+            campaign = meta.get("campaign") or meta.get("first_campaign") or "telegram_direct"
+            attribution = campaign or channel
+            row = by_source.setdefault(attribution, {
+                "source": attribution,
+                "channel": channel,
+                "campaign": campaign,
+                "users": 0, "adsUsers": 0, "sawTeaser": 0, "pixCreated": 0,
+                "paid": 0, "clickedVip": 0, "messages": 0,
+                "estimatedCost": 0.0, "estimatedRevenue": 0.0,
+                "estimatedProfit": 0.0, "conversionRate": 0.0, "costPerUser": 0.0,
             })
             row["users"] += 1
             if meta.get("is_ads"):
@@ -1937,13 +1934,11 @@ def get_acquisition_breakdown(users=None):
             row["estimatedCost"] += DEFAULT_BOT_COST_CENTS / 100
             if saw_teaser(uid): row["sawTeaser"] += 1
             if user_has_created_pix(uid): row["pixCreated"] += 1
-            if clicked_vip(uid):
-                row["clickedVip"] += 1
+            if clicked_vip(uid): row["clickedVip"] += 1
             if user_has_paid(uid):
                 row["paid"] += 1
                 row["estimatedRevenue"] += float(PRECO_VIP.replace("R$", "").replace(",", ".").strip() or 9)
             row["messages"] += get_conversation_messages_count(uid)
-
         for row in by_source.values():
             if row["users"]:
                 row["conversionRate"] = round((row["paid"] / row["users"]) * 100, 2)
@@ -1955,7 +1950,6 @@ def get_acquisition_breakdown(users=None):
     except Exception as e:
         logger.error(f"Erro get_acquisition_breakdown: {e}")
         return []
-
 
 def track_grok_usage(uid, api_response=None, input_tokens=0, output_tokens=0):
     """Salva uso quando a API devolver usage. Se não vier usage, conta a chamada."""
@@ -2413,7 +2407,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
 
         await asyncio.sleep(1.6)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
         ]])
         await bot.send_message(
             chat_id=chat_id,
@@ -2658,16 +2652,19 @@ def mark_limit_warning_sent(uid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def track_funnel(uid, stage):
+    """Registra o evento literal e mantém funnel:<uid> apenas como estágio máximo legado."""
     stages = {"start": 1, "first_message": 2, "saw_teaser": 3, "clicked_vip": 4}
     try:
-        current = int(r.get(funnel_key(uid)) or 0)
         new_stage = stages.get(stage, 0)
+        if not new_stage:
+            return
+        current = int(r.get(funnel_key(uid)) or 0)
         if new_stage > current:
             r.set(funnel_key(uid), new_stage)
-            _admin_record_funnel(uid, new_stage)
-            track_source_event(uid, stage)
-    except:
-        pass
+        _admin_record_funnel(uid, new_stage)
+        track_source_event(uid, stage)
+    except Exception as e:
+        logger.debug(f"track_funnel uid={uid} stage={stage}: {e}")
 
 def get_funnel_stats():
     try:
@@ -3293,6 +3290,8 @@ REGRAS GERAIS:
 - Não escreva textos longos; prefira 1 a 3 linhas.
 - Não use linguagem corporativa.
 - Não use menu no começo.
+- NUNCA prometa gravar/enviar uma mídia específica imediatamente, vídeo ao vivo, câmera ou conteúdo personalizado se o sistema não vai entregar isso literalmente.
+- Para prévias, diga apenas que existe uma prévia já disponível/separada; o envio real é controlado pelo fluxo externo.
 - Botão/PIX só deve aparecer quando offer_teaser=true ou quando o fluxo externo detectar pagamento.
 
 REGRAS DE FORMATO:
@@ -3449,6 +3448,32 @@ class Grok:
 
 grok = Grok()
 
+def enforce_deliverable_promises(uid, grok_response):
+    """Impede a IA de prometer mídia personalizada/imediata que o sistema não vai entregar."""
+    if not isinstance(grok_response, dict):
+        return grok_response
+    text = str(grok_response.get("response") or "")
+    low = text.lower()
+    forbidden = [
+        "vou gravar agora", "gravo agora", "vou te mandar agora", "vou mandar agora",
+        "já te mando", "video ao vivo", "vídeo ao vivo", "abre a câmera", "abre a camera",
+        "liga a câmera", "liga a camera", "gravando pra você agora", "gravando pra voce agora",
+    ]
+    if not any(term in low for term in forbidden):
+        return grok_response
+    safe = "Posso te mostrar uma prévia que já está separada aqui 😏 Quer ver?"
+    cleaned = dict(grok_response)
+    cleaned["response"] = safe
+    cleaned["offer_teaser"] = False
+    if FREE_TEASER_VIDEO_IDS and not free_teaser_video_already_sent_today(uid):
+        mark_pending_teaser_video(uid)
+    track_source_event(uid, "promise_guard_triggered")
+    save_message(uid, "system", "🛡️ PROMISE GUARD substituiu promessa de mídia não garantida")
+    logger.warning(f"[PROMISE GUARD] Resposta ajustada uid={uid}")
+    return cleaned
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 ENVIO DE TEASER + PITCH APEX VIP (v8.3)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3534,7 +3559,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
@@ -3561,6 +3586,8 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 # Tempo desde a última interação do LEAD:
 # 1º 10 min | 2º 45 min | 3º 5h | 4º 24h | 5º 48h (final)
 FOLLOWUP_5_DELAYS_MINUTES = {1: 10, 2: 45, 3: 300, 4: 1440, 5: 2880}
+# Quem só deu /start e nunca respondeu recebe recuperação CONVERSACIONAL, sem PIX.
+SILENT_RECOVERY_DELAYS_MINUTES = {1: 10, 2: 45}
 FOLLOWUP_SILENT_RESTART_DAYS = 7
 SALES_HARD_WALL_DAYS = int(os.getenv("SALES_HARD_WALL_DAYS", "30"))
 # Só coloque algo aqui se esse bônus REALMENTE existir e for entregue no VIP.
@@ -3806,7 +3833,7 @@ async def maybe_send_pending_pix_audio_recovery(bot, uid):
             return False
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
         ]])
 
         await asyncio.sleep(0.7)
@@ -3874,6 +3901,89 @@ def save_followup_first_name(uid, first_name):
             r.setex(followup_first_name_key(uid), timedelta(days=365), first_name[:60])
     except Exception:
         pass
+
+def activate_silent_recovery(uid, reset_stage=True):
+    """Agenda no máximo duas tentativas de conversa para quem nunca respondeu."""
+    try:
+        if user_has_paid(uid) or r.exists(first_message_seen_key(uid)):
+            return False
+        if reset_stage:
+            r.set(silent_recovery_stage_key(uid), 0)
+        elif r.get(silent_recovery_stage_key(uid)) is None:
+            r.set(silent_recovery_stage_key(uid), 0)
+        r.setex(silent_recovery_active_key(uid), timedelta(hours=2), "1")
+        r.setex(silent_recovery_anchor_key(uid), timedelta(hours=2), datetime.now().isoformat())
+        return True
+    except Exception as e:
+        logger.error(f"[SILENT RECOVERY] Erro activate uid={uid}: {e}")
+        return False
+
+
+def cancel_silent_recovery(uid):
+    try:
+        r.delete(silent_recovery_active_key(uid), silent_recovery_anchor_key(uid), silent_recovery_stage_key(uid))
+    except Exception:
+        pass
+
+
+def is_silent_recovery_active(uid):
+    try:
+        return bool(r.exists(silent_recovery_active_key(uid))) and not bool(r.exists(first_message_seen_key(uid)))
+    except Exception:
+        return False
+
+
+async def send_silent_recovery_stage(bot, uid, stage):
+    """Recupera conversa; deliberadamente NÃO inclui CTA de pagamento."""
+    if user_has_paid(uid) or r.exists(first_message_seen_key(uid)) or not is_silent_recovery_active(uid):
+        cancel_silent_recovery(uid)
+        return False
+    messages = {
+        1: "Você sumiu? 😏 Me responde uma coisa: o que te trouxe aqui de verdade?",
+        2: "Acho que te perdi por aí 😅 Se ainda quiser conversar, me chama do seu jeito. Eu respondo quando você voltar.",
+    }
+    msg = messages.get(stage)
+    if not msg:
+        cancel_silent_recovery(uid)
+        return False
+    await bot.send_message(chat_id=uid, text=msg)
+    r.set(silent_recovery_stage_key(uid), stage)
+    save_message(uid, "system", f"💬 SILENT RECOVERY #{stage} ENVIADO (SEM PIX)")
+    track_source_event(uid, f"silent_recovery_{stage}")
+    if stage >= max(SILENT_RECOVERY_DELAYS_MINUTES):
+        r.delete(silent_recovery_active_key(uid), silent_recovery_anchor_key(uid))
+    return True
+
+
+async def silent_recovery_scheduler(bot):
+    while True:
+        try:
+            now = datetime.now()
+            for uid in get_all_active_users():
+                try:
+                    if is_blacklisted(uid) or is_ai_manually_paused(uid) or not is_silent_recovery_active(uid):
+                        continue
+                    stage = int(r.get(silent_recovery_stage_key(uid)) or 0) + 1
+                    if stage not in SILENT_RECOVERY_DELAYS_MINUTES:
+                        cancel_silent_recovery(uid)
+                        continue
+                    anchor_raw = r.get(silent_recovery_anchor_key(uid)) or r.get(first_contact_key(uid))
+                    if not anchor_raw:
+                        continue
+                    anchor = datetime.fromisoformat(anchor_raw)
+                    silence_minutes = (now - anchor).total_seconds() / 60
+                    if silence_minutes >= SILENT_RECOVERY_DELAYS_MINUTES[stage]:
+                        await send_silent_recovery_stage(bot, uid, stage)
+                        # Segundo estágio é medido desde o último envio, não desde /start.
+                        if stage < max(SILENT_RECOVERY_DELAYS_MINUTES):
+                            r.setex(silent_recovery_anchor_key(uid), timedelta(hours=2), datetime.now().isoformat())
+                        await asyncio.sleep(0.2)
+                except Exception as item_err:
+                    logger.error(f"[SILENT RECOVERY] uid={uid}: {item_err}")
+        except Exception as e:
+            logger.error(f"[SILENT RECOVERY] scheduler: {e}")
+        await asyncio.sleep(60)
+
 
 def is_followup5_active(uid):
     try:
@@ -3947,7 +4057,7 @@ def cancel_followup5(uid, paid=False):
         pass
 
 def touch_followup5_from_user(uid, text="", first_name=""):
-    """Resposta do lead zera o relógio. O estágio alcançado é mantido."""
+    """Resposta zera relógio apenas de uma sequência COMERCIAL já válida."""
     save_followup_first_name(uid, first_name)
     if text:
         save_followup_interest(uid, text)
@@ -3955,13 +4065,14 @@ def touch_followup5_from_user(uid, text="", first_name=""):
         if user_has_paid(uid):
             cancel_followup5(uid, paid=True)
             return
+        if not (is_followup5_active(uid) or saw_teaser(uid) or is_sales_hard_wall(uid) or user_has_pending_pix(uid)):
+            return
         silent_raw = r.get(followup_silent_key(uid))
         if silent_raw:
             try:
                 silent_since = datetime.fromisoformat(silent_raw)
                 if datetime.now() - silent_since >= timedelta(days=FOLLOWUP_SILENT_RESTART_DAYS):
                     activate_followup5(uid, reset_stage=True)
-                    logger.info(f"♻️ [FOLLOWUP5] Reativado após 7 dias: uid={uid}")
                 else:
                     return
             except Exception:
@@ -3969,8 +4080,7 @@ def touch_followup5_from_user(uid, text="", first_name=""):
         if is_followup5_active(uid):
             r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
         else:
-            # Usuário voltou a falar fora de uma sequência ativa: começa novamente.
-            activate_followup5(uid, reset_stage=True)
+            activate_followup5(uid, reset_stage=False)
     except Exception as e:
         logger.error(f"[FOLLOWUP5] Erro touch uid={uid}: {e}")
 
@@ -4037,6 +4147,55 @@ def build_followup5_message(uid, stage):
         f"Depois disso eu fico quietinha por aqui.{bonus}"
     )
 
+def detect_sales_objection(text):
+    """Classifica dúvidas comerciais que NÃO devem cair no bloqueio seco do Hard Wall."""
+    t = (text or "").lower().strip()
+    if not t:
+        return None
+    if _contains_any(t, ["qual o pix", "manda o pix", "cadê o pix", "cade o pix", "como pago", "como pagar", "codigo pix", "código pix", "pix nao", "pix não"]):
+        return "payment"
+    if _contains_any(t, ["é real", "e real", "é fake", "e fake", "golpe", "confi", "garantia", "verdade", "seguro"]):
+        return "trust"
+    if _contains_any(t, ["prévia", "previa", "amostra", "manda primeiro", "video primeiro", "vídeo primeiro", "foto primeiro", "tem previa", "tem prévia", "cadê", "cade"]):
+        return "preview"
+    if _contains_any(t, ["como funciona", "o que recebo", "oque recebo", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
+        return "delivery"
+    if _contains_any(t, ["caro", "barato demais", "bom demais", "por que tão barato", "porque tao barato", "valor"]):
+        return "price"
+    return None
+
+
+async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
+    """Resolve confiança/dúvida comercial sem liberar gratificação ilimitada."""
+    kind = kind or detect_sales_objection(text)
+    if not kind:
+        return False
+    track_source_event(uid, f"sales_objection_{kind}")
+    preco = _followup_price(uid)
+
+    if kind == "preview":
+        if not free_teaser_video_already_sent_today(uid) and FREE_TEASER_VIDEO_IDS:
+            await bot.send_message(chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
+            await send_free_teaser_video(bot, chat_id, uid)
+            return True
+        msg = "A prévia que eu libero já foi enviada por aqui. O acesso completo só abre depois da confirmação do pagamento."
+    elif kind == "trust":
+        msg = "Pergunta justa. O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
+    elif kind == "delivery":
+        msg = "Funciona assim: você gera o PIX pelo botão, paga no banco e, quando a SyncPay confirmar, o bot libera automaticamente o link do VIP aqui no chat."
+    elif kind == "payment":
+        msg = "Se o PIX sumiu ou expirou, eu consigo gerar/reabrir por aqui. O valor mostrado no banco deve bater com o valor do acesso antes de você confirmar."
+    else:
+        msg = f"O valor atual é {preco}. Antes de confirmar no banco, confira o valor e o beneficiário exibidos pelo seu app. Se algo não bater, não pague e me avise."
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
+    ]])
+    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+    save_message(uid, "system", f"🛡️ OBJEÇÃO COMERCIAL RESPONDIDA ({kind})")
+    return True
+
+
 def build_sales_hard_wall_message(uid, text=""):
     """Resposta determinística pós-pitch/PIX: corta o loop de gratificação."""
     if text:
@@ -4064,7 +4223,7 @@ async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
         return False
     msg = build_sales_hard_wall_message(uid, text)
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
     ]])
     await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
     save_message(uid, "system", "🧱 HARD WALL PÓS-PITCH/PIX ENVIADO")
@@ -4083,7 +4242,7 @@ async def send_followup5_stage(bot, uid, stage):
             return False
         msg = build_followup5_message(uid, stage)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
         await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
         r.set(followup_stage_key(uid), stage)
@@ -4116,6 +4275,18 @@ async def followup5_scheduler(bot):
                         continue
                     if user_has_paid(uid):
                         cancel_followup5(uid, paid=True)
+                        continue
+
+                    # Migração/segurança: sequência comercial antiga não pode vender para
+                    # quem nunca respondeu, nunca viu teaser e não tem PIX pendente.
+                    if (
+                        is_followup5_active(uid)
+                        and not r.exists(first_message_seen_key(uid))
+                        and not saw_teaser(uid)
+                        and not user_has_pending_pix(uid)
+                    ):
+                        cancel_followup5(uid)
+                        activate_silent_recovery(uid, reset_stage=True)
                         continue
 
                     # PIX gerado e ainda não pago: prévia de áudio uma única vez.
@@ -4155,7 +4326,7 @@ async def send_inactivity_followup(bot, uid, chat_id):
             return False
         msg = random.choice(messages)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
         await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
         save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
@@ -4182,7 +4353,7 @@ async def send_pending_pix_followup(bot, uid, chat_id, level=1):
             3: "Último aviso: seu PIX pode expirar em breve. Quer liberar o acesso agora?",
         }
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
         ]])
         await bot.send_message(chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
         r.setex(key, timedelta(hours=24), "1")
@@ -4273,7 +4444,7 @@ async def retarget_locked_users(bot):
                 if 6 <= hours_since_activity < 30 and not r.exists(retarget_key):
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
                     ]])
 
                     await bot.send_message(
@@ -4432,7 +4603,7 @@ async def recover_silent_users(bot):
                     message = random.choice(RECOVERY_MESSAGES["24h"])
                     # ✅ SYNCPAY: callback_data em vez de url
                     keyboard = InlineKeyboardMarkup([[
-                        InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+                        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
                     ]])
                     await bot.send_message(
                         chat_id=uid, text=message,
@@ -4533,11 +4704,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     r.set(message_count_key(uid), 0)
     mark_first_contact(uid)
     save_followup_first_name(uid, update.effective_user.first_name or "")
-    if is_followup5_silent(uid):
-        # /start também respeita o modo silencioso; só reabre depois de 7 dias.
-        touch_followup5_from_user(uid, "", update.effective_user.first_name or "")
-    else:
-        activate_followup5(uid, reset_stage=True)
+    # /start sem resposta NÃO inicia follow-up de venda. Primeiro tentamos recuperar conversa.
+    if not r.exists(first_message_seen_key(uid)):
+        activate_silent_recovery(uid, reset_stage=True)
 
     try:
         # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
@@ -4671,6 +4840,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Sinal comportamental: 3+ respostas em sequência dentro de 15 minutos.
     update_lead_reply_burst(uid, hours_since)
 
+    # Qualquer mensagem real do usuário encerra o fluxo de "silencioso" e conta literalmente como 1ª mensagem.
+    cancel_silent_recovery(uid)
+    mark_first_message_if_needed(uid)
     touch_followup5_from_user(uid, incoming_text, update.effective_user.first_name or "")
 
     update_last_activity(uid)
@@ -4697,7 +4869,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Voltou! 🥰 Me tem completinha sem censura por {_preco} → clica abaixo 👇"
         ]
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
         ]])
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -4754,6 +4926,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msgs_since = get_msgs_since_offer(uid)
                     if msgs_since <= 4:
                         grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                        grok_response = enforce_deliverable_promises(uid, grok_response)
                         if is_ai_manually_paused(uid):
                             logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                             return
@@ -4769,6 +4942,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         grok_response = {"response": response_text, "offer_teaser": False}
                 else:
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
+                    grok_response = enforce_deliverable_promises(uid, grok_response)
                     if is_ai_manually_paused(uid):
                         logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                         return
@@ -4788,8 +4962,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
-        mark_first_message_if_needed(uid)
-
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = get_user_daily_limit(uid) + bonus
@@ -4799,7 +4971,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
                 ]])
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
@@ -4810,7 +4982,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+                InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
             ]])
             try:
                 await context.bot.send_photo(
@@ -4870,13 +5042,17 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-        # 1.5) HARD WALL: depois do pitch/PIX, corta a fantasia grátis.
-        # O interesse continua sendo atualizado pelo texto do usuário para que
-        # os 5 follow-ups sejam segmentados no desejo real dele.
+        # 1.5) HARD WALL com consciência de objeção: bloqueia gratificação, não dúvidas de compra.
         if is_sales_hard_wall(uid) and not user_has_paid(uid):
-            await send_sales_hard_wall_response(
-                context.bot, update.effective_chat.id, uid, text
-            )
+            objection_kind = detect_sales_objection(text)
+            if objection_kind:
+                await send_sales_objection_response(
+                    context.bot, update.effective_chat.id, uid, text, objection_kind
+                )
+            else:
+                await send_sales_hard_wall_response(
+                    context.bot, update.effective_chat.id, uid, text
+                )
             return
 
         # 2) Pedido claro de preço/acesso/conteúdo: não enrola, vai para SyncPay.
@@ -4885,7 +5061,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if can_offer:
                 logger.info(f"💎 Pedido direto de acesso/pagamento detectado → SyncPay para {uid}")
                 track_source_event(uid, "direct_payment_intent")
-                await syncpay_integration.send_teaser_com_pix(context.bot, update.effective_chat.id, uid)
+                await syncpay_integration.send_teaser_com_pix(context.bot, update.effective_chat.id, uid, payment_origin="direct_intent")
                 save_message(uid, "system", "SYNC PAY FORÇADO (pedido direto de acesso/pagamento)")
                 return
 
@@ -4905,6 +5081,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msgs_since = get_msgs_since_offer(uid)
             if msgs_since <= 4:
                 grok_response = await grok.reply(uid, text)
+                grok_response = enforce_deliverable_promises(uid, grok_response)
                 if is_ai_manually_paused(uid):
                     logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                     return
@@ -4920,6 +5097,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = {"response": response_text, "offer_teaser": False, "interest_level": "medium"}
         else:
             grok_response = await grok.reply(uid, text)
+            grok_response = enforce_deliverable_promises(uid, grok_response)
             if is_ai_manually_paused(uid):
                 logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                 return
@@ -4954,7 +5132,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if should_resend_button:
             try:
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(get_cta_label(uid), callback_data="pagar_vip")
+                    InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("resend"))
                 ]])
                 await asyncio.sleep(1)
                 await context.bot.send_message(
@@ -5134,7 +5312,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.3 APEX)")
+    logger.info("✅ Handlers registrados (v8.5 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5460,6 +5638,8 @@ def admin_stats():
         except ValueError as period_err:
             return {"error": str(period_err)}, 400
 
+        source_filter = _safe_slug((request.args.get("source") or "all"), fallback="all", max_len=80)
+
         # Garante que o primeiro filtro após o deploy já encontre o backfill.
         if funnel_period and not r.exists(admin_funnel_time_ready_key()):
             bootstrap_admin_funnel_time_indexes_once()
@@ -5468,7 +5648,7 @@ def admin_stats():
         # acabou de trocar para "7 dias", por exemplo.
         now_ts = datetime.now().timestamp()
         cache_ttl = int(os.getenv("ADMIN_STATS_CACHE_SECONDS", "15"))
-        cache_key = period_cache_key or "all"
+        cache_key = f"{period_cache_key or 'all'}|source:{source_filter}"
         cache_map = getattr(admin_stats, "_cache", {}) or {}
         cached = cache_map.get(cache_key)
         if cached and cached.get("data") is not None and now_ts - cached.get("ts", 0) < cache_ttl:
@@ -5489,6 +5669,7 @@ def admin_stats():
             for uid in chunk:
                 pipe.get(saw_teaser_key(uid))
                 pipe.get(clicked_vip_key(uid))
+                pipe.exists(first_message_seen_key(uid))
                 pipe.get(rejection_cooldown_key(uid))
                 pipe.get(last_offer_rejected_key(uid))
                 pipe.get(ignored_count_key(uid))
@@ -5496,10 +5677,10 @@ def admin_stats():
                 pipe.get(first_contact_key(uid))
                 pipe.get(conversation_messages_key(uid))
                 pipe.get(streak_key(uid))
-                pipe.get(funnel_key(uid))
                 pipe.get(teaser_count_key(uid))
                 pipe.get(vip_offers_today_key(uid))
                 pipe.hgetall(source_meta_key(uid))
+                pipe.hgetall(pix_origin_key(uid))
                 pipe.exists(f"sp:pix:{uid}")
                 pipe.exists(f"sp:pix_created:{uid}")
                 pipe.exists(f"sp:paid:{uid}")
@@ -5514,6 +5695,7 @@ def admin_stats():
             for uid in chunk:
                 saw_raw = values[idx]; idx += 1
                 clicked_raw = values[idx]; idx += 1
+                first_message_exists = bool(values[idx]); idx += 1
                 cooldown_raw = values[idx]; idx += 1
                 rejected_raw = values[idx]; idx += 1
                 ignored_raw = values[idx]; idx += 1
@@ -5521,10 +5703,10 @@ def admin_stats():
                 first_raw = values[idx]; idx += 1
                 msgs_raw = values[idx]; idx += 1
                 streak_raw = values[idx]; idx += 1
-                funnel_raw = values[idx]; idx += 1
                 teaser_count_raw = values[idx]; idx += 1
                 vip_offers_raw = values[idx]; idx += 1
                 source_meta = values[idx] or {}; idx += 1
+                pix_origin = values[idx] or {}; idx += 1
                 pix_pending = bool(values[idx]); idx += 1
                 pix_created = bool(values[idx]); idx += 1
                 paid = bool(values[idx]); idx += 1
@@ -5542,8 +5724,6 @@ def admin_stats():
                 except Exception: msgs = 0
                 try: streak = int(streak_raw or 0)
                 except Exception: streak = 0
-                try: funnel = int(funnel_raw or 0)
-                except Exception: funnel = 0
                 try: teaser_count = int(teaser_count_raw or 0)
                 except Exception: teaser_count = 0
                 try: vip_offers = int(vip_offers_raw or 0)
@@ -5589,10 +5769,11 @@ def admin_stats():
                     "first_dt": first_dt,
                     "msgs": msgs,
                     "streak": streak,
-                    "funnel": funnel,
                     "teaser_count": teaser_count,
                     "vip_offers": vip_offers,
                     "source_meta": source_meta,
+                    "pix_origin": pix_origin,
+                    "first_message": first_message_exists,
                     "pix_pending": pix_pending,
                     "pix_created": pix_created,
                     "paid": paid,
@@ -5601,6 +5782,25 @@ def admin_stats():
                     "burst_count": burst_count,
                     "daily": daily_counts,
                 })
+
+        def _snapshot_attribution(x):
+            meta = x.get("source_meta") or {}
+            return (
+                meta.get("first_campaign") or meta.get("last_campaign")
+                or meta.get("first_source") or meta.get("last_source") or "telegram_direct"
+            )
+
+        source_snapshots = snapshots if source_filter == "all" else [
+            x for x in snapshots if _snapshot_attribution(x) == source_filter
+        ]
+        if funnel_period:
+            funnel_snapshots = [
+                x for x in source_snapshots
+                if x.get("first_dt") is not None
+                and funnel_period["startTs"] <= x["first_dt"].replace(tzinfo=LOCAL_TZ).timestamp() <= funnel_period["endTs"]
+            ]
+        else:
+            funnel_snapshots = source_snapshots
 
         total_users = len(snapshots)
         saw_teaser_count = sum(1 for x in snapshots if x["saw"])
@@ -5618,34 +5818,18 @@ def admin_stats():
         streaks = [x["streak"] for x in snapshots if x["streak"] > 0]
         avg_streak = sum(streaks) / len(streaks) if streaks else 0
 
-        # O valor salvo em funnel:<uid> é o MAIOR estágio já alcançado pelo usuário.
-        # Portanto, contar apenas funnel == 1/2/3/4 mede onde ele PAROU, não quantos
-        # passaram por cada etapa. A análise abaixo é cumulativa: quem chegou numa
-        # etapa posterior também conta em todas as anteriores.
-        funnel_stages = {i: 0 for i in range(5)}
-        for x in snapshots:
-            if x["funnel"] in funnel_stages:
-                funnel_stages[x["funnel"]] += 1
-
         def reached_funnel_flags(x):
-            # Sinais posteriores também validam as etapas anteriores. Isso protege
-            # o painel de dados legados em que um flag anterior possa ter faltado.
-            paid_reached = bool(x.get("paid"))
-            pix_reached = bool(x.get("pix_created") or x.get("pix_pending") or paid_reached)
-            click_reached = bool(x.get("clicked") or pix_reached)
-            teaser_reached = bool(x.get("saw") or click_reached)
-            first_message_reached = bool((x.get("funnel") or 0) >= 2 or teaser_reached)
-            start_reached = bool((x.get("funnel") or 0) >= 1 or first_message_reached)
+            # Etapas LITERAIS: uma etapa posterior não preenche automaticamente anteriores.
             return {
-                "start": start_reached,
-                "first_message": first_message_reached,
-                "saw_teaser": teaser_reached,
-                "clicked_vip": click_reached,
-                "pix_created": pix_reached,
-                "paid": paid_reached,
+                "start": bool(x.get("first_dt")),
+                "first_message": bool(x.get("first_message")),
+                "saw_teaser": bool(x.get("saw")),
+                "clicked_vip": bool(x.get("clicked")),
+                "pix_created": bool(x.get("pix_created") or x.get("pix_pending") or x.get("paid")),
+                "paid": bool(x.get("paid")),
             }
 
-        funnel_reached = [reached_funnel_flags(x) for x in snapshots]
+        funnel_reached = [reached_funnel_flags(x) for x in funnel_snapshots]
 
         activity_labels = []
         activity_messages = []
@@ -5740,17 +5924,7 @@ def admin_stats():
         pix_created_funnel = sum(1 for f in funnel_reached if f["pix_created"])
         paid_funnel = sum(1 for f in funnel_reached if f["paid"])
 
-        # Quando há filtro por data, usamos uma COORTE de leads que deram /start
-        # no período. Isso impede situações impossíveis como "mais compras que starts"
-        # causadas por comparar eventos de pessoas que entraram em dias diferentes.
-        if funnel_period:
-            period_counts = _admin_funnel_counts_for_period(funnel_period)
-            started = period_counts["started"]
-            first_message = period_counts["first_message"]
-            saw_teaser_funnel = period_counts["saw_teaser"]
-            clicked_vip_funnel = period_counts["clicked_vip"]
-            pix_created_funnel = period_counts["pix_created"]
-            paid_funnel = period_counts["paid"]
+        # funnel_reached já é a coorte literal filtrada por data + origem.
 
         def calc_drop(from_stage, to_stage):
             if from_stage <= 0:
@@ -5799,10 +5973,13 @@ def admin_stats():
 
         for x in snapshots:
             meta = x["source_meta"] or {}
-            source = meta.get("first_source") or meta.get("last_source") or "telegram"
+            channel = meta.get("first_source") or meta.get("last_source") or "telegram"
+            campaign = meta.get("first_campaign") or meta.get("last_campaign") or "telegram_direct"
+            attribution = campaign or channel
             is_ads = (meta.get("first_is_ads") or meta.get("last_is_ads") or "0") == "1"
-            row = by_source.setdefault(source, {
-                "source": source, "users": 0, "adsUsers": 0, "sawTeaser": 0,
+            row = by_source.setdefault(attribution, {
+                "source": attribution, "channel": channel, "campaign": campaign,
+                "users": 0, "adsUsers": 0, "sawTeaser": 0,
                 "pixCreated": 0, "paid": 0, "clickedVip": 0, "messages": 0,
                 "estimatedCost": 0.0, "estimatedRevenue": 0.0,
                 "estimatedProfit": 0.0, "conversionRate": 0.0, "costPerUser": 0.0,
@@ -5829,6 +6006,20 @@ def admin_stats():
             row["estimatedProfit"] = round(row["estimatedRevenue"] - row["estimatedCost"], 2)
         acquisition = sorted(by_source.values(), key=lambda x: (x["estimatedProfit"], x["paid"], x["users"]), reverse=True)
 
+        pix_origin_map = {}
+        for x in source_snapshots:
+            if not x.get("pix_created"):
+                continue
+            origin_meta = x.get("pix_origin") or {}
+            origin = origin_meta.get("first_origin") or "legacy_unknown"
+            row = pix_origin_map.setdefault(origin, {"origin": origin, "pixCreated": 0, "paid": 0, "qualified": 0})
+            row["pixCreated"] += 1
+            if x.get("paid"):
+                row["paid"] += 1
+            if str(origin_meta.get("first_qualified") or "0") == "1":
+                row["qualified"] += 1
+        pix_origins = sorted(pix_origin_map.values(), key=lambda x: (x["pixCreated"], x["paid"]), reverse=True)
+
         payload = {
             "stats": {"totalUsers": total_users, "newUsers24h": new_users_24h, "activeToday": active_today, "activeWeek": active_week, "sawTeaser": saw_teaser_count, "clickedVip": clicked_vip_count, "pixCreated": pix_created_funnel, "paid": paid_funnel, "totalMessages": total_messages, "avgStreak": round(avg_streak, 1), "inCooldown": in_cooldown_count, "rejectedVip": rejected_vip_count, "ignored": ignored_count},
             "funnel": {"started": started, "firstMessage": first_message, "sawTeaser": saw_teaser_funnel, "clickedVip": clicked_vip_funnel, "pixCreated": pix_created_funnel, "paid": paid_funnel},
@@ -5840,6 +6031,7 @@ def admin_stats():
             "cooldownUsers": cooldown_users,
             "dropoff": dropoff,
             "acquisition": acquisition,
+            "pixOrigins": pix_origins,
             "funnelPeriod": (
                 {
                     "start": funnel_period["start"],
@@ -5847,9 +6039,10 @@ def admin_stats():
                     "timezone": funnel_period["timezone"],
                     "mode": funnel_period["mode"],
                     "cohortUsers": started,
+                    "sourceFilter": source_filter,
                 }
                 if funnel_period else
-                {"start": None, "end": None, "timezone": APP_TIMEZONE, "mode": "all", "cohortUsers": started}
+                {"start": None, "end": None, "timezone": APP_TIMEZONE, "mode": "all", "cohortUsers": started, "sourceFilter": source_filter}
             ),
         }
 
@@ -6378,7 +6571,7 @@ def require_auth():
 
 async def startup_sequence():
     try:
-        logger.info("🚀 Iniciando Sophia Bot v8.3 APEX...")
+        logger.info("🚀 Iniciando Sophia Bot v8.5 APEX...")
 
         init_router(redis_url=REDIS_URL, config_path="ias_config.json")
         logger.info("✅ IA Router inicializado")
@@ -6409,7 +6602,7 @@ async def startup_sequence():
 
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.3 APEX + SyncPay PIX integrado")
+        logger.info("✨ v8.5 APEX + SyncPay PIX integrado")
 
         # Marca o bot como pronto ANTES dos schedulers
         logger.info("✅ BOT PRONTO PARA RECEBER MENSAGENS")
@@ -6418,7 +6611,8 @@ async def startup_sequence():
         # Retargeting desligado no boot porque pode travar a inicialização.
         loop.create_task(engagement_scheduler(application.bot))
         # loop.create_task(retargeting_scheduler(application.bot))
-        loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP 5 ESTÁGIOS
+        loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP 5 ESTÁGIOS (só comercial)
+        loop.create_task(silent_recovery_scheduler(application.bot))          # /start sem resposta, SEM PIX
         loop.create_task(admin_stats_maintenance_scheduler())
         # Desligados para não gerar mensagens extras fora dos 5 estágios:
         # loop.create_task(pending_pix_followup_scheduler(application.bot))
@@ -6452,6 +6646,6 @@ if __name__ == "__main__":
         logger.exception(f"⚠️ Startup demorou ou falhou: {e}")
 
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.3 APEX + SyncPay operacional!")
+    logger.info("🚀 Sophia Bot v8.5 APEX + SyncPay operacional!")
 
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)

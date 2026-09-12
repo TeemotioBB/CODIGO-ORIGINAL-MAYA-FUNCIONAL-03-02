@@ -1,0 +1,25 @@
+VALIDAÇÃO LOCAL — SOPHIA/MAYA v8.5 — 12/09/2026
+
+PASSOU:
+- AST/sintaxe de todos os arquivos Python do pacote.
+- ias_config.json válido.
+- Parser SyncPay: payload no corpo raiz.
+- Parser SyncPay: envelope legado em data.
+- Parser SyncPay: transaction aninhada.
+- Normalização de origem do PIX.
+- Regras de qualificação do InitiateCheckout.
+- Wiring dos fluxos silent recovery, objection-aware e promise guard.
+- Funil literal sem preenchimento automático de etapas anteriores.
+- Callback de pagamento com contexto, sem callback puro em novos botões.
+- CAPI diferencia payment_created qualificado e não qualificado.
+- Painel contém filtro de origem e tabela PIX por contexto real.
+- Sintaxe do JavaScript inline do admin_panel.html validada com node --check.
+
+NÃO É POSSÍVEL VALIDAR OFFLINE NESTE AMBIENTE:
+- Pagamento bancário real e nome/instituição do beneficiário exibidos pelo banco.
+- Entrega real do webhook pelos servidores SyncPay ao Railway.
+- Redis de produção e estado histórico real após o deploy.
+- Telegram API ao vivo.
+- Recebimento/atribuição ao vivo na Meta CAPI.
+
+A tentativa de instalar/importar todas as dependências de runtime neste container foi bloqueada por indisponibilidade de rede/DNS. Por isso, a validação de integração ao vivo deve seguir CHECKLIST_POS_DEPLOY_V8_5.md.

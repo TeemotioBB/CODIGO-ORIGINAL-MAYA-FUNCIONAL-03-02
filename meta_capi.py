@@ -185,6 +185,8 @@ async def send_to_meta(event_name: str, apex_event: dict):
         }
         if transaction.get("plan_id"):
             custom_data["content_ids"] = [str(transaction.get("plan_id"))]
+        if transaction.get("pix_origin"):
+            custom_data["pix_origin"] = str(transaction.get("pix_origin"))
 
         # ── payload ───────────────────────────────────────────────────────────
         ts = normalize_timestamp(apex_event.get("timestamp"))
@@ -249,7 +251,15 @@ async def capi_listener():
                 if event_type == "payment_approved":
                     await send_to_meta("Purchase", apex_event)
                 elif event_type == "payment_created":
-                    await send_to_meta("InitiateCheckout", apex_event)
+                    tracking = apex_event.get("tracking", {}) or {}
+                    qualified = tracking.get("checkout_qualified", True)
+                    if qualified:
+                        await send_to_meta("InitiateCheckout", apex_event)
+                    else:
+                        logger.info(
+                            "META CAPI: InitiateCheckout ignorado por baixa qualificação "
+                            f"origin={tracking.get('pix_origin', 'unknown')}"
+                        )
                 elif event_type == "user_joined":
                     await send_to_meta("Lead", apex_event)
 

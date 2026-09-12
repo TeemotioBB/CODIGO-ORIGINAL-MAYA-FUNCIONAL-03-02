@@ -718,6 +718,11 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
   <div class="section-head">
     <h2>Performance</h2>
     <div class="actions funnel-period-tools">
+      <select class="select" id="funnelSourceFilter" aria-label="Origem do funil">
+        <option value="all" selected>Todas as origens</option>
+        <option value="ads_meta_landing">Meta Ads · landing</option>
+        <option value="telegram_direct">Telegram direto</option>
+      </select>
       <select class="select" id="funnelPeriodPreset" aria-label="Período do funil">
         <option value="today" selected>Hoje</option>
         <option value="7d">Últimos 7 dias</option>
@@ -761,6 +766,13 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
   <div class="card">
     <div class="data-list as-table" id="acquisitionList">
       <div class="empty">Carregando origens…</div>
+    </div>
+  </div>
+
+  <div class="section-head"><h2>PIX por contexto real</h2></div>
+  <div class="card">
+    <div class="data-list as-table" id="pixOriginsList">
+      <div class="empty">Carregando contexto dos PIX…</div>
     </div>
   </div>
 
@@ -845,7 +857,7 @@ const state = {
   leadPagination: { offset: 0, limit: 40, total: 0, hasMore: false },
   openChats: new Set(),
   chatCache: {},
-  funnelPeriod: { preset: 'today', start: '', end: '' },
+  funnelPeriod: { preset: 'today', start: '', end: '', source: 'all' },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -948,17 +960,19 @@ async function loadChartsData() {
 
     schedule(() => updateCharts(merged));
     schedule(() => updateAcquisition(merged));
+    schedule(() => updatePixOrigins(merged));
     schedule(() => updateTopUsers(merged));
     schedule(() => updateCooldown(merged));
     schedule(() => updateDropoff(merged));
 
     if (data.funnelPeriod && $('funnelPeriodNote')) {
       const p = data.funnelPeriod;
+      const sourceLabel = p.sourceFilter && p.sourceFilter !== 'all' ? ` · origem ${p.sourceFilter}` : '';
       if (p.mode === 'all') {
-        $('funnelPeriodNote').textContent = `Funil acumulado · ${p.cohortUsers || 0} leads no histórico disponível.`;
+        $('funnelPeriodNote').textContent = `Funil acumulado${sourceLabel} · ${p.cohortUsers || 0} leads no histórico disponível.`;
       } else {
         $('funnelPeriodNote').textContent =
-          `Coorte ${p.start} → ${p.end} · ${p.cohortUsers || 0} leads iniciaram no período.`;
+          `Coorte ${p.start} → ${p.end}${sourceLabel} · ${p.cohortUsers || 0} leads iniciaram no período.`;
       }
     }
   } finally {
@@ -999,14 +1013,17 @@ function resolveFunnelPreset(preset) {
 
 function getFunnelPeriodQuery() {
   const preset = $('funnelPeriodPreset')?.value || state.funnelPeriod.preset || 'today';
+  const source = $('funnelSourceFilter')?.value || state.funnelPeriod.source || 'all';
   const period = resolveFunnelPreset(preset);
 
-  state.funnelPeriod = { preset, start: period.start, end: period.end };
-
-  if (preset === 'all') return '';
-  if (!period.start || !period.end) return '';
-
-  return new URLSearchParams({ start: period.start, end: period.end }).toString();
+  state.funnelPeriod = { preset, start: period.start, end: period.end, source };
+  const params = new URLSearchParams();
+  if (source !== 'all') params.set('source', source);
+  if (preset !== 'all' && period.start && period.end) {
+    params.set('start', period.start);
+    params.set('end', period.end);
+  }
+  return params.toString();
 }
 
 function updateFunnelPeriodUI() {
@@ -1432,6 +1449,28 @@ function refreshCharts(d) {
   }
 }
 
+
+// ─── pix context table ──────────────────────────────────
+function updatePixOrigins(d) {
+  const wrap = $('pixOriginsList');
+  if (!wrap) return;
+  const labels = {
+    teaser: 'Teaser/pitch', direct_intent: 'Intenção direta', followup: 'Follow-up comercial',
+    limit: 'Limite/última chance', objection: 'Objeção/confiança', resend: 'Botão reenviado',
+    pix_recovery: 'Recuperação de PIX', remarketing: 'Remarketing', unknown: 'Desconhecido',
+    legacy_unknown: 'Histórico anterior à medição'
+  };
+  const rows = d.pixOrigins || [];
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty">Ainda não há PIX com contexto rastreado neste filtro.</div>';
+    return;
+  }
+  const tableRows = rows.map(r => {
+    const rate = r.pixCreated ? (r.paid / r.pixCreated * 100) : 0;
+    return `<tr><td><b>${labels[r.origin] || r.origin}</b></td><td class="mono">${r.pixCreated}</td><td class="mono">${r.qualified}</td><td class="mono">${r.paid}</td><td class="mono">${rate.toFixed(1)}%</td></tr>`;
+  }).join('');
+  wrap.innerHTML = `<table><thead><tr><th>Contexto</th><th>PIX</th><th>Qualificados</th><th>Pagos</th><th>PIX→Compra</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+}
 
 // ─── acquisition/origin table ────────────────────────────
 function updateAcquisition(d) {
@@ -2140,6 +2179,10 @@ async function init() {
   $('fabRefresh')?.addEventListener('click', loadAllData);
   $('conversationFilter')?.addEventListener('change', () => loadConversations({ append: false }));
   $('conversationPhase')?.addEventListener('change', () => loadConversations({ append: false }));
+
+  $('funnelSourceFilter')?.addEventListener('change', async () => {
+    await loadChartsData();
+  });
 
   $('funnelPeriodPreset')?.addEventListener('change', async () => {
     updateFunnelPeriodUI();

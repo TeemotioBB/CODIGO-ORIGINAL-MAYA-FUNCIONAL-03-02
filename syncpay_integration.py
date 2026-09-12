@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.3 APEX                  ║
+║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.5 APEX                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -44,6 +44,37 @@ _callbacks  = {}
 
 _token_cache = {"token": None, "expires_at": None}
 
+PIX_ALLOWED_ORIGINS = {
+    "teaser", "direct_intent", "followup", "limit", "objection",
+    "resend", "pix_recovery", "remarketing", "unknown",
+}
+PIX_QUALIFIED_ORIGINS = {"teaser", "direct_intent", "followup", "objection", "resend"}
+
+def _normalize_pix_origin(raw_callback: str) -> str:
+    raw = str(raw_callback or "pagar_vip")
+    origin = raw.split("|", 1)[1].strip().lower() if "|" in raw else "unknown"
+    return origin if origin in PIX_ALLOWED_ORIGINS else "unknown"
+
+def _is_checkout_qualified(origin: str, first_message: bool, saw_teaser: bool) -> bool:
+    """Sinal forte para Meta: contexto comercial + alguma interação/pitch real."""
+    return bool(origin in PIX_QUALIFIED_ORIGINS and (first_message or saw_teaser))
+
+def _parse_syncpay_webhook(payload):
+    """Aceita payload oficial no corpo raiz e envelopes legados data/transaction."""
+    if not isinstance(payload, dict):
+        return None, "", None
+    nested = payload.get("data")
+    transaction = nested if isinstance(nested, dict) else payload
+    if isinstance(transaction.get("transaction"), dict):
+        transaction = transaction["transaction"]
+    identifier = transaction.get("id") or transaction.get("identifier")
+    status = str(transaction.get("status") or "").strip().lower()
+    amount = transaction.get("final_amount")
+    if amount is None:
+        amount = transaction.get("amount")
+    return (str(identifier) if identifier else None), status, amount
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔧  INTEGRAÇÃO COM O BOT PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -68,8 +99,11 @@ def _sp_pix_created_key(uid):
     """Marca persistente de que o usuário já gerou ao menos um PIX."""
     return f"sp:pix_created:{uid}"
 
-def _sp_notified_key(uid, date_str):
-    return f"sp:notified:{uid}:{date_str}"
+def _sp_processed_tx_key(identifier):
+    return f"sp:processed_tx:{identifier}"
+
+def _sp_pix_origin_key(uid):
+    return f"sp:pix_origin:{uid}"
 
 def _sp_customer_key(uid):
     """Chave para salvar dados do cliente no momento do PIX"""
@@ -141,7 +175,7 @@ def _get_token() -> str:
 # 💸  GERAÇÃO DE PIX
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
+def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente", origin: str = "unknown", checkout_qualified: bool = False) -> dict:
     token = _get_token()
     webhook_url = f"{WEBHOOK_BASE_URL}{SYNCPAY_WEBHOOK_PATH}"
 
@@ -180,11 +214,13 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente") -> dict:
             "pix_code":   pix_code,
             "amount":     amount,
             "created_at": datetime.utcnow().isoformat(),
+            "origin": origin,
+            "checkout_qualified": bool(checkout_qualified),
         })
     )
     _r.setex(
         _sp_id_to_uid_key(identifier),
-        timedelta(hours=2),
+        timedelta(days=7),
         str(uid)
     )
 
@@ -239,7 +275,7 @@ def _salvar_customer(uid: int, tg_user) -> dict:
     }
     _r.setex(
         _sp_customer_key(uid),
-        timedelta(hours=2),
+        timedelta(days=7),
         json.dumps(customer_data)
     )
     logger.info(
@@ -347,7 +383,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 # 🎯  SUBSTITUTO DE send_teaser_and_apex
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def send_teaser_com_pix(bot, chat_id: int, uid: int):
+async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str = "direct_intent"):
     try:
         get_router = _callbacks.get("get_router")
         ia_config = get_router().get_ia_config(uid=uid) if get_router else {}
@@ -441,7 +477,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 
         cta_label = get_cta_label(uid) if get_cta_label else "🔥 GERAR PIX AGORA 🔥"
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(cta_label, callback_data="pagar_vip")
+            InlineKeyboardButton(cta_label, callback_data=f"pagar_vip|{payment_origin}")
         ]])
 
         await bot.send_message(
@@ -478,93 +514,105 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int):
 async def _pagar_vip_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
-    uid     = query.from_user.id
+    uid = query.from_user.id
     chat_id = query.message.chat_id
-    bot     = context.bot
+    bot = context.bot
+
+    origin = _normalize_pix_origin(query.data)
+
+    # Qualificação: InitiateCheckout só vai à Meta quando houve contexto comercial real.
+    first_message = bool(_r.exists(f"first_message_seen:{uid}"))
+    saw_teaser = bool(_r.exists(f"saw_teaser:{uid}"))
+    checkout_qualified = _is_checkout_qualified(origin, first_message, saw_teaser)
 
     touch_followup5 = _callbacks.get("touch_followup5")
     if touch_followup5:
         touch_followup5(uid, "pix", query.from_user.first_name or "")
-
     activate_hard_wall = _callbacks.get("activate_hard_wall")
     if activate_hard_wall:
         activate_hard_wall(uid)
 
-    # O clique no CTA é um sinal comercial por si só. Marcamos imediatamente,
-    # antes de consultar/criar o PIX, para o lead score não depender do sucesso da API.
     try:
         set_clicked_vip = _callbacks.get("set_clicked_vip")
         track_funnel = _callbacks.get("track_funnel")
+        track_source_event = _callbacks.get("track_source_event")
         if set_clicked_vip:
             set_clicked_vip(uid)
         if track_funnel:
             track_funnel(uid, "clicked_vip")
+        if track_source_event:
+            track_source_event(uid, f"pix_click_{origin}")
     except Exception as funnel_err:
         logger.error(f"[Tracking] Erro clicked_vip uid={uid}: {funnel_err}")
 
     try:
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
-            logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid}")
-            await bot.send_message(
-                chat_id=chat_id,
-                text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:",
-                parse_mode="Markdown"
-            )
+            logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin}")
+            await bot.send_message(chat_id=chat_id, text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:")
             await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
             return
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
-
         nome = query.from_user.full_name or "Cliente"
-
         preco_str = _callbacks.get("PRECO_VIP", "9,00")
         try:
-            valor = float(
-                preco_str.replace("R$", "").replace("R$ ", "")
-                         .replace(",", ".").strip()
-            )
+            valor = float(preco_str.replace("R$", "").replace("R$ ", "").replace(",", ".").strip())
         except Exception:
             valor = 9.00
 
-        pix_data = _gerar_pix(uid=uid, amount=valor, nome_cliente=nome)
-
-        # ── Salva dados do cliente no Redis para usar no webhook ──────────────
-        # (no webhook o objeto tg_user não está disponível)
+        pix_data = _gerar_pix(
+            uid=uid, amount=valor, nome_cliente=nome,
+            origin=origin, checkout_qualified=checkout_qualified,
+        )
         customer_data = _salvar_customer(uid, query.from_user)
+
+        # Guarda a PRIMEIRA origem de geração por usuário (coerente com o funil único)
+        # e também a última para diagnóstico de tentativas posteriores.
+        origin_key = _sp_pix_origin_key(uid)
+        _r.hsetnx(origin_key, "first_origin", origin)
+        _r.hsetnx(origin_key, "first_identifier", pix_data["identifier"])
+        _r.hsetnx(origin_key, "first_qualified", "1" if checkout_qualified else "0")
+        _r.hsetnx(origin_key, "first_at", datetime.utcnow().isoformat())
+        _r.hset(origin_key, mapping={
+            "last_origin": origin,
+            "last_identifier": pix_data["identifier"],
+            "last_qualified": "1" if checkout_qualified else "0",
+            "last_at": datetime.utcnow().isoformat(),
+        })
+        _r.expire(origin_key, timedelta(days=365))
 
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
-        # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
         try:
             track_source_event = _callbacks.get("track_source_event")
             if track_source_event:
-                track_source_event(uid, "pix_created")
+                track_source_event(uid, f"pix_from_{origin}")
         except Exception as track_err:
             logger.error(f"[Tracking] Erro pix_created: {track_err}")
 
-        # ── META CAPI — payment_created ───────────────────────────────────────
         try:
             event_data = {
-                "event":     "payment_created",
+                "event": "payment_created",
                 "timestamp": int(time.time()),
                 "customer": dict(customer_data),
+                "tracking": {"checkout_qualified": checkout_qualified, "pix_origin": origin},
                 "transaction": {
                     "internal_transaction_id": pix_data["identifier"],
-                    "sale_code":      f"SALE-{uid}-{int(time.time())}",
-                    "category":       "Assinatura Premium",
-                    "plan_name":      "Plano Normal",
-                    "plan_value":     int(valor * 100),
-                    "currency":       "BRL",
+                    "sale_code": f"SALE-{uid}-{int(time.time())}",
+                    "category": "Assinatura Premium",
+                    "plan_name": "Plano Normal",
+                    "plan_value": int(valor * 100),
+                    "currency": "BRL",
                     "payment_platform": "syncpay",
                     "payment_method": "pix",
+                    "pix_origin": origin,
                 },
             }
             _r.publish("apex:events", json.dumps(event_data))
-            logger.info(f"[Meta CAPI] ✅ payment_created publicado: uid={uid}")
+            logger.info(f"[Meta CAPI] payment_created uid={uid} origin={origin} qualified={checkout_qualified}")
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
-        # ─────────────────────────────────────────────────────────────────────
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
@@ -574,60 +622,53 @@ async def _pagar_vip_callback(update: Update, context):
         )
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
-        await bot.send_message(
-            chat_id=chat_id,
-            text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🌐 WEBHOOK SYNCPAY — Flask route
-# ═══════════════════════════════════════════════════════════════════════════════
+        await bot.send_message(chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
 
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
     def syncpay_webhook():
         try:
-            data       = flask_request.get_json(silent=True) or {}
-            transacao  = data.get("data", {})
-            identifier = transacao.get("id")
-            status     = transacao.get("status")
-            amount     = transacao.get("final_amount") or transacao.get("amount")
+            payload = flask_request.get_json(silent=True) or {}
+            identifier, status, amount = _parse_syncpay_webhook(payload)
             logger.info(f"[SyncPay Webhook] id={identifier} status={status} valor={amount}")
 
-            if status in ["completed", "PAID_OUT"] and identifier:
+            # 'completed' é o status de cash-in concluído na documentação atual.
+            if status in {"completed", "paid_out"} and identifier:
                 asyncio.run_coroutine_threadsafe(
-                    _processar_pagamento_confirmado(identifier, amount),
-                    _loop
+                    _processar_pagamento_confirmado(str(identifier), amount), _loop
                 )
             else:
-                logger.info(f"[SyncPay] Status ignorado (ainda não pago): {status}")
+                logger.info(f"[SyncPay] Status ignorado (ainda não pago): {status or 'ausente'}")
             return jsonify({}), 200
         except Exception as e:
-            logger.error(f"[SyncPay Webhook] Erro: {e}")
+            # Retorna 200 para não causar tempestade de retry, mas registra payload/erro.
+            logger.exception(f"[SyncPay Webhook] Erro: {e}")
             return jsonify({}), 200
 
-
 async def _processar_pagamento_confirmado(identifier: str, amount):
+    processing_key = _sp_processed_tx_key(identifier)
+    # Lock curto contra webhooks duplicados simultâneos.
+    if not _r.set(processing_key, "processing", nx=True, ex=300):
+        logger.info(f"[SyncPay] webhook duplicado/tx em processamento: {identifier}")
+        return
     try:
         uid_raw = _r.get(_sp_id_to_uid_key(identifier))
         if not uid_raw:
-            logger.warning(f"[SyncPay] ⚠️ identifier={identifier} sem uid no Redis (já expirou?)")
+            logger.warning(f"[SyncPay] ⚠️ identifier={identifier} sem uid no Redis")
+            _r.delete(processing_key)
             return
         uid = int(uid_raw)
-        logger.info(f"[SyncPay] ✅ Pagamento CONFIRMADO: uid={uid} identifier={identifier} valor=R${amount}")
 
-        notif_key = _sp_notified_key(uid, date.today().isoformat())
-        if _r.exists(notif_key):
-            logger.info(f"[SyncPay] ⚠️ Pagamento já processado para uid={uid} hoje")
-            return
+        pix_data = _get_pix_pendente(uid) or {}
+        try:
+            paid_amount = float(amount if amount is not None else pix_data.get("amount") or 0)
+        except Exception:
+            paid_amount = float(pix_data.get("amount") or 0)
+        logger.info(f"[SyncPay] ✅ Pagamento CONFIRMADO: uid={uid} identifier={identifier} valor=R${paid_amount:.2f}")
 
-        _r.setex(notif_key, timedelta(hours=48), "1")
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
-        # Índice temporal do funil: primeira compra confirmada por usuário.
         try:
             _r.zadd("admin:funnel:ts:paid", {str(uid): float(time.time())}, nx=True)
-            # Compra implica que um PIX existiu, mesmo em dados legados.
             _r.zadd("admin:funnel:ts:pix_created", {str(uid): float(time.time())}, nx=True)
         except Exception as idx_err:
             logger.debug(f"[Admin Funnel] Erro indexando pagamento uid={uid}: {idx_err}")
@@ -639,49 +680,46 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         if clear_hard_wall:
             clear_hard_wall(uid)
 
-        # ── TRACKING ORIGEM/CAMPANHA ──────────────────────────────────────────
         try:
             track_source_event = _callbacks.get("track_source_event")
             if track_source_event:
-                track_source_event(uid, "payment_approved", amount=float(amount or 0))
+                track_source_event(uid, "payment_approved", amount=paid_amount)
         except Exception as track_err:
             logger.error(f"[Tracking] Erro payment_approved: {track_err}")
 
-        # ── Recupera dados do cliente salvos no momento do PIX ────────────────
         customer_data = _recuperar_customer(uid)
+        origin_meta = _r.hgetall(_sp_pix_origin_key(uid)) or {}
+        pix_origin = origin_meta.get("last_origin") or origin_meta.get("first_origin") or pix_data.get("origin") or "unknown"
 
-        # ── META CAPI — payment_approved ──────────────────────────────────────
         try:
             event_data = {
-                "event":     "payment_approved",
+                "event": "payment_approved",
                 "timestamp": int(time.time()),
                 "customer": dict(customer_data),
                 "transaction": {
                     "internal_transaction_id": identifier,
                     "external_transaction_id": identifier,
-                    "sale_code":        f"SALE-{uid}-{int(time.time())}",
-                    "category":         "Assinatura Premium",
-                    "plan_name":        "Plano Normal",
-                    "plan_value":       int(float(amount) * 100),
-                    "plan_duration":    "vitalicio",
-                    "currency":         "BRL",
+                    "sale_code": f"SALE-{uid}-{int(time.time())}",
+                    "category": "Assinatura Premium",
+                    "plan_name": "Plano Normal",
+                    "plan_value": int(paid_amount * 100),
+                    "plan_duration": "vitalicio",
+                    "currency": "BRL",
                     "payment_platform": "syncpay",
-                    "payment_method":   "pix",
+                    "payment_method": "pix",
+                    "pix_origin": pix_origin,
                 },
             }
             _r.publish("apex:events", json.dumps(event_data))
-            logger.info(f"[Meta CAPI] ✅ payment_approved publicado: uid={uid} full_name='{customer_data['full_name']}'")
+            logger.info(f"[Meta CAPI] ✅ payment_approved publicado: uid={uid} origin={pix_origin}")
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_approved: {capi_err}")
-        # ─────────────────────────────────────────────────────────────────────
 
-        set_clicked_vip = _callbacks.get("set_clicked_vip")
-        add_bonus_msgs  = _callbacks.get("add_bonus_msgs")
-        save_message    = _callbacks.get("save_message")
-        get_router      = _callbacks.get("get_router")
-
-        if set_clicked_vip:
-            set_clicked_vip(uid)
+        # Compra confirmada NÃO inventa clicked_vip/saw_teaser/first_message.
+        # Essas etapas permanecem 100% literais no painel.
+        add_bonus_msgs = _callbacks.get("add_bonus_msgs")
+        save_message = _callbacks.get("save_message")
+        get_router = _callbacks.get("get_router")
         if add_bonus_msgs:
             add_bonus_msgs(uid, 9999)
         if save_message:
@@ -700,9 +738,9 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             chat_id=uid,
             text=(
                 "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
-                f"💰 Valor recebido: R$ {float(amount):.2f}\n\n"
-                "✅ Seu acesso VIP foi liberado! Bem-vindo ao clube exclusivo 💎\n\n"
-                "Clica no link abaixo pra acessar todo o conteúdo exclusivo:"
+                f"💰 Valor recebido: R$ {paid_amount:.2f}\n\n"
+                "✅ Seu acesso VIP foi liberado!\n\n"
+                "Clica no link abaixo pra acessar o conteúdo:"
             ),
             parse_mode="Markdown"
         )
@@ -712,19 +750,19 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             ]])
             await bot.send_message(chat_id=uid, text="👇", reply_markup=keyboard)
 
-        # Limpa chaves temporárias
+        # Marca DONE por 30 dias: retries posteriores da mesma tx são idempotentes.
+        _r.setex(processing_key, timedelta(days=30), "done")
         _r.delete(_sp_id_to_uid_key(identifier))
         _r.delete(_sp_pix_key(uid))
-        _r.delete(_sp_customer_key(uid))   # ← limpa dados do cliente também
+        _r.delete(_sp_customer_key(uid))
         logger.info(f"[SyncPay] 🎉 VIP liberado e usuário notificado: uid={uid}")
-
     except Exception as e:
-        logger.error(f"[SyncPay] ❌ Erro _processar_pagamento_confirmado: {e}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🚀  INICIALIZAÇÃO
-# ═══════════════════════════════════════════════════════════════════════════════
+        logger.exception(f"[SyncPay] ❌ Erro _processar_pagamento_confirmado: {e}")
+        try:
+            if _r.get(processing_key) == "processing":
+                _r.delete(processing_key)
+        except Exception:
+            pass
 
 def init(flask_app, bot_app, event_loop, redis_conn, callbacks: dict):
     global _r, _loop, _bot_app, _callbacks
@@ -743,7 +781,7 @@ def init(flask_app, bot_app, event_loop, redis_conn, callbacks: dict):
     _register_webhook_route(flask_app)
 
     bot_app.add_handler(
-        CallbackQueryHandler(_pagar_vip_callback, pattern="^pagar_vip$"),
+        CallbackQueryHandler(_pagar_vip_callback, pattern=r"^pagar_vip(?:\|[a-z0-9_]+)?$"),
         group=-1
     )
 
