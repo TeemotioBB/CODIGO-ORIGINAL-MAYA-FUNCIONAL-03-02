@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.5.3 - PREVIEW DELIVERY FIX     ║
+║ 🔥 SOPHIA BOT v8.5.4 - NAME + START TYPING     ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -29,6 +29,7 @@ import csv
 import io
 import time
 import secrets
+import unicodedata
 import ipaddress
 from urllib.parse import urlparse, parse_qs
 import syncpay_integration
@@ -1109,6 +1110,15 @@ def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
 def vip_intro_audio_sent_key(uid): return f"audio:vip_intro_sent:{uid}"
 def vip_moan_audio_sent_key(uid): return f"audio:moan_sent:{uid}"
 
+# Personalização segura por primeiro nome
+def safe_first_name_key(uid): return f"personalization:safe_first_name:{uid}"
+def name_use_count_key(uid): return f"personalization:name_uses:{uid}"
+def name_last_maya_count_key(uid): return f"personalization:name_last_maya_count:{uid}"
+def maya_message_count_key(uid): return f"personalization:maya_message_count:{uid}"
+
+MAX_NAME_USES_PER_CONVERSATION = int(os.getenv("MAX_NAME_USES_PER_CONVERSATION", "5"))
+MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES = int(os.getenv("MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES", "3"))
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2003,8 +2013,102 @@ def get_source_context_line(uid):
     return "Você veio mesmo 😏"
 
 
+# Lista deliberadamente conservadora: é melhor deixar de usar um nome raro do que
+# chamar um apelido/username de nome próprio e denunciar automação.
+_COMMON_FIRST_NAMES = {
+    "adilson", "adriano", "alan", "alberto", "alex", "alexandre", "anderson",
+    "andre", "antonio", "augusto", "bruno", "carlos", "caio", "cassio", "cesar",
+    "claudemir", "claudio", "cleber", "cristiano", "daniel", "danilo", "davi",
+    "diego", "douglas", "eduardo", "elias", "emerson", "erick", "everton",
+    "fabiano", "fabio", "felipe", "fernando", "francisco", "gabriel", "george",
+    "gilberto", "giovane", "gustavo", "guilherme", "heitor", "henrique", "igor",
+    "israel", "ivan", "joao", "jonas", "jonathan", "jorge", "jose", "juan",
+    "juliano", "julio", "leandro", "leonardo", "lucas", "luciano", "luiz",
+    "marcelo", "marcio", "marcos", "mateus", "matheus", "mauricio", "maycon",
+    "michel", "murilo", "nicolas", "paulo", "pedro", "rafael", "ramon", "raul",
+    "renan", "renato", "ricardo", "roberto", "rodrigo", "rogerio", "samuel",
+    "sergio", "silvio", "thiago", "tiago", "valdir", "vanderlei", "victor",
+    "vinicius", "vitor", "wagner", "wallace", "wanderson", "wesley", "william",
+    "wilson"
+}
+
+
+def _normalize_given_name(value):
+    value = (value or "").strip()
+    if not value:
+        return ""
+    # Primeiro token: evita usar sobrenome e descarta emojis/símbolos no começo.
+    token = value.split()[0].strip("-_.,;:!?()[]{}")
+    if not token or len(token) < 3 or len(token) > 20 or any(ch.isdigit() for ch in token):
+        return ""
+    if not all(ch.isalpha() or ch in "'-" for ch in token):
+        return ""
+    normalized = unicodedata.normalize("NFKD", token)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch)).casefold()
+    if normalized not in _COMMON_FIRST_NAMES:
+        return ""
+    return token[:1].upper() + token[1:].lower()
+
+
+def prepare_name_personalization(uid, raw_first_name):
+    """Inicia a sessão de personalização do /start e guarda apenas nome confiável."""
+    try:
+        safe = _normalize_given_name(raw_first_name)
+        pipe = r.pipeline(transaction=False)
+        pipe.delete(name_use_count_key(uid), name_last_maya_count_key(uid), maya_message_count_key(uid))
+        if safe:
+            pipe.setex(safe_first_name_key(uid), timedelta(days=365), safe)
+        else:
+            pipe.delete(safe_first_name_key(uid))
+        pipe.execute()
+        return safe
+    except Exception as e:
+        logger.error(f"[NAME] Erro preparando personalização uid={uid}: {e}")
+        return ""
+
+
+def get_safe_first_name(uid):
+    try:
+        return (r.get(safe_first_name_key(uid)) or "").strip()
+    except Exception:
+        return ""
+
+
+def consume_name_for_message(uid, force=False):
+    """Retorna o nome quando o uso está natural; no /start, force=True sempre usa."""
+    try:
+        name = get_safe_first_name(uid)
+        if not name:
+            return ""
+        uses = int(r.get(name_use_count_key(uid)) or 0)
+        if not force and uses >= MAX_NAME_USES_PER_CONVERSATION:
+            return ""
+        maya_count = int(r.get(maya_message_count_key(uid)) or 0)
+        last_count_raw = r.get(name_last_maya_count_key(uid))
+        if not force and last_count_raw is not None:
+            last_count = int(last_count_raw or 0)
+            if (maya_count - last_count) < MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES:
+                return ""
+        pipe = r.pipeline(transaction=False)
+        pipe.incr(name_use_count_key(uid))
+        pipe.set(name_last_maya_count_key(uid), maya_count)
+        pipe.expire(name_use_count_key(uid), timedelta(days=30))
+        pipe.expire(name_last_maya_count_key(uid), timedelta(days=30))
+        pipe.execute()
+        return name
+    except Exception as e:
+        logger.error(f"[NAME] Erro consumindo nome uid={uid}: {e}")
+        return ""
+
+
 def get_realistic_start_message(uid, ia_config=None):
-    """Abertura pedida para iniciar a escolha de interesse do lead."""
+    """Abertura humana; usa primeiro nome confiável já no primeiro contato."""
+    name = consume_name_for_message(uid, force=True)
+    if name:
+        return (
+            f"E aí, {name} 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
+            "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
+        )
     return (
         "E aí safado 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
         "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
@@ -2607,6 +2711,13 @@ def save_message(uid, role, text):
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         role_upper = str(role).upper()
         clean_text = str(text or "")[:4000]
+
+        if role_upper == "MAYA":
+            try:
+                r.incr(maya_message_count_key(uid))
+                r.expire(maya_message_count_key(uid), timedelta(days=30))
+            except Exception:
+                pass
 
         # Log recente usado pelo painel em tempo real.
         r.rpush(chatlog_key(uid), f"[{timestamp}] {role_upper}: {clean_text}")
@@ -4142,7 +4253,8 @@ def _followup_recurring_name(uid):
     try:
         if int(r.get(return_count_key(uid)) or 0) <= 0:
             return ""
-        return (r.get(followup_first_name_key(uid)) or "").strip()
+        # Usa o mesmo filtro seguro da conversa: nunca chama "nn", números ou apelidos.
+        return consume_name_for_message(uid)
     except Exception:
         return ""
 
@@ -4229,7 +4341,9 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
             return True
         msg = "A prévia que eu libero já foi enviada por aqui. O acesso completo só abre depois da confirmação do pagamento."
     elif kind == "trust":
-        msg = "Pergunta justa. O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
+        name = consume_name_for_message(uid)
+        prefix = f"Pergunta justa, {name}." if name else "Pergunta justa."
+        msg = f"{prefix} O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
     elif kind == "delivery":
         msg = "Funciona assim: você gera o PIX pelo botão, paga no banco e, quando a SyncPay confirmar, o bot libera automaticamente o link do VIP aqui no chat."
     elif kind == "payment":
@@ -4312,6 +4426,9 @@ async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
 
     pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
     msg = build_sales_hard_wall_message(uid, text)
+    name = consume_name_for_message(uid)
+    if name:
+        msg = f"{name}, {msg[:1].lower() + msg[1:] if msg else msg}"
 
     if pending_pix:
         button_label = "📋 MOSTRAR MEU PIX"
@@ -4816,27 +4933,16 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
     mark_first_contact(uid)
-    save_followup_first_name(uid, update.effective_user.first_name or "")
+    raw_first_name = update.effective_user.first_name or ""
+    save_followup_first_name(uid, raw_first_name)
+    prepare_name_personalization(uid, raw_first_name)
     # /start sem resposta NÃO inicia follow-up de venda. Primeiro tentamos recuperar conversa.
     if not r.exists(first_message_seen_key(uid)):
         activate_silent_recovery(uid, reset_stage=True)
 
     try:
-        # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
-        opening = get_realistic_start_message(uid, ia_config)
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=opening
-            )
-            save_message(uid, "maya", opening)
-        except Exception as msg_error:
-            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
-            fallback_opening = "Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?"
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=fallback_opening)
-            save_message(uid, "maya", fallback_opening)
-
-        # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
+        # Primeiro entrega a foto de boas-vindas. Depois simula digitação humana por ~2s
+        # antes da primeira mensagem — exatamente o que o lead vê no Telegram.
         if START_SEND_WELCOME_MEDIA:
             try:
                 await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
@@ -4846,9 +4952,30 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     photo=ia_config["foto_bem_vinda"],
                     connect_timeout=10, read_timeout=10, write_timeout=10
                 )
-                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
+                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA NO /START")
             except Exception as photo_error:
                 logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+
+        opening = get_realistic_start_message(uid, ia_config)
+        try:
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+            await asyncio.sleep(2.0)
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=opening
+            )
+            save_message(uid, "maya", opening)
+        except Exception as msg_error:
+            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
+            fallback_name = get_safe_first_name(uid)
+            if fallback_name:
+                fallback_opening = f"Olha só quem resolveu aparecer, {fallback_name}... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?"
+            else:
+                fallback_opening = "Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?"
+            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+            await asyncio.sleep(2.0)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=fallback_opening)
+            save_message(uid, "maya", fallback_opening)
 
         if START_SEND_WELCOME_VIDEO:
             try:
@@ -5442,7 +5569,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.5.3 APEX)")
+    logger.info("✅ Handlers registrados (v8.5.4 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
