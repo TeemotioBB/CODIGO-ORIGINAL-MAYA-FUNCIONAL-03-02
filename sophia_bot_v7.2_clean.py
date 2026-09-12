@@ -2110,8 +2110,8 @@ def get_realistic_start_message(uid, ia_config=None):
             "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
         )
     return (
-        "E aí safado 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
-        "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
+        "E aí 😈 então você veio até o final mesmo... 👀 "
+        "Me conta: foi só curiosidade ou você já tava imaginando o que ia encontrar aqui?"
     )
 
 def classify_lead(uid, text, intent=None):
