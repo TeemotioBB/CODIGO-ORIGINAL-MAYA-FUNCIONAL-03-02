@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.5.1 - FUNIL LITERAL + TRUST/PIX CONTEXT FIX     ║
+║ 🔥 SOPHIA BOT v8.5.2 - HARD WALL PIX-AWARE + ROTATION FIX     ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -4212,39 +4212,91 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     return True
 
 
+def _hard_wall_rotation_key(uid, pending_pix=False):
+    context = "pending_pix" if pending_pix else "pre_pix"
+    return f"hard_wall_rotation:{context}:{uid}"
+
+def _next_hard_wall_variant(uid, pending_pix=False, total=3):
+    """Rotaciona respostas do Hard Wall sem repetir a mesma em sequência."""
+    try:
+        key = _hard_wall_rotation_key(uid, pending_pix)
+        position = int(r.incr(key)) - 1
+        r.expire(key, timedelta(days=30))
+        return position % max(1, int(total))
+    except Exception as e:
+        logger.error(f"[HARD WALL] Erro na rotação uid={uid}: {e}")
+        return 0
+
 def build_sales_hard_wall_message(uid, text=""):
-    """Resposta determinística pós-pitch/PIX: corta o loop de gratificação."""
+    """Hard Wall com contexto de PIX e rotação anti-repetição."""
     if text:
         save_followup_interest(uid, text)
+
     preco = _followup_price(uid)
     desejo = _followup_desire(uid)
     bonus = _followup_bonus_suffix()
+    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
 
-    if user_has_pending_pix(uid):
-        return (
-            f"Eu sei que você quer continuar 😈 e eu não esqueci que você queria {desejo}. "
-            f"Mas agora eu paro por aqui: o resto eu libero só depois do PIX. "
-            f"Seu acesso é {preco}; clica no botão que eu recupero o PIX pra você.{bonus}"
-        )
+    if pending_pix:
+        variants = [
+            (
+                f"Seu PIX já está gerado 💕 então não precisa criar outro. "
+                f"Assim que o pagamento confirmar, eu libero o acesso aqui automaticamente.{bonus}"
+            ),
+            (
+                f"Tá tudo pronto do meu lado 😈 seu PIX ainda está pendente. "
+                f"Se você fechou a tela, usa o botão abaixo só pra mostrar o mesmo PIX de novo.{bonus}"
+            ),
+            (
+                f"Eu vi que seu PIX já foi gerado. Agora só falta a confirmação do pagamento 💕 "
+                f"Quando cair, o acesso é liberado automaticamente aqui no chat.{bonus}"
+            ),
+        ]
+        return variants[_next_hard_wall_variant(uid, pending_pix=True, total=len(variants))]
 
-    return (
-        f"Ai meu Deus, imaginei agora... 😈 Eu sei que você queria {desejo}. "
-        f"Mas daqui pra frente eu não vou continuar a fantasia de graça. "
-        f"Entra no VIP por {preco} e eu libero o resto agora.{bonus}"
-    )
+    variants = [
+        (
+            f"Ai meu Deus, imaginei agora... 😈 Eu sei que você queria {desejo}. "
+            f"Mas daqui pra frente eu não vou continuar a fantasia de graça. "
+            f"Entra no VIP por {preco} e eu libero o resto agora.{bonus}"
+        ),
+        (
+            f"Eu sei que você quer continuar 😈 mas daqui pra frente eu seguro o resto pro VIP. "
+            f"O acesso está por {preco}; se quiser liberar, é só gerar o PIX abaixo.{bonus}"
+        ),
+        (
+            f"Você já entendeu o clima 😏 agora o restante fica no VIP. "
+            f"Por {preco} eu libero o acesso assim que o PIX confirmar.{bonus}"
+        ),
+    ]
+    return variants[_next_hard_wall_variant(uid, pending_pix=False, total=len(variants))]
 
 async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
     if user_has_paid(uid):
         clear_sales_hard_wall(uid)
         return False
+
+    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
     msg = build_sales_hard_wall_message(uid, text)
+
+    if pending_pix:
+        button_label = "📋 MOSTRAR MEU PIX"
+        button_origin = "resend"
+    else:
+        button_label = get_cta_label(uid)
+        button_origin = "objection"
+
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
+        InlineKeyboardButton(button_label, callback_data=payment_callback_data(button_origin))
     ]])
+
     await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
     save_message(uid, "maya", msg)
     save_message(uid, "system", "🧱 HARD WALL PÓS-PITCH/PIX ENVIADO")
-    logger.info(f"🧱 [HARD WALL] Resposta enviada uid={uid} interesse={get_followup_interest(uid) or 'geral'}")
+    logger.info(
+        f"🧱 [HARD WALL] Resposta enviada uid={uid} "
+        f"pending_pix={pending_pix} interesse={get_followup_interest(uid) or 'geral'}"
+    )
     return True
 
 async def send_followup5_stage(bot, uid, stage):
@@ -5356,7 +5408,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.5.1 APEX)")
+    logger.info("✅ Handlers registrados (v8.5.2 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5416,7 +5468,7 @@ syncpay_integration.init(
 
 @app.route("/", methods=["GET"])
 def health():
-    return {"status": "ok", "version": "8.3-apex"}, 200
+    return {"status": "ok", "version": "8.5.2-apex"}, 200
 
 
 @app.route("/tracking/telegram", methods=["POST", "OPTIONS"])
