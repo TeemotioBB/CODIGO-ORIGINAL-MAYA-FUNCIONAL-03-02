@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.5 APEX                  ║
+║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.5.1 APEX                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -373,6 +373,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
     save_message = _callbacks.get("save_message")
     if save_message:
+        save_message(uid, "maya", mensagem)
         save_message(
             uid,
             "system",
@@ -436,6 +437,9 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
         if intro_pool:
             intro = random.choice(intro_pool)
             await bot.send_message(chat_id=chat_id, text=intro)
+            save_message = _callbacks.get("save_message")
+            if save_message:
+                save_message(uid, "maya", intro)
             await asyncio.sleep(2)
 
         num_photos = random.randint(3, 4)
@@ -486,6 +490,9 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
+        save_message = _callbacks.get("save_message")
+        if save_message:
+            save_message(uid, "maya", pitch)
 
         mark_vip_just_offered(uid)
         activate_hard_wall = _callbacks.get("activate_hard_wall")
@@ -549,11 +556,19 @@ async def _pagar_vip_callback(update: Update, context):
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
             logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin}")
-            await bot.send_message(chat_id=chat_id, text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:")
+            reused_msg = "⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:"
+            await bot.send_message(chat_id=chat_id, text=reused_msg)
+            save_message = _callbacks.get("save_message")
+            if save_message:
+                save_message(uid, "maya", reused_msg)
             await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
             return
 
-        await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
+        generating_msg = "⏳ Gerando seu PIX, um segundo..."
+        await bot.send_message(chat_id=chat_id, text=generating_msg)
+        save_message = _callbacks.get("save_message")
+        if save_message:
+            save_message(uid, "maya", generating_msg)
         nome = query.from_user.full_name or "Cliente"
         preco_str = _callbacks.get("PRECO_VIP", "9,00")
         try:
@@ -616,13 +631,18 @@ async def _pagar_vip_callback(update: Update, context):
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
-        await bot.send_message(
-            chat_id=chat_id,
-            text="😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
-        )
+        error_msg = "😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
+        await bot.send_message(chat_id=chat_id, text=error_msg)
+        save_message = _callbacks.get("save_message")
+        if save_message:
+            save_message(uid, "maya", error_msg)
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
-        await bot.send_message(chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
+        error_msg = "😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕"
+        await bot.send_message(chat_id=chat_id, text=error_msg)
+        save_message = _callbacks.get("save_message")
+        if save_message:
+            save_message(uid, "maya", error_msg)
 
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
@@ -734,16 +754,19 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 pass
 
         bot = _bot_app.bot
+        payment_confirmed_msg = (
+            "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
+            f"💰 Valor recebido: R$ {paid_amount:.2f}\n\n"
+            "✅ Seu acesso VIP foi liberado!\n\n"
+            "Clica no link abaixo pra acessar o conteúdo:"
+        )
         await bot.send_message(
             chat_id=uid,
-            text=(
-                "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
-                f"💰 Valor recebido: R$ {paid_amount:.2f}\n\n"
-                "✅ Seu acesso VIP foi liberado!\n\n"
-                "Clica no link abaixo pra acessar o conteúdo:"
-            ),
+            text=payment_confirmed_msg,
             parse_mode="Markdown"
         )
+        if save_message:
+            save_message(uid, "maya", payment_confirmed_msg)
         if canal_vip:
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("💎 ACESSAR VIP AGORA", url=canal_vip)
