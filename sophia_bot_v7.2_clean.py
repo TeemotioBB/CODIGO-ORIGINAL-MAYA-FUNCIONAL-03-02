@@ -3646,7 +3646,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         reset_msgs_since_offer(uid)
 
                 # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
-        teaser_intro_text = "Olha só o que eu separei pra você bater punheta agora 🔥"
+        teaser_intro_text = "Olha só o que tem pra você bater punheta no meu VIP🔥"
         await bot.send_message(chat_id=chat_id, text=teaser_intro_text)
         save_message(uid, "maya", teaser_intro_text)
         await asyncio.sleep(1.5)
