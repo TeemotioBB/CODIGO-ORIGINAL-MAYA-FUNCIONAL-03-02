@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.5.4 - NAME + START TYPING     ║
+║ 🔥 SOPHIA BOT v8.5.5 - INTENT + OFFER + DEBOUNCE     ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -4306,6 +4306,67 @@ def build_followup5_message(uid, stage):
         f"Depois disso eu fico quietinha por aqui.{bonus}"
     )
 
+def _normalize_intent_text(value):
+    value = unicodedata.normalize("NFKD", (value or "").strip().casefold())
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def detect_direct_purchase_intent(text):
+    """Detecta intenção comercial explícita no pós-pitch, antes do Hard Wall."""
+    t = _normalize_intent_text(text)
+    if not t:
+        return False
+
+    exact = {
+        "quero", "eu quero", "quero sim", "sim quero", "fechou",
+        "pode ser", "vou querer"
+    }
+    if t in exact:
+        return True
+
+    direct_terms = [
+        "quero vip", "quero o vip", "quero pagar", "vou pagar",
+        "manda o pix", "me passa o pix", "qual o pix", "cade o pix",
+        "gera o pix", "gera pix", "gerar pix", "como pago", "como pagar",
+        "comprar vip", "quero comprar", "assinar", "quero acesso", "libera o acesso"
+    ]
+    return _contains_any(t, direct_terms)
+
+
+async def send_direct_purchase_response(bot, chat_id, uid):
+    """Transforma intenção explícita em CTA operacional, sem repetir o pitch/teaser."""
+    track_source_event(uid, "direct_payment_intent")
+    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
+    name = consume_name_for_message(uid)
+    prefix = f"{name}, " if name else ""
+
+    if pending_pix:
+        msg = (
+            f"{prefix}seu PIX já está gerado. Se você fechou a tela, use o botão abaixo "
+            "para mostrar o mesmo PIX novamente. Assim que o pagamento confirmar, o acesso é liberado automaticamente."
+        )
+        label = "📋 MOSTRAR MEU PIX"
+        origin = "resend"
+    else:
+        preco = _followup_price(uid)
+        msg = (
+            f"{prefix}perfeito. O acesso está por {preco}. "
+            "Use o botão abaixo para gerar o PIX e, depois da confirmação, o acesso é liberado automaticamente."
+        )
+        label = get_cta_label(uid)
+        origin = "direct_intent"
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(label, callback_data=payment_callback_data(origin))
+    ]])
+    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+    save_message(uid, "maya", msg)
+    save_message(uid, "system", "💎 INTENÇÃO DIRETA DE COMPRA DETECTADA")
+    return True
+
+
 def detect_sales_objection(text):
     """Classifica dúvidas comerciais que NÃO devem cair no bloqueio seco do Hard Wall."""
     t = (text or "").lower().strip()
@@ -4315,9 +4376,16 @@ def detect_sales_objection(text):
         return "payment"
     if _contains_any(t, ["é real", "e real", "é fake", "e fake", "golpe", "confi", "garantia", "verdade", "seguro"]):
         return "trust"
+    if _contains_any(t, [
+        "ainda vou te ver", "vou te ver", "vou ver voce", "vou ver você",
+        "no vip eu vejo", "no vip tem", "o que tem no vip", "oque tem no vip",
+        "o que vem no vip", "oque vem no vip", "o que inclui", "inclui o que",
+        "o que recebo", "oque recebo", "sem censura", "conteudo completo", "conteúdo completo"
+    ]):
+        return "offer_clarification"
     if _contains_any(t, ["prévia", "previa", "amostra", "manda primeiro", "video primeiro", "vídeo primeiro", "foto primeiro", "tem previa", "tem prévia", "cadê", "cade"]):
         return "preview"
-    if _contains_any(t, ["como funciona", "o que recebo", "oque recebo", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
+    if _contains_any(t, ["como funciona", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
         return "delivery"
     if _contains_any(t, ["caro", "barato demais", "bom demais", "por que tão barato", "porque tao barato", "valor"]):
         return "price"
@@ -4344,6 +4412,13 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
         name = consume_name_for_message(uid)
         prefix = f"Pergunta justa, {name}." if name else "Pergunta justa."
         msg = f"{prefix} O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
+    elif kind == "offer_clarification":
+        name = consume_name_for_message(uid)
+        prefix = f"{name}, " if name else ""
+        msg = (
+            f"{prefix}sim. O VIP inclui o conteúdo e os benefícios descritos na oferta que você acabou de ver. "
+            "O acesso completo é liberado aqui no chat depois da confirmação automática do PIX."
+        )
     elif kind == "delivery":
         msg = "Funciona assim: você gera o PIX pelo botão, paga no banco e, quando a SyncPay confirmar, o bot libera automaticamente o link do VIP aqui no chat."
     elif kind == "payment":
@@ -5052,6 +5127,50 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Erro callback: {e}")
 
 
+TEXT_DEBOUNCE_SECONDS = float(os.getenv("TEXT_DEBOUNCE_SECONDS", "1.2"))
+
+def _text_debounce_buffer_key(uid):
+    return f"text_debounce:buffer:{uid}"
+
+def _text_debounce_token_key(uid):
+    return f"text_debounce:token:{uid}"
+
+async def collect_debounced_text(uid, text):
+    """
+    Junta rajadas curtas de texto em uma única interação lógica.
+    Cada mensagem continua sendo salva individualmente no histórico; somente o
+    processamento automático é consolidado na última mensagem da rajada.
+    """
+    clean = (text or "").strip()
+    if not clean or TEXT_DEBOUNCE_SECONDS <= 0:
+        return clean
+
+    token = secrets.token_hex(8)
+    buffer_key = _text_debounce_buffer_key(uid)
+    token_key = _text_debounce_token_key(uid)
+    try:
+        pipe = r.pipeline()
+        pipe.rpush(buffer_key, clean)
+        pipe.expire(buffer_key, 10)
+        pipe.set(token_key, token, ex=10)
+        pipe.execute()
+
+        await asyncio.sleep(TEXT_DEBOUNCE_SECONDS)
+
+        if r.get(token_key) != token:
+            return None
+
+        parts = r.lrange(buffer_key, 0, -1) or [clean]
+        pipe = r.pipeline()
+        pipe.delete(buffer_key)
+        pipe.delete(token_key)
+        pipe.execute()
+        return "\n".join(p for p in parts if p).strip()
+    except Exception as e:
+        logger.warning(f"[DEBOUNCE] Falha uid={uid}: {e}")
+        return clean
+
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if is_blacklisted(uid):
@@ -5076,6 +5195,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_message(uid, "user", "[MENSAGEM RECEBIDA DURANTE MODO MANUAL]")
         logger.info(f"🖐️ [MODO MANUAL] Mensagem recebida sem resposta automática uid={uid}")
         return
+
+    # v8.5.5: salva cada texto imediatamente, mas consolida rajadas rápidas
+    # em UMA interação lógica para evitar respostas empilhadas.
+    text_already_logged = False
+    if update.message and update.message.text:
+        save_message(uid, "user", update.message.text)
+        text_already_logged = True
+        debounced_text = await collect_debounced_text(uid, update.message.text)
+        if debounced_text is None:
+            logger.info(f"⏳ [DEBOUNCE] Mensagem absorvida por rajada uid={uid}")
+            return
+        incoming_text = debounced_text
 
     # Guarda a inatividade ANTES de atualizar last_activity.
     hours_since = get_hours_since_activity(uid)
@@ -5122,11 +5253,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         has_photo = bool(update.message.photo)
-        text = update.message.text or ""
+        text = incoming_text if update.message.text else (update.message.caption or "")
 
         # ====================== DETECÇÃO DE APEGO ======================
         if text:
-            save_message(uid, "user", text)
+            if not text_already_logged:
+                save_message(uid, "user", text)
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
                 r.set(is_attached_key(uid), "1")
@@ -5207,7 +5339,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
-        text = update.message.text or ""
+        text = incoming_text if update.message.text else ""
+
+        # v8.5.5: intenção direta de compra tem prioridade absoluta no pós-pitch.
+        # "quero", "manda o pix", "como pago" etc. não recebem outro Hard Wall.
+        if is_sales_hard_wall(uid) and not user_has_paid(uid) and detect_direct_purchase_intent(text):
+            await send_direct_purchase_response(
+                context.bot, update.effective_chat.id, uid
+            )
+            return
 
         # v8.5.1 FIX: depois de pitch/PIX, o atendimento comercial tem prioridade
         # sobre o limite diário. Assim perguntas como "é real?" são respondidas
@@ -5569,7 +5709,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.5.4 APEX)")
+    logger.info("✅ Handlers registrados (v8.5.5 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
