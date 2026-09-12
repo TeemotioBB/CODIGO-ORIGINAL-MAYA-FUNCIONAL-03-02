@@ -968,7 +968,7 @@ VIDEOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/ZnpXbj9R/content.png"
-FOTO_BEM_VINDA = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
+FOTO_BEM_VINDA = "AgACAgEAAxkBAALHVWqlZJu9eFn7RCgdMjYjaWIBzjQYAAKTDGsbkmYpRVCJoHo0YGhLAQADAgADeAADPQQ"
 
 VIDEO_BEM_VINDO = ""
 
