@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.5.2 - HARD WALL PIX-AWARE + ROTATION FIX     ║
+║ 🔥 SOPHIA BOT v8.5.3 - PREVIEW DELIVERY FIX     ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -2371,58 +2371,93 @@ def is_video_confirmation(text):
     return any(c in text for c in confirmations)
 
 async def send_free_teaser_video(bot, chat_id, uid):
+    """
+    Entrega uma prévia SOMENTE quando o Telegram confirma o envio do asset.
+
+    Regras v8.5.3:
+    - não mostra UPLOAD_VIDEO antes de saber se o asset é válido;
+    - tenta todos os vídeos configurados, sem repetir file_id;
+    - se vídeos falharem, tenta fotos configuradas como fallback visual;
+    - só salva/promete a prévia depois de um send_video/send_photo bem-sucedido;
+    - se nenhum asset funcionar, usa resposta neutra (sem expor erro técnico).
+    """
+    clear_pending_teaser_video(uid)
+
     try:
-        if not FREE_TEASER_VIDEO_IDS:
-            logger.warning("🎥 FREE_TEASER_VIDEO_IDS vazio. Configure o file_id do vídeo teaser.")
-            clear_pending_teaser_video(uid)
-            await bot.send_message(
+        ia_config = get_router().get_ia_config(uid=uid) or {}
+    except Exception:
+        ia_config = {}
+
+    configured_videos = ia_config.get("videos_teaser", VIDEOS_TEASER) or []
+    configured_photos = ia_config.get("fotos_teaser", FOTOS_TEASER) or []
+
+    def _unique_assets(*groups):
+        seen = set()
+        result = []
+        for group in groups:
+            for asset in (group or []):
+                asset = str(asset or "").strip()
+                if asset and asset not in seen:
+                    seen.add(asset)
+                    result.append(asset)
+        return result
+
+    video_candidates = _unique_assets(FREE_TEASER_VIDEO_IDS, configured_videos, VIDEOS_TEASER)
+    photo_candidates = _unique_assets(configured_photos, FOTOS_TEASER)
+    random.shuffle(video_candidates)
+    random.shuffle(photo_candidates)
+
+    preview_caption = "Essa é a prévia que eu tinha separada aqui 👇"
+
+    # 1) Tenta vídeos silenciosamente. O caption só aparece se o envio realmente ocorrer.
+    for video_id in video_candidates:
+        try:
+            await bot.send_video(
                 chat_id=chat_id,
-                text=(
-                    "Tentei te mandar agora, mas o vídeo não carregou aqui. "
-                    "Me chama de novo em instantes 😏"
-                )
+                video=video_id,
+                caption=preview_caption,
+                connect_timeout=15,
+                read_timeout=20,
+                write_timeout=20,
             )
-            save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
+            mark_free_teaser_video_sent(uid)
+            save_message(uid, "maya", preview_caption)
+            save_message(uid, "system", "🎥 PRÉVIA ENTREGUE (video)")
+            logger.info(f"🎥 [PREVIEW] vídeo entregue uid={uid}")
             return True
+        except Exception as e:
+            logger.warning(f"🎥 [PREVIEW] vídeo inválido/falhou uid={uid} asset={video_id}: {e}")
 
-        video_id = random.choice(FREE_TEASER_VIDEO_IDS)
+    # 2) Se todos os vídeos falharam, tenta fotos como fallback real de prévia.
+    for photo_id in photo_candidates:
+        try:
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=photo_id,
+                caption=preview_caption,
+                connect_timeout=15,
+                read_timeout=20,
+                write_timeout=20,
+            )
+            mark_free_teaser_video_sent(uid)
+            save_message(uid, "maya", preview_caption)
+            save_message(uid, "system", "🖼️ PRÉVIA ENTREGUE (photo)")
+            logger.info(f"🖼️ [PREVIEW] foto entregue uid={uid}")
+            return True
+        except Exception as e:
+            logger.warning(f"🖼️ [PREVIEW] foto inválida/falhou uid={uid} asset={photo_id}: {e}")
 
-        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
-        await asyncio.sleep(1.0)
-        await bot.send_video(
-            chat_id=chat_id,
-            video=video_id,
-            caption=(
-                "Pronto… te mandei só um gostinho 😏\n\n"
-                "O resto eu libero no acesso completo."
-            ),
-            connect_timeout=15,
-            read_timeout=20,
-            write_timeout=20
-        )
+    # 3) Nenhum asset funcionou: não finge envio e não revela erro técnico.
+    fallback = "Por aqui eu não libero outra prévia agora 😏 o restante fica no VIP."
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
+    ]])
+    await bot.send_message(chat_id=chat_id, text=fallback, reply_markup=keyboard)
+    save_message(uid, "maya", fallback)
+    save_message(uid, "system", "🛡️ PREVIEW FALLBACK NEUTRO")
+    logger.warning(f"⚠️ [PREVIEW] nenhum asset válido disponível uid={uid}")
+    return True
 
-        clear_pending_teaser_video(uid)
-        mark_free_teaser_video_sent(uid)
-        save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
-
-        await asyncio.sleep(1.6)
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
-        ]])
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
-                "Quando aprovar, o acesso cai automático."
-            ),
-            reply_markup=keyboard
-        )
-        return True
-
-    except Exception as e:
-        logger.error(f"Erro ao enviar vídeo teaser para {uid}: {e}")
-        clear_pending_teaser_video(uid)
-        return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
@@ -4186,10 +4221,9 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     preco = _followup_price(uid)
 
     if kind == "preview":
-        if not free_teaser_video_already_sent_today(uid) and FREE_TEASER_VIDEO_IDS:
-            preview_msg = "Tem prévia sim. Vou te mandar a que já está separada aqui 👇"
-            await bot.send_message(chat_id=chat_id, text=preview_msg)
-            save_message(uid, "maya", preview_msg)
+        if not free_teaser_video_already_sent_today(uid):
+            # v8.5.3: tenta entregar a mídia ANTES de afirmar qualquer coisa ao lead.
+            # A própria função usa fallback neutro se nenhum asset estiver válido.
             await send_free_teaser_video(bot, chat_id, uid)
             save_message(uid, "system", "🛡️ OBJEÇÃO COMERCIAL RESPONDIDA (preview)")
             return True
@@ -5408,7 +5442,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.5.2 APEX)")
+    logger.info("✅ Handlers registrados (v8.5.3 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
