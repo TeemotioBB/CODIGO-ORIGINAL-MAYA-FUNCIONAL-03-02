@@ -2088,12 +2088,20 @@ PAYMENT_ORIGINS = {
     "resend", "pix_recovery", "remarketing", "unknown"
 }
 
-def payment_callback_data(origin="unknown"):
-    """Callback curto e rastreável; permite saber o contexto REAL que originou o PIX."""
+def _normalize_payment_origin(origin="unknown"):
+    """Normaliza a origem comercial usada nos callbacks do funil/PIX."""
     origin = re.sub(r"[^a-z0-9_]+", "_", str(origin or "unknown").lower()).strip("_")
-    if origin not in PAYMENT_ORIGINS:
-        origin = "unknown"
-    return f"pagar_vip|{origin}"
+    return origin if origin in PAYMENT_ORIGINS else "unknown"
+
+
+def payment_callback_data(origin="unknown"):
+    """Callback curto e rastreável da etapa realmente transacional (gera/reenvia PIX)."""
+    return f"pagar_vip|{_normalize_payment_origin(origin)}"
+
+
+def vip_confirmation_callback_data(origin="teaser"):
+    """Primeiro clique do teaser: registra intenção, mas ainda NÃO cria cobrança/PIX."""
+    return f"confirmar_vip|{_normalize_payment_origin(origin)}"
 
 
 def get_acquisition_breakdown(users=None):
@@ -2597,7 +2605,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
 
         await asyncio.sleep(1.6)
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
+            InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
         ]])
         await bot.send_message(
             chat_id=chat_id,
@@ -3786,7 +3794,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
+            InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
@@ -5268,6 +5276,37 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Ações transacionais (PIX/VIP) continuam permitidas.
         if is_ai_manually_paused(uid) and query.data in {"quick_teaser", "quick_chat"}:
             logger.info(f"🖐️ [MODO MANUAL] Callback conversacional bloqueado uid={uid} data={query.data}")
+            return
+
+        if str(query.data or "").startswith("confirmar_vip|"):
+            origin = _normalize_payment_origin(str(query.data).split("|", 1)[1])
+
+            # Aqui o usuário demonstrou intenção de compra, mas ainda não pediu a cobrança.
+            set_clicked_vip(uid)
+            track_funnel(uid, "clicked_vip")
+            track_source_event(uid, f"vip_intent_{origin}")
+            save_message(uid, "action", f"💎 CLICOU VIP (origem={origin})")
+
+            router = get_router()
+            ia_config = router.get_ia_config(uid=uid)
+            preco = str(ia_config.get("preco", PRECO_VIP) or PRECO_VIP).strip()
+            preco_exibicao = preco if preco.upper().startswith("R$") else f"R$ {preco}"
+
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    f"💳 GERAR PIX — {preco_exibicao}",
+                    callback_data=payment_callback_data(origin),
+                )
+            ]])
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=(
+                    f"Acesso VIP completo por **{preco_exibicao}** 💕\n\n"
+                    f"O acesso é liberado automaticamente assim que o PIX confirmar."
+                ),
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
             return
 
         if query.data == "quick_teaser":
