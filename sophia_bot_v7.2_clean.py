@@ -1,7 +1,7 @@
 #!/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║ 🔥 SOPHIA BOT v8.5.5 - INTENT + OFFER + DEBOUNCE     ║
+║ 🔥 SOPHIA BOT v8.6 - TRACKING/ATRIBUIÇÃO CORRIGIDOS               ║
 ║ ║
 ║ ALTERAÇÕES v8.4:                                                           ║
 ║ ✅ Prompt reforçado: teaser ANTES do PIX (regra rígida)                    ║
@@ -29,13 +29,13 @@ import csv
 import io
 import time
 import secrets
-import unicodedata
 import ipaddress
-from urllib.parse import urlparse, parse_qs
+import threading
+from urllib.parse import urlparse, parse_qs, quote
 import syncpay_integration
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -368,7 +368,11 @@ PORT = int(os.getenv("PORT", 8080))
 
 # Meta Ads -> Landing -> Telegram tracking
 TRACKING_TOKEN_TTL_SECONDS = int(os.getenv("TRACKING_TOKEN_TTL_SECONDS", "86400"))
+# Depois que o token é vinculado ao Telegram UID, mantemos uma janela curta para
+# enriquecimentos assíncronos (ex.: GeoIP) sem permitir reutilização por outro UID.
+TRACKING_LINKED_TOKEN_TTL_SECONDS = int(os.getenv("TRACKING_LINKED_TOKEN_TTL_SECONDS", "600"))
 META_TRACKING_TTL_DAYS = int(os.getenv("META_TRACKING_TTL_DAYS", "30"))
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "MayaIAbot").strip().lstrip("@") or "MayaIAbot"
 TRACKING_ALLOWED_ORIGINS = {
     item.strip() for item in os.getenv("TRACKING_ALLOWED_ORIGINS", "*").split(",") if item.strip()
 }
@@ -436,7 +440,7 @@ MAX_MEMORIA = 12
 START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
 START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
-logger.info(f"🚀 Sophia Bot v8.5.1 APEX FUNIL iniciando...")
+logger.info(f"🚀 Sophia Bot v8.6 APEX TRACKING iniciando...")
 logger.info(f"🤖 Modelo Grok configurado: {GROK_MODEL}")
 logger.info(f"🌐 Endpoint Grok: {GROK_API_URL}")
 logger.info(f"📍 Webhook: {WEBHOOK_BASE_URL}{WEBHOOK_PATH}")
@@ -968,7 +972,7 @@ VIDEOS_TEASER = [
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/ZnpXbj9R/content.png"
-FOTO_BEM_VINDA = "AgACAgEAAxkBAALHVWqlZJu9eFn7RCgdMjYjaWIBzjQYAAKTDGsbkmYpRVCJoHo0YGhLAQADAgADeAADPQQ"
+FOTO_BEM_VINDA = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
 
 VIDEO_BEM_VINDO = ""
 
@@ -1109,15 +1113,6 @@ def pix_origin_key(uid): return f"sp:pix_origin:{uid}"
 def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
 def vip_intro_audio_sent_key(uid): return f"audio:vip_intro_sent:{uid}"
 def vip_moan_audio_sent_key(uid): return f"audio:moan_sent:{uid}"
-
-# Personalização segura por primeiro nome
-def safe_first_name_key(uid): return f"personalization:safe_first_name:{uid}"
-def name_use_count_key(uid): return f"personalization:name_uses:{uid}"
-def name_last_maya_count_key(uid): return f"personalization:name_last_maya_count:{uid}"
-def maya_message_count_key(uid): return f"personalization:maya_message_count:{uid}"
-
-MAX_NAME_USES_PER_CONVERSATION = int(os.getenv("MAX_NAME_USES_PER_CONVERSATION", "5"))
-MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES = int(os.getenv("MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES", "3"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
@@ -1787,54 +1782,222 @@ def get_meta_tracking(uid):
         return {}
 
 
+def _tracking_apply_geo_to_token_or_user(token, geo):
+    """Aplica GeoIP sem bloquear a criação do token nem a abertura do Telegram."""
+    if not geo:
+        return
+    key = meta_tracking_token_key(token)
+    for _ in range(5):
+        pipe = r.pipeline()
+        try:
+            pipe.watch(key)
+            raw = pipe.get(key)
+            if not raw:
+                pipe.unwatch()
+                return
+            data = json.loads(raw)
+            data.update({
+                "city": _tracking_clean(geo.get("city"), 120),
+                "state": _tracking_clean(geo.get("state"), 80),
+                "zip": _tracking_clean(geo.get("zip"), 40),
+                "country": _tracking_clean(geo.get("country"), 8).lower(),
+                "geo_source": _tracking_clean(geo.get("geo_source"), 40),
+            })
+            linked_uid = _tracking_clean(data.get("linked_uid"), 32)
+            ttl = pipe.ttl(key)
+            ttl = max(60, int(ttl or 0))
+
+            pipe.multi()
+            pipe.set(key, json.dumps(data, ensure_ascii=False), ex=ttl)
+            if linked_uid.isdigit():
+                geo_mapping = {
+                    "city": data.get("city", ""),
+                    "state": data.get("state", ""),
+                    "zip": data.get("zip", ""),
+                    "country": data.get("country", ""),
+                    "geo_source": data.get("geo_source", ""),
+                }
+                pipe.hset(meta_tracking_user_key(int(linked_uid)), mapping=geo_mapping)
+                pipe.expire(meta_tracking_user_key(int(linked_uid)), timedelta(days=META_TRACKING_TTL_DAYS))
+            pipe.execute()
+            return
+        except redis.WatchError:
+            continue
+        except Exception as e:
+            logger.warning(f"[META GEOIP] enriquecimento assíncrono falhou token={token}: {e}")
+            return
+        finally:
+            try:
+                pipe.reset()
+            except Exception:
+                pass
+
+
+def _schedule_tracking_geo_enrichment(token, client_ip):
+    """GeoIP roda em background; nunca atrasa o redirect para o Telegram."""
+    if not GEOIP_ENABLED or not _tracking_public_ip(client_ip):
+        return
+
+    def worker():
+        try:
+            geo = _lookup_ip_geo(client_ip)
+            _tracking_apply_geo_to_token_or_user(token, geo)
+        except Exception as e:
+            logger.warning(f"[META GEOIP] worker falhou token={token}: {e}")
+
+    threading.Thread(target=worker, name=f"geo-{token[-6:]}", daemon=True).start()
+
+
+def _create_meta_tracking_token(payload):
+    """Cria o trk_ imediatamente. IP/UA são capturados pelo backend; GeoIP fica assíncrono."""
+    payload = payload if isinstance(payload, dict) else {}
+
+    page_url = _tracking_clean(payload.get("page_url"), 2048)
+    fbclid = _tracking_clean(payload.get("fbclid"), 500)
+    if not fbclid and page_url:
+        try:
+            params = parse_qs(urlparse(page_url).query)
+            fbclid = _tracking_clean((params.get("fbclid") or [""])[0], 500)
+        except Exception:
+            fbclid = ""
+
+    fbc = _tracking_valid_meta_cookie(payload.get("fbc"))
+    fbp = _tracking_valid_meta_cookie(payload.get("fbp"))
+
+    if not fbc and fbclid:
+        timestamp_ms = int(time.time() * 1000)
+        fbc = f"fb.1.{timestamp_ms}.{fbclid}"[:500]
+
+    client_ip = _request_client_ip() or _tracking_valid_ip(payload.get("ip"))
+    client_ua = (
+        _tracking_clean(request.headers.get("User-Agent"), 1024)
+        or _tracking_clean(payload.get("user_agent"), 1024)
+    )
+
+    tracking_data = {
+        "fbclid": fbclid,
+        "fbc": fbc,
+        "fbp": fbp,
+        "ip": client_ip,
+        "user_agent": client_ua,
+        "page_url": page_url,
+        "referrer": _tracking_clean(payload.get("referrer"), 2048),
+        "city": "",
+        "state": "",
+        "zip": "",
+        "country": "",
+        "geo_source": "",
+        "created_at": datetime.now().isoformat(),
+        "linked_uid": "",
+        "linked_at": "",
+    }
+
+    start_token = None
+    for _ in range(5):
+        candidate = f"trk_{secrets.token_urlsafe(12)}"
+        if r.set(
+            meta_tracking_token_key(candidate),
+            json.dumps(tracking_data, ensure_ascii=False),
+            nx=True,
+            ex=TRACKING_TOKEN_TTL_SECONDS,
+        ):
+            start_token = candidate
+            break
+
+    if not start_token:
+        raise RuntimeError("token_generation_failed")
+
+    logger.info(
+        f"[META TRACKING] token criado IMEDIATO | "
+        f"fbc={bool(fbc)} fbp={bool(fbp)} ip={bool(client_ip)} ua={bool(client_ua)}"
+    )
+    _schedule_tracking_geo_enrichment(start_token, client_ip)
+    return start_token, tracking_data
+
+
 def consume_meta_tracking_token(uid, start_param):
-    """Vincula um token trk_* ao Telegram UID e invalida o token temporário."""
+    """
+    Vincula trk_* ao Telegram UID de forma concorrente-segura.
+    O token fica por poucos minutos após o vínculo para permitir enriquecimento GeoIP,
+    mas um UID diferente nunca pode reutilizá-lo.
+    """
     token = _tracking_clean(start_param, 64)
     if not token or not re.fullmatch(r"trk_[A-Za-z0-9_-]{8,48}", token):
         return None
 
     key = meta_tracking_token_key(token)
-    try:
-        raw = r.get(key)
-        if not raw:
-            logger.info(f"[META TRACKING] token ausente/expirado uid={uid}")
+    for _ in range(5):
+        pipe = r.pipeline()
+        try:
+            pipe.watch(key)
+            raw = pipe.get(key)
+            if not raw:
+                pipe.unwatch()
+                logger.info(f"[META TRACKING] token ausente/expirado uid={uid}")
+                return None
+
+            data = json.loads(raw)
+            linked_uid = _tracking_clean(data.get("linked_uid"), 32)
+            if linked_uid and linked_uid != str(uid):
+                pipe.unwatch()
+                logger.warning(
+                    f"[META TRACKING] token recusado: já vinculado a outro uid | "
+                    f"request_uid={uid} linked_uid={linked_uid}"
+                )
+                return None
+
+            linked_at = _tracking_clean(data.get("linked_at"), 80) or datetime.now().isoformat()
+            mapping = {
+                "fbclid": _tracking_clean(data.get("fbclid"), 500),
+                "fbc": _tracking_valid_meta_cookie(data.get("fbc")),
+                "fbp": _tracking_valid_meta_cookie(data.get("fbp")),
+                "ip": _tracking_valid_ip(data.get("ip")),
+                "user_agent": _tracking_clean(data.get("user_agent"), 1024),
+                "page_url": _tracking_clean(data.get("page_url"), 2048),
+                "referrer": _tracking_clean(data.get("referrer"), 2048),
+                "city": _tracking_clean(data.get("city"), 120),
+                "state": _tracking_clean(data.get("state"), 80),
+                "zip": _tracking_clean(data.get("zip"), 40),
+                "country": _tracking_clean(data.get("country"), 8).lower(),
+                "geo_source": _tracking_clean(data.get("geo_source"), 40),
+                "linked_at": linked_at,
+                "start_token": token,
+            }
+
+            data["linked_uid"] = str(uid)
+            data["linked_at"] = linked_at
+
+            pipe.multi()
+            pipe.hset(meta_tracking_user_key(uid), mapping=mapping)
+            pipe.expire(meta_tracking_user_key(uid), timedelta(days=META_TRACKING_TTL_DAYS))
+            pipe.set(
+                key,
+                json.dumps(data, ensure_ascii=False),
+                ex=max(60, TRACKING_LINKED_TOKEN_TTL_SECONDS),
+            )
+            pipe.execute()
+
+            logger.info(
+                f"[META TRACKING] token vinculado uid={uid} | "
+                f"fbc={bool(mapping['fbc'])} fbp={bool(mapping['fbp'])} "
+                f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])} | "
+                f"city='{mapping.get('city', '')}' state='{mapping.get('state', '')}' "
+                f"zip='{mapping.get('zip', '')}' country='{mapping.get('country', '')}'"
+            )
+            return mapping
+        except redis.WatchError:
+            continue
+        except Exception as e:
+            logger.error(f"[META TRACKING] Erro consumindo token uid={uid}: {e}")
             return None
+        finally:
+            try:
+                pipe.reset()
+            except Exception:
+                pass
 
-        data = json.loads(raw)
-        mapping = {
-            "fbclid": _tracking_clean(data.get("fbclid"), 500),
-            "fbc": _tracking_valid_meta_cookie(data.get("fbc")),
-            "fbp": _tracking_valid_meta_cookie(data.get("fbp")),
-            "ip": _tracking_valid_ip(data.get("ip")),
-            "user_agent": _tracking_clean(data.get("user_agent"), 1024),
-            "page_url": _tracking_clean(data.get("page_url"), 2048),
-            "referrer": _tracking_clean(data.get("referrer"), 2048),
-            "city": _tracking_clean(data.get("city"), 120),
-            "state": _tracking_clean(data.get("state"), 80),
-            "zip": _tracking_clean(data.get("zip"), 40),
-            "country": _tracking_clean(data.get("country"), 8).lower(),
-            "geo_source": _tracking_clean(data.get("geo_source"), 40),
-            "linked_at": datetime.now().isoformat(),
-            "start_token": token,
-        }
-        # Redis HASH facilita inspeção/admin; strings vazias são permitidas mas nunca enviadas ao Meta.
-        r.hset(meta_tracking_user_key(uid), mapping=mapping)
-        r.expire(meta_tracking_user_key(uid), timedelta(days=META_TRACKING_TTL_DAYS))
-        r.delete(key)  # token de uso único; evita que outro Telegram ID reutilize o mesmo link.
-
-        logger.info(
-            f"[META TRACKING] token vinculado uid={uid} | "
-            f"fbc={bool(mapping['fbc'])} fbp={bool(mapping['fbp'])} "
-            f"ip={bool(mapping['ip'])} ua={bool(mapping['user_agent'])} | "
-            f"city='{mapping.get('city', '')}' "
-            f"state='{mapping.get('state', '')}' "
-            f"zip='{mapping.get('zip', '')}' "
-            f"country='{mapping.get('country', '')}'"
-        )
-        return mapping
-    except Exception as e:
-        logger.error(f"[META TRACKING] Erro consumindo token uid={uid}: {e}")
-        return None
+    logger.error(f"[META TRACKING] conflito ao vincular token uid={uid}")
+    return None
 
 
 def track_source_event(uid, event, amount=None):
@@ -2013,105 +2176,11 @@ def get_source_context_line(uid):
     return "Você veio mesmo 😏"
 
 
-# Lista deliberadamente conservadora: é melhor deixar de usar um nome raro do que
-# chamar um apelido/username de nome próprio e denunciar automação.
-_COMMON_FIRST_NAMES = {
-    "adilson", "adriano", "alan", "alberto", "alex", "alexandre", "anderson",
-    "andre", "antonio", "augusto", "bruno", "carlos", "caio", "cassio", "cesar",
-    "claudemir", "claudio", "cleber", "cristiano", "daniel", "danilo", "davi",
-    "diego", "douglas", "eduardo", "elias", "emerson", "erick", "everton",
-    "fabiano", "fabio", "felipe", "fernando", "francisco", "gabriel", "george",
-    "gilberto", "giovane", "gustavo", "guilherme", "heitor", "henrique", "igor",
-    "israel", "ivan", "joao", "jonas", "jonathan", "jorge", "jose", "juan",
-    "juliano", "julio", "leandro", "leonardo", "lucas", "luciano", "luiz",
-    "marcelo", "marcio", "marcos", "mateus", "matheus", "mauricio", "maycon",
-    "michel", "murilo", "nicolas", "paulo", "pedro", "rafael", "ramon", "raul",
-    "renan", "renato", "ricardo", "roberto", "rodrigo", "rogerio", "samuel",
-    "sergio", "silvio", "thiago", "tiago", "valdir", "vanderlei", "victor",
-    "vinicius", "vitor", "wagner", "wallace", "wanderson", "wesley", "william",
-    "wilson"
-}
-
-
-def _normalize_given_name(value):
-    value = (value or "").strip()
-    if not value:
-        return ""
-    # Primeiro token: evita usar sobrenome e descarta emojis/símbolos no começo.
-    token = value.split()[0].strip("-_.,;:!?()[]{}")
-    if not token or len(token) < 3 or len(token) > 20 or any(ch.isdigit() for ch in token):
-        return ""
-    if not all(ch.isalpha() or ch in "'-" for ch in token):
-        return ""
-    normalized = unicodedata.normalize("NFKD", token)
-    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch)).casefold()
-    if normalized not in _COMMON_FIRST_NAMES:
-        return ""
-    return token[:1].upper() + token[1:].lower()
-
-
-def prepare_name_personalization(uid, raw_first_name):
-    """Inicia a sessão de personalização do /start e guarda apenas nome confiável."""
-    try:
-        safe = _normalize_given_name(raw_first_name)
-        pipe = r.pipeline(transaction=False)
-        pipe.delete(name_use_count_key(uid), name_last_maya_count_key(uid), maya_message_count_key(uid))
-        if safe:
-            pipe.setex(safe_first_name_key(uid), timedelta(days=365), safe)
-        else:
-            pipe.delete(safe_first_name_key(uid))
-        pipe.execute()
-        return safe
-    except Exception as e:
-        logger.error(f"[NAME] Erro preparando personalização uid={uid}: {e}")
-        return ""
-
-
-def get_safe_first_name(uid):
-    try:
-        return (r.get(safe_first_name_key(uid)) or "").strip()
-    except Exception:
-        return ""
-
-
-def consume_name_for_message(uid, force=False):
-    """Retorna o nome quando o uso está natural; no /start, force=True sempre usa."""
-    try:
-        name = get_safe_first_name(uid)
-        if not name:
-            return ""
-        uses = int(r.get(name_use_count_key(uid)) or 0)
-        if not force and uses >= MAX_NAME_USES_PER_CONVERSATION:
-            return ""
-        maya_count = int(r.get(maya_message_count_key(uid)) or 0)
-        last_count_raw = r.get(name_last_maya_count_key(uid))
-        if not force and last_count_raw is not None:
-            last_count = int(last_count_raw or 0)
-            if (maya_count - last_count) < MIN_ASSISTANT_MESSAGES_BETWEEN_NAME_USES:
-                return ""
-        pipe = r.pipeline(transaction=False)
-        pipe.incr(name_use_count_key(uid))
-        pipe.set(name_last_maya_count_key(uid), maya_count)
-        pipe.expire(name_use_count_key(uid), timedelta(days=30))
-        pipe.expire(name_last_maya_count_key(uid), timedelta(days=30))
-        pipe.execute()
-        return name
-    except Exception as e:
-        logger.error(f"[NAME] Erro consumindo nome uid={uid}: {e}")
-        return ""
-
-
 def get_realistic_start_message(uid, ia_config=None):
-    """Abertura humana; usa primeiro nome confiável já no primeiro contato."""
-    name = consume_name_for_message(uid, force=True)
-    if name:
-        return (
-            f"E aí, {name} 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
-            "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
-        )
+    """Abertura pedida para iniciar a escolha de interesse do lead."""
     return (
-        "E aí 😈 então você veio até o final mesmo... 👀 "
-        "Me conta: foi só curiosidade ou você já tava imaginando o que ia encontrar aqui?"
+        "E aí safado 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
+        "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
     )
 
 def classify_lead(uid, text, intent=None):
@@ -2475,93 +2544,58 @@ def is_video_confirmation(text):
     return any(c in text for c in confirmations)
 
 async def send_free_teaser_video(bot, chat_id, uid):
-    """
-    Entrega uma prévia SOMENTE quando o Telegram confirma o envio do asset.
-
-    Regras v8.5.3:
-    - não mostra UPLOAD_VIDEO antes de saber se o asset é válido;
-    - tenta todos os vídeos configurados, sem repetir file_id;
-    - se vídeos falharem, tenta fotos configuradas como fallback visual;
-    - só salva/promete a prévia depois de um send_video/send_photo bem-sucedido;
-    - se nenhum asset funcionar, usa resposta neutra (sem expor erro técnico).
-    """
-    clear_pending_teaser_video(uid)
-
     try:
-        ia_config = get_router().get_ia_config(uid=uid) or {}
-    except Exception:
-        ia_config = {}
-
-    configured_videos = ia_config.get("videos_teaser", VIDEOS_TEASER) or []
-    configured_photos = ia_config.get("fotos_teaser", FOTOS_TEASER) or []
-
-    def _unique_assets(*groups):
-        seen = set()
-        result = []
-        for group in groups:
-            for asset in (group or []):
-                asset = str(asset or "").strip()
-                if asset and asset not in seen:
-                    seen.add(asset)
-                    result.append(asset)
-        return result
-
-    video_candidates = _unique_assets(FREE_TEASER_VIDEO_IDS, configured_videos, VIDEOS_TEASER)
-    photo_candidates = _unique_assets(configured_photos, FOTOS_TEASER)
-    random.shuffle(video_candidates)
-    random.shuffle(photo_candidates)
-
-    preview_caption = "Essa é a prévia que eu tinha separada aqui 👇"
-
-    # 1) Tenta vídeos silenciosamente. O caption só aparece se o envio realmente ocorrer.
-    for video_id in video_candidates:
-        try:
-            await bot.send_video(
+        if not FREE_TEASER_VIDEO_IDS:
+            logger.warning("🎥 FREE_TEASER_VIDEO_IDS vazio. Configure o file_id do vídeo teaser.")
+            clear_pending_teaser_video(uid)
+            await bot.send_message(
                 chat_id=chat_id,
-                video=video_id,
-                caption=preview_caption,
-                connect_timeout=15,
-                read_timeout=20,
-                write_timeout=20,
+                text=(
+                    "Tentei te mandar agora, mas o vídeo não carregou aqui. "
+                    "Me chama de novo em instantes 😏"
+                )
             )
-            mark_free_teaser_video_sent(uid)
-            save_message(uid, "maya", preview_caption)
-            save_message(uid, "system", "🎥 PRÉVIA ENTREGUE (video)")
-            logger.info(f"🎥 [PREVIEW] vídeo entregue uid={uid}")
+            save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
             return True
-        except Exception as e:
-            logger.warning(f"🎥 [PREVIEW] vídeo inválido/falhou uid={uid} asset={video_id}: {e}")
 
-    # 2) Se todos os vídeos falharam, tenta fotos como fallback real de prévia.
-    for photo_id in photo_candidates:
-        try:
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=photo_id,
-                caption=preview_caption,
-                connect_timeout=15,
-                read_timeout=20,
-                write_timeout=20,
-            )
-            mark_free_teaser_video_sent(uid)
-            save_message(uid, "maya", preview_caption)
-            save_message(uid, "system", "🖼️ PRÉVIA ENTREGUE (photo)")
-            logger.info(f"🖼️ [PREVIEW] foto entregue uid={uid}")
-            return True
-        except Exception as e:
-            logger.warning(f"🖼️ [PREVIEW] foto inválida/falhou uid={uid} asset={photo_id}: {e}")
+        video_id = random.choice(FREE_TEASER_VIDEO_IDS)
 
-    # 3) Nenhum asset funcionou: não finge envio e não revela erro técnico.
-    fallback = "Por aqui eu não libero outra prévia agora 😏 o restante fica no VIP."
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
-    ]])
-    await bot.send_message(chat_id=chat_id, text=fallback, reply_markup=keyboard)
-    save_message(uid, "maya", fallback)
-    save_message(uid, "system", "🛡️ PREVIEW FALLBACK NEUTRO")
-    logger.warning(f"⚠️ [PREVIEW] nenhum asset válido disponível uid={uid}")
-    return True
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+        await asyncio.sleep(1.0)
+        await bot.send_video(
+            chat_id=chat_id,
+            video=video_id,
+            caption=(
+                "Pronto… te mandei só um gostinho 😏\n\n"
+                "O resto eu libero no acesso completo."
+            ),
+            connect_timeout=15,
+            read_timeout=20,
+            write_timeout=20
+        )
 
+        clear_pending_teaser_video(uid)
+        mark_free_teaser_video_sent(uid)
+        save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
+
+        await asyncio.sleep(1.6)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
+        ]])
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
+                "Quando aprovar, o acesso cai automático."
+            ),
+            reply_markup=keyboard
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Erro ao enviar vídeo teaser para {uid}: {e}")
+        clear_pending_teaser_video(uid)
+        return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
@@ -2711,13 +2745,6 @@ def save_message(uid, role, text):
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         role_upper = str(role).upper()
         clean_text = str(text or "")[:4000]
-
-        if role_upper == "MAYA":
-            try:
-                r.incr(maya_message_count_key(uid))
-                r.expire(maya_message_count_key(uid), timedelta(days=30))
-            except Exception:
-                pass
 
         # Log recente usado pelo painel em tempo real.
         r.rpush(chatlog_key(uid), f"[{timestamp}] {role_upper}: {clean_text}")
@@ -3063,7 +3090,6 @@ async def handle_return(uid, bot, chat_id):
         r.setex(last_return_pitch_key(uid), timedelta(hours=24), "1")
         message = get_unique_response(uid, "retorno")
         await bot.send_message(chat_id=chat_id, text=message)
-        save_message(uid, "maya", message)
         r.incr(return_count_key(uid))
         r.expire(return_count_key(uid), timedelta(days=30))
         save_message(uid, "system", "PITCH DE RETORNO (6h+)")
@@ -3572,8 +3598,7 @@ class Grok:
         memory_text = f"[Foto] {text}" if image_base64 else text
         add_to_memory(uid, "user", memory_text)
         add_to_memory(uid, "assistant", result["response"])
-        # O histórico do painel é salvo SOMENTE depois do envio real ao Telegram.
-        # Isso evita registrar uma resposta bruta que depois seja alterada pelo Promise Guard.
+        save_message(uid, "maya", result["response"])
         return result
 
     def _smart_fallback(self, raw_text, intent, uid):
@@ -3646,9 +3671,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         reset_msgs_since_offer(uid)
 
                 # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
-        teaser_intro_text = "Olha só o que tem pra você bater punheta no meu VIP🔥"
-        await bot.send_message(chat_id=chat_id, text=teaser_intro_text)
-        save_message(uid, "maya", teaser_intro_text)
+        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
         # Envia 2 fotos
@@ -3713,7 +3736,6 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         ]])
 
         await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
-        save_message(uid, "maya", pitch)
         mark_vip_just_offered(uid)
         activate_sales_hard_wall(uid)
         activate_followup5(uid, reset_stage=False)
@@ -3858,12 +3880,10 @@ async def send_vip_intro_audio_once(bot, chat_id, uid):
         if not file_id:
             return False
 
-        intro_audio_text = "Amor, deixa eu te explicar rapidinho por áudio como funciona meu VIP 👇"
         await bot.send_message(
             chat_id=chat_id,
-            text=intro_audio_text
+            text="Amor, deixa eu te explicar rapidinho por áudio como funciona meu VIP 👇"
         )
-        save_message(uid, "maya", intro_audio_text)
         await asyncio.sleep(0.5)
 
         sent = await _send_telegram_audio_file(bot, chat_id, file_id)
@@ -3970,12 +3990,10 @@ async def maybe_send_pending_pix_audio_recovery(bot, uid):
         if age_minutes is None or age_minutes < PIX_AUDIO_RECOVERY_DELAY_MINUTES:
             return False
 
-        pix_audio_intro = "Vi que seu PIX ainda está pendente. Escuta essa prévia antes de decidir 👇"
         await bot.send_message(
             chat_id=uid,
-            text=pix_audio_intro
+            text="Vi que seu PIX ainda está pendente. Escuta essa prévia antes de decidir 👇"
         )
-        save_message(uid, "maya", pix_audio_intro)
         await asyncio.sleep(0.5)
 
         sent = await send_vip_moan_audio_once(
@@ -3992,13 +4010,11 @@ async def maybe_send_pending_pix_audio_recovery(bot, uid):
         ]])
 
         await asyncio.sleep(0.7)
-        pix_audio_cta = "Se quiser concluir, seu PIX continua disponível aqui 👇"
         await bot.send_message(
             chat_id=uid,
-            text=pix_audio_cta,
+            text="Se quiser concluir, seu PIX continua disponível aqui 👇",
             reply_markup=keyboard
         )
-        save_message(uid, "maya", pix_audio_cta)
 
         current_stage = int(r.get(followup_stage_key(uid)) or 0)
         if current_stage < 1:
@@ -4104,7 +4120,6 @@ async def send_silent_recovery_stage(bot, uid, stage):
         cancel_silent_recovery(uid)
         return False
     await bot.send_message(chat_id=uid, text=msg)
-    save_message(uid, "maya", msg)
     r.set(silent_recovery_stage_key(uid), stage)
     save_message(uid, "system", f"💬 SILENT RECOVERY #{stage} ENVIADO (SEM PIX)")
     track_source_event(uid, f"silent_recovery_{stage}")
@@ -4253,8 +4268,7 @@ def _followup_recurring_name(uid):
     try:
         if int(r.get(return_count_key(uid)) or 0) <= 0:
             return ""
-        # Usa o mesmo filtro seguro da conversa: nunca chama "nn", números ou apelidos.
-        return consume_name_for_message(uid)
+        return (r.get(followup_first_name_key(uid)) or "").strip()
     except Exception:
         return ""
 
@@ -4306,67 +4320,6 @@ def build_followup5_message(uid, stage):
         f"Depois disso eu fico quietinha por aqui.{bonus}"
     )
 
-def _normalize_intent_text(value):
-    value = unicodedata.normalize("NFKD", (value or "").strip().casefold())
-    value = "".join(ch for ch in value if not unicodedata.combining(ch))
-    value = re.sub(r"[^a-z0-9\s]", " ", value)
-    return re.sub(r"\s+", " ", value).strip()
-
-
-def detect_direct_purchase_intent(text):
-    """Detecta intenção comercial explícita no pós-pitch, antes do Hard Wall."""
-    t = _normalize_intent_text(text)
-    if not t:
-        return False
-
-    exact = {
-        "quero", "eu quero", "quero sim", "sim quero", "fechou",
-        "pode ser", "vou querer"
-    }
-    if t in exact:
-        return True
-
-    direct_terms = [
-        "quero vip", "quero o vip", "quero pagar", "vou pagar",
-        "manda o pix", "me passa o pix", "qual o pix", "cade o pix",
-        "gera o pix", "gera pix", "gerar pix", "como pago", "como pagar",
-        "comprar vip", "quero comprar", "assinar", "quero acesso", "libera o acesso"
-    ]
-    return _contains_any(t, direct_terms)
-
-
-async def send_direct_purchase_response(bot, chat_id, uid):
-    """Transforma intenção explícita em CTA operacional, sem repetir o pitch/teaser."""
-    track_source_event(uid, "direct_payment_intent")
-    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
-    name = consume_name_for_message(uid)
-    prefix = f"{name}, " if name else ""
-
-    if pending_pix:
-        msg = (
-            f"{prefix}seu PIX já está gerado. Se você fechou a tela, use o botão abaixo "
-            "para mostrar o mesmo PIX novamente. Assim que o pagamento confirmar, o acesso é liberado automaticamente."
-        )
-        label = "📋 MOSTRAR MEU PIX"
-        origin = "resend"
-    else:
-        preco = _followup_price(uid)
-        msg = (
-            f"{prefix}perfeito. O acesso está por {preco}. "
-            "Use o botão abaixo para gerar o PIX e, depois da confirmação, o acesso é liberado automaticamente."
-        )
-        label = get_cta_label(uid)
-        origin = "direct_intent"
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(label, callback_data=payment_callback_data(origin))
-    ]])
-    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
-    save_message(uid, "maya", msg)
-    save_message(uid, "system", "💎 INTENÇÃO DIRETA DE COMPRA DETECTADA")
-    return True
-
-
 def detect_sales_objection(text):
     """Classifica dúvidas comerciais que NÃO devem cair no bloqueio seco do Hard Wall."""
     t = (text or "").lower().strip()
@@ -4376,16 +4329,9 @@ def detect_sales_objection(text):
         return "payment"
     if _contains_any(t, ["é real", "e real", "é fake", "e fake", "golpe", "confi", "garantia", "verdade", "seguro"]):
         return "trust"
-    if _contains_any(t, [
-        "ainda vou te ver", "vou te ver", "vou ver voce", "vou ver você",
-        "no vip eu vejo", "no vip tem", "o que tem no vip", "oque tem no vip",
-        "o que vem no vip", "oque vem no vip", "o que inclui", "inclui o que",
-        "o que recebo", "oque recebo", "sem censura", "conteudo completo", "conteúdo completo"
-    ]):
-        return "offer_clarification"
     if _contains_any(t, ["prévia", "previa", "amostra", "manda primeiro", "video primeiro", "vídeo primeiro", "foto primeiro", "tem previa", "tem prévia", "cadê", "cade"]):
         return "preview"
-    if _contains_any(t, ["como funciona", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
+    if _contains_any(t, ["como funciona", "o que recebo", "oque recebo", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
         return "delivery"
     if _contains_any(t, ["caro", "barato demais", "bom demais", "por que tão barato", "porque tao barato", "valor"]):
         return "price"
@@ -4401,24 +4347,13 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     preco = _followup_price(uid)
 
     if kind == "preview":
-        if not free_teaser_video_already_sent_today(uid):
-            # v8.5.3: tenta entregar a mídia ANTES de afirmar qualquer coisa ao lead.
-            # A própria função usa fallback neutro se nenhum asset estiver válido.
+        if not free_teaser_video_already_sent_today(uid) and FREE_TEASER_VIDEO_IDS:
+            await bot.send_message(chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
             await send_free_teaser_video(bot, chat_id, uid)
-            save_message(uid, "system", "🛡️ OBJEÇÃO COMERCIAL RESPONDIDA (preview)")
             return True
         msg = "A prévia que eu libero já foi enviada por aqui. O acesso completo só abre depois da confirmação do pagamento."
     elif kind == "trust":
-        name = consume_name_for_message(uid)
-        prefix = f"Pergunta justa, {name}." if name else "Pergunta justa."
-        msg = f"{prefix} O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
-    elif kind == "offer_clarification":
-        name = consume_name_for_message(uid)
-        prefix = f"{name}, " if name else ""
-        msg = (
-            f"{prefix}sim. O VIP inclui o conteúdo e os benefícios descritos na oferta que você acabou de ver. "
-            "O acesso completo é liberado aqui no chat depois da confirmação automática do PIX."
-        )
+        msg = "Pergunta justa. O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
     elif kind == "delivery":
         msg = "Funciona assim: você gera o PIX pelo botão, paga no banco e, quando a SyncPay confirmar, o bot libera automaticamente o link do VIP aqui no chat."
     elif kind == "payment":
@@ -4430,99 +4365,42 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
         InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
     ]])
     await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
-    save_message(uid, "maya", msg)
     save_message(uid, "system", f"🛡️ OBJEÇÃO COMERCIAL RESPONDIDA ({kind})")
     return True
 
 
-def _hard_wall_rotation_key(uid, pending_pix=False):
-    context = "pending_pix" if pending_pix else "pre_pix"
-    return f"hard_wall_rotation:{context}:{uid}"
-
-def _next_hard_wall_variant(uid, pending_pix=False, total=3):
-    """Rotaciona respostas do Hard Wall sem repetir a mesma em sequência."""
-    try:
-        key = _hard_wall_rotation_key(uid, pending_pix)
-        position = int(r.incr(key)) - 1
-        r.expire(key, timedelta(days=30))
-        return position % max(1, int(total))
-    except Exception as e:
-        logger.error(f"[HARD WALL] Erro na rotação uid={uid}: {e}")
-        return 0
-
 def build_sales_hard_wall_message(uid, text=""):
-    """Hard Wall com contexto de PIX e rotação anti-repetição."""
+    """Resposta determinística pós-pitch/PIX: corta o loop de gratificação."""
     if text:
         save_followup_interest(uid, text)
-
     preco = _followup_price(uid)
     desejo = _followup_desire(uid)
     bonus = _followup_bonus_suffix()
-    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
 
-    if pending_pix:
-        variants = [
-            (
-                f"Seu PIX já está gerado 💕 então não precisa criar outro. "
-                f"Assim que o pagamento confirmar, eu libero o acesso aqui automaticamente.{bonus}"
-            ),
-            (
-                f"Tá tudo pronto do meu lado 😈 seu PIX ainda está pendente. "
-                f"Se você fechou a tela, usa o botão abaixo só pra mostrar o mesmo PIX de novo.{bonus}"
-            ),
-            (
-                f"Eu vi que seu PIX já foi gerado. Agora só falta a confirmação do pagamento 💕 "
-                f"Quando cair, o acesso é liberado automaticamente aqui no chat.{bonus}"
-            ),
-        ]
-        return variants[_next_hard_wall_variant(uid, pending_pix=True, total=len(variants))]
+    if user_has_pending_pix(uid):
+        return (
+            f"Eu sei que você quer continuar 😈 e eu não esqueci que você queria {desejo}. "
+            f"Mas agora eu paro por aqui: o resto eu libero só depois do PIX. "
+            f"Seu acesso é {preco}; clica no botão que eu recupero o PIX pra você.{bonus}"
+        )
 
-    variants = [
-        (
-            f"Ai meu Deus, imaginei agora... 😈 Eu sei que você queria {desejo}. "
-            f"Mas daqui pra frente eu não vou continuar a fantasia de graça. "
-            f"Entra no VIP por {preco} e eu libero o resto agora.{bonus}"
-        ),
-        (
-            f"Eu sei que você quer continuar 😈 mas daqui pra frente eu seguro o resto pro VIP. "
-            f"O acesso está por {preco}; se quiser liberar, é só gerar o PIX abaixo.{bonus}"
-        ),
-        (
-            f"Você já entendeu o clima 😏 agora o restante fica no VIP. "
-            f"Por {preco} eu libero o acesso assim que o PIX confirmar.{bonus}"
-        ),
-    ]
-    return variants[_next_hard_wall_variant(uid, pending_pix=False, total=len(variants))]
+    return (
+        f"Ai meu Deus, imaginei agora... 😈 Eu sei que você queria {desejo}. "
+        f"Mas daqui pra frente eu não vou continuar a fantasia de graça. "
+        f"Entra no VIP por {preco} e eu libero o resto agora.{bonus}"
+    )
 
 async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
     if user_has_paid(uid):
         clear_sales_hard_wall(uid)
         return False
-
-    pending_pix = user_has_pending_pix(uid) and not user_has_paid(uid)
     msg = build_sales_hard_wall_message(uid, text)
-    name = consume_name_for_message(uid)
-    if name:
-        msg = f"{name}, {msg[:1].lower() + msg[1:] if msg else msg}"
-
-    if pending_pix:
-        button_label = "📋 MOSTRAR MEU PIX"
-        button_origin = "resend"
-    else:
-        button_label = get_cta_label(uid)
-        button_origin = "objection"
-
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(button_label, callback_data=payment_callback_data(button_origin))
+        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
     ]])
-
     await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
-    save_message(uid, "maya", msg)
     save_message(uid, "system", "🧱 HARD WALL PÓS-PITCH/PIX ENVIADO")
-    logger.info(
-        f"🧱 [HARD WALL] Resposta enviada uid={uid} "
-        f"pending_pix={pending_pix} interesse={get_followup_interest(uid) or 'geral'}"
-    )
+    logger.info(f"🧱 [HARD WALL] Resposta enviada uid={uid} interesse={get_followup_interest(uid) or 'geral'}")
     return True
 
 async def send_followup5_stage(bot, uid, stage):
@@ -4540,7 +4418,6 @@ async def send_followup5_stage(bot, uid, stage):
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
         await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
-        save_message(uid, "maya", msg)
         r.set(followup_stage_key(uid), stage)
         r.expire(followup_stage_key(uid), timedelta(days=30))
         save_message(uid, "system", f"🔥 FOLLOW-UP 5 ESTÁGIOS #{stage} ENVIADO")
@@ -4625,7 +4502,6 @@ async def send_inactivity_followup(bot, uid, chat_id):
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
         await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
-        save_message(uid, "maya", msg)
         save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
         logger.info(f"📨 Follow-up por inatividade enviado para {uid}")
         return True
@@ -4652,9 +4528,7 @@ async def send_pending_pix_followup(bot, uid, chat_id, level=1):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
         ]])
-        pending_pix_msg = msgs.get(level, msgs[1])
-        await bot.send_message(chat_id=chat_id, text=pending_pix_msg, reply_markup=keyboard)
-        save_message(uid, "maya", pending_pix_msg)
+        await bot.send_message(chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
         r.setex(key, timedelta(hours=24), "1")
         save_message(uid, "system", f"FOLLOW-UP PIX PENDENTE nível {level} enviado")
         track_source_event(uid, f"pending_pix_followup_{level}")
@@ -4681,7 +4555,6 @@ async def send_reengagement_message(bot, uid, level):
     try:
         message = random.choice(messages)
         await bot.send_message(chat_id=uid, text=message)
-        save_message(uid, "maya", message)
         set_last_reengagement(uid, level)
         set_awaiting_response(uid)
         increment_ignored(uid)
@@ -4878,7 +4751,6 @@ async def recover_silent_users(bot):
                 if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
                     message = random.choice(RECOVERY_MESSAGES["10min"])
                     await bot.send_message(chat_id=uid, text=message)
-                    save_message(uid, "maya", message)
                     r.setex(recovery_10min_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 10min enviado")
@@ -4887,7 +4759,6 @@ async def recover_silent_users(bot):
                 elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
                     message = random.choice(RECOVERY_MESSAGES["2h"])
                     await bot.send_message(chat_id=uid, text=message)
-                    save_message(uid, "maya", message)
                     r.setex(recovery_2h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 2h enviado")
@@ -4896,7 +4767,6 @@ async def recover_silent_users(bot):
                 elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
                     message = random.choice(RECOVERY_MESSAGES["12h"])
                     await bot.send_message(chat_id=uid, text=message)
-                    save_message(uid, "maya", message)
                     r.setex(recovery_12h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 12h enviado")
@@ -4912,7 +4782,6 @@ async def recover_silent_users(bot):
                         chat_id=uid, text=message,
                         reply_markup=keyboard, parse_mode="Markdown"
                     )
-                    save_message(uid, "maya", message)
                     r.setex(recovery_24h_key, timedelta(hours=48), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 24h enviado (com VIP)")
@@ -4955,7 +4824,6 @@ async def check_and_send_limit_warning(uid, context, chat_id):
         mark_limit_warning_sent(uid)
         try:
             await context.bot.send_message(chat_id=chat_id, text=LIMIT_WARNING_MESSAGE, parse_mode="Markdown")
-            save_message(uid, "maya", LIMIT_WARNING_MESSAGE)
         except:
             pass
 
@@ -4971,6 +4839,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Se veio da landing, resolve o token curto antes de qualquer tracking de origem.
     meta_tracking = consume_meta_tracking_token(uid, start_param)
+    if start_param and str(start_param).startswith("trk_") and not meta_tracking:
+        logger.warning(f"[META TRACKING] /start recebeu trk_ mas vínculo falhou uid={uid}")
+    elif not start_param:
+        logger.info(f"[META TRACKING] /start direto sem trk_ uid={uid}")
     router_start_param = None if meta_tracking else start_param
     detected_ia = router.parse_start_params(router_start_param)
 
@@ -5008,16 +4880,25 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
     mark_first_contact(uid)
-    raw_first_name = update.effective_user.first_name or ""
-    save_followup_first_name(uid, raw_first_name)
-    prepare_name_personalization(uid, raw_first_name)
+    save_followup_first_name(uid, update.effective_user.first_name or "")
     # /start sem resposta NÃO inicia follow-up de venda. Primeiro tentamos recuperar conversa.
     if not r.exists(first_message_seen_key(uid)):
         activate_silent_recovery(uid, reset_stage=True)
 
     try:
-        # Primeiro entrega a foto de boas-vindas. Depois simula digitação humana por ~2s
-        # antes da primeira mensagem — exatamente o que o lead vê no Telegram.
+        # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
+        opening = get_realistic_start_message(uid, ia_config)
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=opening
+            )
+            save_message(uid, "maya", opening)
+        except Exception as msg_error:
+            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
+
+        # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
         if START_SEND_WELCOME_MEDIA:
             try:
                 await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
@@ -5027,30 +4908,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     photo=ia_config["foto_bem_vinda"],
                     connect_timeout=10, read_timeout=10, write_timeout=10
                 )
-                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA NO /START")
+                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
             except Exception as photo_error:
                 logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
-
-        opening = get_realistic_start_message(uid, ia_config)
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2.0)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=opening
-            )
-            save_message(uid, "maya", opening)
-        except Exception as msg_error:
-            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
-            fallback_name = get_safe_first_name(uid)
-            if fallback_name:
-                fallback_opening = f"Olha só quem resolveu aparecer, {fallback_name}... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?"
-            else:
-                fallback_opening = "Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?"
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            await asyncio.sleep(2.0)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=fallback_opening)
-            save_message(uid, "maya", fallback_opening)
 
         if START_SEND_WELCOME_VIDEO:
             try:
@@ -5127,50 +4987,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Erro callback: {e}")
 
 
-TEXT_DEBOUNCE_SECONDS = float(os.getenv("TEXT_DEBOUNCE_SECONDS", "1.2"))
-
-def _text_debounce_buffer_key(uid):
-    return f"text_debounce:buffer:{uid}"
-
-def _text_debounce_token_key(uid):
-    return f"text_debounce:token:{uid}"
-
-async def collect_debounced_text(uid, text):
-    """
-    Junta rajadas curtas de texto em uma única interação lógica.
-    Cada mensagem continua sendo salva individualmente no histórico; somente o
-    processamento automático é consolidado na última mensagem da rajada.
-    """
-    clean = (text or "").strip()
-    if not clean or TEXT_DEBOUNCE_SECONDS <= 0:
-        return clean
-
-    token = secrets.token_hex(8)
-    buffer_key = _text_debounce_buffer_key(uid)
-    token_key = _text_debounce_token_key(uid)
-    try:
-        pipe = r.pipeline()
-        pipe.rpush(buffer_key, clean)
-        pipe.expire(buffer_key, 10)
-        pipe.set(token_key, token, ex=10)
-        pipe.execute()
-
-        await asyncio.sleep(TEXT_DEBOUNCE_SECONDS)
-
-        if r.get(token_key) != token:
-            return None
-
-        parts = r.lrange(buffer_key, 0, -1) or [clean]
-        pipe = r.pipeline()
-        pipe.delete(buffer_key)
-        pipe.delete(token_key)
-        pipe.execute()
-        return "\n".join(p for p in parts if p).strip()
-    except Exception as e:
-        logger.warning(f"[DEBOUNCE] Falha uid={uid}: {e}")
-        return clean
-
-
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if is_blacklisted(uid):
@@ -5195,18 +5011,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_message(uid, "user", "[MENSAGEM RECEBIDA DURANTE MODO MANUAL]")
         logger.info(f"🖐️ [MODO MANUAL] Mensagem recebida sem resposta automática uid={uid}")
         return
-
-    # v8.5.5: salva cada texto imediatamente, mas consolida rajadas rápidas
-    # em UMA interação lógica para evitar respostas empilhadas.
-    text_already_logged = False
-    if update.message and update.message.text:
-        save_message(uid, "user", update.message.text)
-        text_already_logged = True
-        debounced_text = await collect_debounced_text(uid, update.message.text)
-        if debounced_text is None:
-            logger.info(f"⏳ [DEBOUNCE] Mensagem absorvida por rajada uid={uid}")
-            return
-        incoming_text = debounced_text
 
     # Guarda a inatividade ANTES de atualizar last_activity.
     hours_since = get_hours_since_activity(uid)
@@ -5253,12 +5057,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         has_photo = bool(update.message.photo)
-        text = incoming_text if update.message.text else (update.message.caption or "")
+        text = update.message.text or ""
 
         # ====================== DETECÇÃO DE APEGO ======================
         if text:
-            if not text_already_logged:
-                save_message(uid, "user", text)
+            save_message(uid, "user", text)
             attachment = detect_emotional_attachment(text)
             if attachment["attached"]:
                 r.set(is_attached_key(uid), "1")
@@ -5295,7 +5098,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
 
-                # ==================== v8.5.1 - MODO HÍBRIDO (FOTO) ====================
+                # ==================== v8.5 - MODO HÍBRIDO (FOTO) ====================
                 if was_vip_just_offered(uid):
                     msgs_since = get_msgs_since_offer(uid)
                     if msgs_since <= 4:
@@ -5305,7 +5108,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                             return
                         await update.message.reply_text(grok_response["response"])
-                        save_message(uid, "maya", grok_response["response"])
                     else:
                         response_text = random.choice([
                             "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
@@ -5314,7 +5116,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
                         ])
                         await update.message.reply_text(response_text)
-                        save_message(uid, "maya", response_text)
                         grok_response = {"response": response_text, "offer_teaser": False}
                 else:
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
@@ -5323,7 +5124,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                         return
                     await update.message.reply_text(grok_response["response"])
-                    save_message(uid, "maya", grok_response["response"])
                 # =================================================================
 
                 maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
@@ -5339,32 +5139,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
-        text = incoming_text if update.message.text else ""
-
-        # v8.5.5: intenção direta de compra tem prioridade absoluta no pós-pitch.
-        # "quero", "manda o pix", "como pago" etc. não recebem outro Hard Wall.
-        if is_sales_hard_wall(uid) and not user_has_paid(uid) and detect_direct_purchase_intent(text):
-            await send_direct_purchase_response(
-                context.bot, update.effective_chat.id, uid
-            )
-            return
-
-        # v8.5.1 FIX: depois de pitch/PIX, o atendimento comercial tem prioridade
-        # sobre o limite diário. Assim perguntas como "é real?" são respondidas
-        # e mensagens comuns pós-pitch recebem o Hard Wall, em vez de disparar
-        # "Última Chance"/"Limite Atingido" poucos segundos depois do PIX.
-        if is_sales_hard_wall(uid) and not user_has_paid(uid):
-            objection_kind = detect_sales_objection(text)
-            if objection_kind:
-                await send_sales_objection_response(
-                    context.bot, update.effective_chat.id, uid, text, objection_kind
-                )
-            else:
-                await send_sales_hard_wall_response(
-                    context.bot, update.effective_chat.id, uid, text
-                )
-            return
-
         current_count = today_count(uid)
         bonus = get_bonus_msgs(uid)
         total = get_user_daily_limit(uid) + bonus
@@ -5376,36 +5150,32 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
                 ]])
-                limit_context_msg = get_contextual_limit_message(uid)
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=limit_context_msg,
+                    text=get_contextual_limit_message(uid),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
-                save_message(uid, "maya", limit_context_msg)
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
             ]])
-            limit_reached_text = LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP)
             try:
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=FOTO_LIMITE_ATINGIDO,
-                    caption=limit_reached_text,
+                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
             except:
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=limit_reached_text,
+                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
-            save_message(uid, "maya", limit_reached_text)
             save_message(uid, "system", "🚫 LIMITE ATINGIDO")
             return
 
@@ -5417,6 +5187,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await check_and_send_limit_warning(uid, context, update.effective_chat.id)
 
                 # ====================== FLUXO REALISTA: INTENÇÃO + LEAD TYPE ======================
+        text = update.message.text or ""
         intent = detect_intent(text) if text else "neutral"
         lead_type = classify_lead(uid, text, intent)
         save_lead_signal(uid, lead_type, intent, text)
@@ -5448,6 +5219,19 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
+        # 1.5) HARD WALL com consciência de objeção: bloqueia gratificação, não dúvidas de compra.
+        if is_sales_hard_wall(uid) and not user_has_paid(uid):
+            objection_kind = detect_sales_objection(text)
+            if objection_kind:
+                await send_sales_objection_response(
+                    context.bot, update.effective_chat.id, uid, text, objection_kind
+                )
+            else:
+                await send_sales_hard_wall_response(
+                    context.bot, update.effective_chat.id, uid, text
+                )
+            return
+
         # 2) Pedido claro de preço/acesso/conteúdo: não enrola, vai para SyncPay.
         if should_force_payment_flow(text, intent):
             can_offer, reason = can_offer_vip(uid)
@@ -5469,7 +5253,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if should_use_pool_response(uid, intent, lead_type):
             response = get_unique_response(uid, "provocacao_pesada")
             await update.message.reply_text(response)
-            save_message(uid, "maya", response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
         elif was_vip_just_offered(uid):
             msgs_since = get_msgs_since_offer(uid)
@@ -5480,7 +5263,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                     return
                 await update.message.reply_text(grok_response["response"])
-                save_message(uid, "maya", grok_response["response"])
             else:
                 response_text = random.choice([
                     "Eu tô aqui ainda. Se você quiser continuar, a parte do acesso já ficou no ponto pra você.",
@@ -5489,7 +5271,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Se travou em alguma coisa no PIX, me fala. Eu te ajudo rapidinho."
                 ])
                 await update.message.reply_text(response_text)
-                save_message(uid, "maya", response_text)
                 grok_response = {"response": response_text, "offer_teaser": False, "interest_level": "medium"}
         else:
             grok_response = await grok.reply(uid, text)
@@ -5498,7 +5279,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                 return
             await update.message.reply_text(grok_response["response"])
-            save_message(uid, "maya", grok_response["response"])
 
         maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
         # =====================================================================
@@ -5709,7 +5489,7 @@ def setup_application():
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND & filters.User(ADMIN_IDS), lambda u, c: admin_commands.broadcast_content_handler(u, c, ADMIN_IDS, admin_funcs)), group=1)
-    logger.info("✅ Handlers registrados (v8.5.5 APEX)")
+    logger.info("✅ Handlers registrados (v8.6 APEX)")
     return application
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -5769,23 +5549,18 @@ syncpay_integration.init(
 
 @app.route("/", methods=["GET"])
 def health():
-    return {"status": "ok", "version": "8.5.2-apex"}, 200
+    return {"status": "ok", "version": "8.6-tracking"}, 200
 
 
 @app.route("/tracking/telegram", methods=["POST", "OPTIONS"])
 def tracking_telegram():
-    """
-    Recebe os identificadores capturados na landing e devolve apenas um token curto.
-    O token cabe com folga no parâmetro /start do Telegram e é associado ao UID
-    somente quando o usuário realmente abre o bot.
-    """
+    """Compatibilidade: cria trk_ via POST sem esperar FBP/GeoIP."""
     if request.method == "OPTIONS":
         response = app.make_response(("", 204))
         for key, value in _tracking_cors_headers().items():
             response.headers[key] = value
         return response
 
-    # Se a origem estiver restrita por env e não for permitida, rejeita o POST.
     origin = request.headers.get("Origin", "")
     if "*" not in TRACKING_ALLOWED_ORIGINS and origin not in TRACKING_ALLOWED_ORIGINS:
         return _tracking_json({"error": "origin_not_allowed"}, 403)
@@ -5794,71 +5569,42 @@ def tracking_telegram():
         payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict):
             return _tracking_json({"error": "invalid_json"}, 400)
-
-        fbclid = _tracking_clean(payload.get("fbclid"), 500)
-        fbc = _tracking_valid_meta_cookie(payload.get("fbc"))
-        fbp = _tracking_valid_meta_cookie(payload.get("fbp"))
-
-        # Fallback oficial: fbc pode ser construído quando existe fbclid.
-        if not fbc and fbclid:
-            timestamp_ms = int(time.time() * 1000)
-            fbc = f"fb.1.{timestamp_ms}.{fbclid}"[:500]
-
-        # IP/UA observados no request são preferidos; payload é fallback.
-        client_ip = _request_client_ip() or _tracking_valid_ip(payload.get("ip"))
-        client_ua = _tracking_clean(request.headers.get("User-Agent"), 1024) or _tracking_clean(payload.get("user_agent"), 1024)
-
-        # Localização aproximada derivada do IP, somente no backend.
-        # A landing não precisa mandar cidade/estado.
-        geo = _lookup_ip_geo(client_ip)
-
-        tracking_data = {
-            "fbclid": fbclid,
-            "fbc": fbc,
-            "fbp": fbp,
-            "ip": client_ip,
-            "user_agent": client_ua,
-            "page_url": _tracking_clean(payload.get("page_url"), 2048),
-            "referrer": _tracking_clean(payload.get("referrer"), 2048),
-            "city": _tracking_clean(geo.get("city"), 120),
-            "state": _tracking_clean(geo.get("state"), 80),
-            "zip": _tracking_clean(geo.get("zip"), 40),
-            "country": _tracking_clean(geo.get("country"), 8).lower(),
-            "geo_source": _tracking_clean(geo.get("geo_source"), 40),
-            "created_at": datetime.now().isoformat(),
-        }
-
-        # Token curto e compatível com Telegram: letras/números/_/- e << 64 chars.
-        start_token = None
-        for _ in range(5):
-            candidate = f"trk_{secrets.token_urlsafe(12)}"
-            if r.set(
-                meta_tracking_token_key(candidate),
-                json.dumps(tracking_data, ensure_ascii=False),
-                nx=True,
-                ex=TRACKING_TOKEN_TTL_SECONDS,
-            ):
-                start_token = candidate
-                break
-
-        if not start_token:
+        start_token, _ = _create_meta_tracking_token(payload)
+        return _tracking_json({"start_token": start_token}, 201)
+    except RuntimeError as e:
+        if str(e) == "token_generation_failed":
             logger.error("[META TRACKING] Não foi possível gerar token único")
             return _tracking_json({"error": "token_generation_failed"}, 503)
-
-        logger.info(
-            f"[META TRACKING] token criado | "
-            f"fbc={bool(fbc)} fbp={bool(fbp)} "
-            f"ip={bool(client_ip)} ua={bool(client_ua)} | "
-            f"city='{tracking_data.get('city', '')}' "
-            f"state='{tracking_data.get('state', '')}' "
-            f"zip='{tracking_data.get('zip', '')}' "
-            f"country='{tracking_data.get('country', '')}'"
-        )
-        return _tracking_json({"start_token": start_token}, 201)
-
+        raise
     except Exception as e:
         logger.error(f"[META TRACKING] Erro /tracking/telegram: {e}")
         return _tracking_json({"error": "internal_error"}, 500)
+
+
+@app.route("/tracking/telegram/go", methods=["GET"])
+def tracking_telegram_go():
+    """
+    Rota recomendada para o CTA da landing.
+    O próprio clique cria o trk_ e responde 302 para o Telegram, eliminando a corrida
+    entre carregamento do JS/FBP e o toque do usuário no celular.
+    """
+    direct_bot_url = f"https://t.me/{TELEGRAM_BOT_USERNAME}"
+    try:
+        payload = request.args.to_dict(flat=True)
+        start_token, _ = _create_meta_tracking_token(payload)
+        target = f"{direct_bot_url}?start={quote(start_token, safe='')}"
+        logger.info(f"[META TRACKING] redirect Telegram criado token={start_token[-8:]}")
+        response = redirect(target, code=302)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+    except Exception as e:
+        # Não perde o lead se o tracking estiver temporariamente indisponível.
+        logger.exception(f"[META TRACKING] Falha no redirect; fallback direto ao bot: {e}")
+        response = redirect(direct_bot_url, code=302)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
 
 
 @app.route("/set-webhook", methods=["GET"])
@@ -6968,7 +6714,7 @@ def require_auth():
 
 async def startup_sequence():
     try:
-        logger.info("🚀 Iniciando Sophia Bot v8.5.1 APEX...")
+        logger.info("🚀 Iniciando Sophia Bot v8.6 APEX...")
 
         init_router(redis_url=REDIS_URL, config_path="ias_config.json")
         logger.info("✅ IA Router inicializado")
@@ -6999,7 +6745,7 @@ async def startup_sequence():
 
         me = await application.bot.get_me()
         logger.info(f"🤖 Bot ativo: @{me.username} (ID: {me.id})")
-        logger.info("✨ v8.5.1 APEX + SyncPay PIX integrado")
+        logger.info("✨ v8.6 APEX + SyncPay PIX integrado")
 
         # Marca o bot como pronto ANTES dos schedulers
         logger.info("✅ BOT PRONTO PARA RECEBER MENSAGENS")
@@ -7043,6 +6789,6 @@ if __name__ == "__main__":
         logger.exception(f"⚠️ Startup demorou ou falhou: {e}")
 
     logger.info(f"🌐 Flask rodando na porta {PORT}")
-    logger.info("🚀 Sophia Bot v8.5.1 APEX + SyncPay operacional!")
+    logger.info("🚀 Sophia Bot v8.6 APEX + SyncPay operacional!")
 
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)

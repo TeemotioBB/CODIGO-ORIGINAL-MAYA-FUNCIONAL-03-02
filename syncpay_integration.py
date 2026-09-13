@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.5.1 APEX                  ║
+║              💳 SYNCPAY INTEGRATION — Sophia Bot v8.5 APEX                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -106,8 +106,16 @@ def _sp_pix_origin_key(uid):
     return f"sp:pix_origin:{uid}"
 
 def _sp_customer_key(uid):
-    """Chave para salvar dados do cliente no momento do PIX"""
+    """Snapshot legado por UID; mantido como fallback/diagnóstico."""
     return f"sp:customer:{uid}"
+
+def _sp_customer_tx_key(identifier):
+    """Snapshot imutável de matching por transação PIX."""
+    return f"sp:customer_tx:{identifier}"
+
+def _sp_tx_key(identifier):
+    """Metadados imutáveis da transação para Purchase correto mesmo após novo PIX."""
+    return f"sp:tx:{identifier}"
 
 
 def _meta_tracking_key(uid):
@@ -223,6 +231,18 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente", origin: s
         timedelta(days=7),
         str(uid)
     )
+    _r.setex(
+        _sp_tx_key(identifier),
+        timedelta(days=7),
+        json.dumps({
+            "uid": uid,
+            "identifier": identifier,
+            "amount": amount,
+            "origin": origin,
+            "checkout_qualified": bool(checkout_qualified),
+            "created_at": datetime.utcnow().isoformat(),
+        })
+    )
 
     # Mantém um marco cumulativo para o funil do painel. Diferente de sp:pix:<uid>,
     # esta chave não some quando o PIX expira ou quando o pagamento é concluído.
@@ -251,10 +271,11 @@ def _get_pix_pendente(uid: int):
         return None
 
 
-def _salvar_customer(uid: int, tg_user) -> dict:
+def _salvar_customer(uid: int, tg_user, identifier: str | None = None) -> dict:
     """
-    Salva os dados do usuário Telegram + identificadores Meta no momento do PIX.
-    O webhook de pagamento usa esse snapshot para manter exatamente o mesmo match data.
+    Snapshot de user_data no exato momento da criação do PIX.
+    Também grava por identifier para impedir que um PIX posterior sobrescreva
+    os identificadores usados por uma transação anterior.
     """
     tracking = _get_meta_tracking(uid)
     customer_data = {
@@ -273,25 +294,31 @@ def _salvar_customer(uid: int, tg_user) -> dict:
         "zip": tracking.get("zip", ""),
         "country": tracking.get("country", ""),
     }
-    _r.setex(
-        _sp_customer_key(uid),
-        timedelta(days=7),
-        json.dumps(customer_data)
-    )
+    payload = json.dumps(customer_data)
+    _r.setex(_sp_customer_key(uid), timedelta(days=7), payload)
+    if identifier:
+        _r.setex(_sp_customer_tx_key(identifier), timedelta(days=7), payload)
+
     logger.info(
-        f"[Meta Tracking] snapshot PIX uid={uid} | "
+        f"[Meta Tracking] snapshot PIX uid={uid} tx={identifier or '-'} | "
         f"fbc={bool(customer_data['fbc'])} fbp={bool(customer_data['fbp'])} "
         f"ip={bool(customer_data['client_ip_address'])} ua={bool(customer_data['client_user_agent'])} | "
-        f"city='{customer_data.get('city', '')}' "
-        f"state='{customer_data.get('state', '')}' "
-        f"zip='{customer_data.get('zip', '')}' "
-        f"country='{customer_data.get('country', '')}'"
+        f"city='{customer_data.get('city', '')}' state='{customer_data.get('state', '')}' "
+        f"zip='{customer_data.get('zip', '')}' country='{customer_data.get('country', '')}'"
     )
+    if not any((
+        customer_data["fbc"], customer_data["fbp"],
+        customer_data["client_ip_address"], customer_data["client_user_agent"],
+    )):
+        logger.warning(
+            f"[Meta Tracking] uid={uid} SEM vínculo da landing no PIX; "
+            "CAPI seguirá apenas com identificadores Telegram disponíveis"
+        )
     return customer_data
 
 
-def _recuperar_customer(uid: int) -> dict:
-    """Recupera cliente do PIX e completa tracking caso o snapshot esteja ausente/incompleto."""
+def _recuperar_customer(uid: int, identifier: str | None = None) -> dict:
+    """Recupera primeiro o snapshot da transação; UID é apenas fallback legado."""
     tracking = _get_meta_tracking(uid)
     fallback = {
         "chat_id": uid,
@@ -309,7 +336,12 @@ def _recuperar_customer(uid: int) -> dict:
         "zip": tracking.get("zip", ""),
         "country": tracking.get("country", ""),
     }
-    raw = _r.get(_sp_customer_key(uid))
+
+    raw = None
+    if identifier:
+        raw = _r.get(_sp_customer_tx_key(identifier))
+    if not raw:
+        raw = _r.get(_sp_customer_key(uid))
     if not raw:
         return fallback
     try:
@@ -373,7 +405,6 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
 
     save_message = _callbacks.get("save_message")
     if save_message:
-        save_message(uid, "maya", mensagem)
         save_message(
             uid,
             "system",
@@ -437,9 +468,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
         if intro_pool:
             intro = random.choice(intro_pool)
             await bot.send_message(chat_id=chat_id, text=intro)
-            save_message = _callbacks.get("save_message")
-            if save_message:
-                save_message(uid, "maya", intro)
             await asyncio.sleep(2)
 
         num_photos = random.randint(3, 4)
@@ -490,9 +518,6 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
-        save_message = _callbacks.get("save_message")
-        if save_message:
-            save_message(uid, "maya", pitch)
 
         mark_vip_just_offered(uid)
         activate_hard_wall = _callbacks.get("activate_hard_wall")
@@ -556,19 +581,11 @@ async def _pagar_vip_callback(update: Update, context):
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
             logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin}")
-            reused_msg = "⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:"
-            await bot.send_message(chat_id=chat_id, text=reused_msg)
-            save_message = _callbacks.get("save_message")
-            if save_message:
-                save_message(uid, "maya", reused_msg)
+            await bot.send_message(chat_id=chat_id, text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:")
             await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
             return
 
-        generating_msg = "⏳ Gerando seu PIX, um segundo..."
-        await bot.send_message(chat_id=chat_id, text=generating_msg)
-        save_message = _callbacks.get("save_message")
-        if save_message:
-            save_message(uid, "maya", generating_msg)
+        await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
         nome = query.from_user.full_name or "Cliente"
         preco_str = _callbacks.get("PRECO_VIP", "9,00")
         try:
@@ -580,7 +597,7 @@ async def _pagar_vip_callback(update: Update, context):
             uid=uid, amount=valor, nome_cliente=nome,
             origin=origin, checkout_qualified=checkout_qualified,
         )
-        customer_data = _salvar_customer(uid, query.from_user)
+        customer_data = _salvar_customer(uid, query.from_user, pix_data["identifier"])
 
         # Guarda a PRIMEIRA origem de geração por usuário (coerente com o funil único)
         # e também a última para diagnóstico de tentativas posteriores.
@@ -631,18 +648,13 @@ async def _pagar_vip_callback(update: Update, context):
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
-        error_msg = "😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
-        await bot.send_message(chat_id=chat_id, text=error_msg)
-        save_message = _callbacks.get("save_message")
-        if save_message:
-            save_message(uid, "maya", error_msg)
+        await bot.send_message(
+            chat_id=chat_id,
+            text="😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
+        )
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
-        error_msg = "😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕"
-        await bot.send_message(chat_id=chat_id, text=error_msg)
-        save_message = _callbacks.get("save_message")
-        if save_message:
-            save_message(uid, "maya", error_msg)
+        await bot.send_message(chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
 
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
@@ -680,10 +692,21 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         uid = int(uid_raw)
 
         pix_data = _get_pix_pendente(uid) or {}
+        tx_data = {}
         try:
-            paid_amount = float(amount if amount is not None else pix_data.get("amount") or 0)
+            raw_tx = _r.get(_sp_tx_key(identifier))
+            tx_data = json.loads(raw_tx) if raw_tx else {}
         except Exception:
-            paid_amount = float(pix_data.get("amount") or 0)
+            tx_data = {}
+        try:
+            paid_amount = float(
+                amount if amount is not None
+                else tx_data.get("amount")
+                or pix_data.get("amount")
+                or 0
+            )
+        except Exception:
+            paid_amount = float(tx_data.get("amount") or pix_data.get("amount") or 0)
         logger.info(f"[SyncPay] ✅ Pagamento CONFIRMADO: uid={uid} identifier={identifier} valor=R${paid_amount:.2f}")
 
         _r.setex(_sp_paid_key(uid), timedelta(days=365), "1")
@@ -707,9 +730,9 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         except Exception as track_err:
             logger.error(f"[Tracking] Erro payment_approved: {track_err}")
 
-        customer_data = _recuperar_customer(uid)
+        customer_data = _recuperar_customer(uid, identifier)
         origin_meta = _r.hgetall(_sp_pix_origin_key(uid)) or {}
-        pix_origin = origin_meta.get("last_origin") or origin_meta.get("first_origin") or pix_data.get("origin") or "unknown"
+        pix_origin = tx_data.get("origin") or origin_meta.get("last_origin") or origin_meta.get("first_origin") or pix_data.get("origin") or "unknown"
 
         try:
             event_data = {
@@ -754,19 +777,16 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 pass
 
         bot = _bot_app.bot
-        payment_confirmed_msg = (
-            "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
-            f"💰 Valor recebido: R$ {paid_amount:.2f}\n\n"
-            "✅ Seu acesso VIP foi liberado!\n\n"
-            "Clica no link abaixo pra acessar o conteúdo:"
-        )
         await bot.send_message(
             chat_id=uid,
-            text=payment_confirmed_msg,
+            text=(
+                "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
+                f"💰 Valor recebido: R$ {paid_amount:.2f}\n\n"
+                "✅ Seu acesso VIP foi liberado!\n\n"
+                "Clica no link abaixo pra acessar o conteúdo:"
+            ),
             parse_mode="Markdown"
         )
-        if save_message:
-            save_message(uid, "maya", payment_confirmed_msg)
         if canal_vip:
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("💎 ACESSAR VIP AGORA", url=canal_vip)
@@ -776,8 +796,14 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         # Marca DONE por 30 dias: retries posteriores da mesma tx são idempotentes.
         _r.setex(processing_key, timedelta(days=30), "done")
         _r.delete(_sp_id_to_uid_key(identifier))
-        _r.delete(_sp_pix_key(uid))
-        _r.delete(_sp_customer_key(uid))
+        _r.delete(_sp_customer_tx_key(identifier))
+        _r.delete(_sp_tx_key(identifier))
+
+        current_pix = _get_pix_pendente(uid) or {}
+        if current_pix.get("identifier") == identifier:
+            _r.delete(_sp_pix_key(uid))
+            _r.delete(_sp_customer_key(uid))
+
         logger.info(f"[SyncPay] 🎉 VIP liberado e usuário notificado: uid={uid}")
     except Exception as e:
         logger.exception(f"[SyncPay] ❌ Erro _processar_pagamento_confirmado: {e}")

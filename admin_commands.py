@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    📢 COMANDOS ADMIN - SOPHIA BOT v8.3                       ║
+║                    📢 COMANDOS ADMIN - SOPHIA BOT v8.5                       ║
 ║                                                                              ║
 ║  Comandos disponíveis:                                                      ║
 ║  /stats - Estatísticas gerais                                               ║
@@ -49,7 +49,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_ID
     ctr = (clicked_vip_count / saw_teaser_count * 100) if saw_teaser_count > 0 else 0.0
 
     stats_text = f"""\
-📊 **STATS v8.3**
+📊 **STATS v8.5**
 
 👥 Total de usuários: {total}
 
@@ -84,7 +84,7 @@ async def funnel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_I
         4: "💎 Clicou VIP"
     }
     
-    msg = "📊 **FUNIL v8.3**\n\n"
+    msg = "📊 **FUNIL v8.5**\n\n"
     for stage, count in sorted(stages.items()):
         msg += f"{names.get(stage, f'Stage {stage}')}: {count}\n"
     
@@ -162,7 +162,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE, ADMIN_IDS
         return
     
     await update.message.reply_text(
-        "🎮 **COMANDOS ADMIN v8.3**\n\n"
+        "🎮 **COMANDOS ADMIN v8.5**\n\n"
         "/stats - Estatísticas gerais\n"
         "/funnel - Funil de conversão\n"
         "/reset <id> - Reseta limite diário\n"

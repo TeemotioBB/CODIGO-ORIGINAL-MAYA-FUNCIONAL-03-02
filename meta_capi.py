@@ -15,8 +15,10 @@ from redis.asyncio import Redis
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURAÇÕES ====================
-META_PIXEL_ID     = os.getenv("META_PIXEL_ID", "988265177099445")
+META_PIXEL_ID     = os.getenv("META_PIXEL_ID", "").strip()
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")  # ⚠️ defina no ambiente, nunca no código
+if not META_PIXEL_ID:
+    raise RuntimeError("META_PIXEL_ID não definido nas variáveis de ambiente")
 REDIS_URL         = os.getenv("REDIS_URL", "").strip()
 TEST_EVENT_CODE   = os.getenv("META_TEST_EVENT_CODE")  # deixe vazio em produção
 META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v26.0").strip() or "v26.0"
