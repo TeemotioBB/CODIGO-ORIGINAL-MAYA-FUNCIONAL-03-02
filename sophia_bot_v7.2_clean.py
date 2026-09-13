@@ -968,7 +968,7 @@ FOTOS_TEASER = [
 ]
 
 VIDEOS_TEASER = [
-    "BAACAgEAAxkBAALRd2qmAmiF6x1wOzeyD_pkAAGK_MY6uAAC6wYAAjkeMUWQBcuWVd7olT0E",
+    "BAACAgEAAxkBAAEulm5qooGC1PQW4VHOL09xQbCrRf8_zgACkAcAAimzEEV7i8pn-XsI0D0E",
 ]
 
 FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/ZnpXbj9R/content.png"
@@ -6366,6 +6366,10 @@ def admin_conversations():
                 elif filter_type == "cooldown" and not in_cooldown:
                     continue
                 elif filter_type in {"converted", "vip"} and not paid:
+                    continue
+                elif filter_type == "clicked_vip" and (not clicked or pix_pending or paid):
+                    # Mostra exatamente os leads cujo status atual é "💳 Clicou no VIP":
+                    # clicaram no CTA, mas ainda não têm PIX pendente e não pagaram.
                     continue
                 elif filter_type == "manual" and not ai_paused:
                     continue
