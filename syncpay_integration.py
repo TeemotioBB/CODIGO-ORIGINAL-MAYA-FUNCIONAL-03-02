@@ -364,7 +364,7 @@ import html
 
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco = _callbacks.get("PRECO_VIP", "R$ 9,00")
+    preco = _callbacks.get("PRECO_VIP", "R$ 7,90")
     pix_code = pix_data["pix_code"]
 
     preco_html = html.escape(str(preco))
@@ -424,7 +424,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
 
         fotos_teaser_default = _callbacks.get("FOTOS_TEASER", [])
         fotos_teaser = ia_config.get("fotos_teaser", fotos_teaser_default)
-        preco = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,00"))
+        preco = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 7,90"))
 
         can_offer_vip = _callbacks.get("can_offer_vip")
         get_ab_group = _callbacks.get("get_ab_group")
@@ -590,11 +590,11 @@ async def _pagar_vip_callback(update: Update, context):
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
         nome = query.from_user.full_name or "Cliente"
-        preco_str = _callbacks.get("PRECO_VIP", "9,00")
+        preco_str = _callbacks.get("PRECO_VIP", "7,90")
         try:
             valor = float(preco_str.replace("R$", "").replace("R$ ", "").replace(",", ".").strip())
         except Exception:
-            valor = 9.00
+            valor = 7.90
 
         pix_data = _gerar_pix(
             uid=uid, amount=valor, nome_cliente=nome,

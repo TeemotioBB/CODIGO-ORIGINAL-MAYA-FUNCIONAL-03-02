@@ -53,8 +53,8 @@ def check_syncpay_payloads_and_qualification():
     assert parse({"id": "tx-root", "status": "completed", "amount": 9}) == (
         "tx-root", "completed", 9
     )
-    assert parse({"data": {"identifier": "tx-data", "status": "COMPLETED", "final_amount": 9.0}}) == (
-        "tx-data", "completed", 9.0
+    assert parse({"data": {"identifier": "tx-data", "status": "COMPLETED", "final_amount": 7.9}}) == (
+        "tx-data", "completed", 7.9
     )
     assert parse({"data": {"transaction": {"id": "tx-nested", "status": "pending", "amount": 9}}}) == (
         "tx-nested", "pending", 9
