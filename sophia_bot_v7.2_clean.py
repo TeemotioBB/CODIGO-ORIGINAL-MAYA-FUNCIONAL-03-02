@@ -2255,9 +2255,15 @@ def get_source_context_line(uid):
 
 
 def get_realistic_start_message(uid, ia_config=None):
-    """Abertura pedida para iniciar a escolha de interesse do lead."""
+    """Abertura do /start usando o primeiro nome válido do Telegram quando disponível."""
+    user_name = get_user_name(uid)
+    if user_name:
+        opening = f"E aí {user_name}, safado 😈 Chegou!"
+    else:
+        opening = "E aí safado 😈 Chegou!"
+
     return (
-        "E aí safado 😈 Chegou! Me conta, o que te deixou curioso pra falar comigo? "
+        f"{opening} Me conta, o que te deixou curioso pra falar comigo? "
         "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
     )
 
