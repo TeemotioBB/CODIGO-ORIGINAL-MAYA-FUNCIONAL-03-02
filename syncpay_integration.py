@@ -8,6 +8,7 @@ import os
 import json
 import asyncio
 import logging
+from log_utils import log_media_ok, log_media_error
 import random
 import requests
 import time
@@ -479,10 +480,11 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
                 await bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
                 await asyncio.sleep(0.5)
                 await bot.send_photo(chat_id=chat_id, photo=photo_url)
+                log_media_ok(logger, "PHOTO", uid, source="SYNCPAY_TEASER", detail=f"index={i+1}")
                 if i < len(selected) - 1:
                     await asyncio.sleep(1)
             except Exception as e:
-                logger.error(f"[SyncPay] Erro enviando foto {i}: {e}")
+                log_media_error(logger, "PHOTO", uid, e, source="SYNCPAY_TEASER", detail=f"index={i+1} id={str(photo_url)[:70]}")
 
         await asyncio.sleep(3)
 
@@ -492,7 +494,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
                 await send_vip_intro_audio(bot, chat_id, uid)
                 await asyncio.sleep(0.8)
             except Exception as audio_err:
-                logger.error(f"[SyncPay] Erro no áudio de apresentação uid={uid}: {audio_err}")
+                log_media_error(logger, "AUDIO", uid, audio_err, source="SYNCPAY_VIP_INTRO")
 
         urgencia = get_urgency_message(uid)
         pitch = (

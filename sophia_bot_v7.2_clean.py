@@ -44,15 +44,13 @@ from telegram.ext import (
 )
 
 from ia_router import init_router, get_router
+from log_utils import configure_clean_logging, log_media_ok, log_media_error
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+configure_clean_logging()
 logger = logging.getLogger(__name__)
 
 # Fuso horário usado para logs/exportações do painel.
@@ -1282,11 +1280,24 @@ def is_blacklisted(uid):
     except:
         return False
 
-def add_to_blacklist(uid):
+def add_to_blacklist(uid, origin=None):
+    """Marca o usuário como bloqueado/inacessível. Loga apenas na primeira ocorrência."""
     try:
-        r.sadd(blacklist_key(), str(uid))
-    except:
-        pass
+        added = bool(r.sadd(blacklist_key(), str(uid)))
+        if added:
+            logger.warning(f"🚫 [BLOCKED] uid={uid} origem={origin or '-'}")
+        return added
+    except Exception:
+        return False
+
+
+def is_blocked_error(error):
+    text = str(error).lower()
+    return (
+        "blocked by the user" in text
+        or "bot was blocked" in text
+        or ("forbidden" in text and "blocked" in text)
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎁 SISTEMA DE BÔNUS
@@ -2582,6 +2593,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
         clear_pending_teaser_video(uid)
         mark_free_teaser_video_sent(uid)
         save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
+        log_media_ok(logger, "VIDEO", uid, source="FREE_TEASER", detail=str(video_id)[:80])
 
         await asyncio.sleep(1.6)
         keyboard = InlineKeyboardMarkup([[
@@ -2598,7 +2610,9 @@ async def send_free_teaser_video(bot, chat_id, uid):
         return True
 
     except Exception as e:
-        logger.error(f"Erro ao enviar vídeo teaser para {uid}: {e}")
+        log_media_error(logger, "VIDEO", uid, e, source="FREE_TEASER")
+        if is_blocked_error(e):
+            add_to_blacklist(uid, origin="FREE_TEASER")
         clear_pending_teaser_video(uid)
         return False
 
@@ -3167,13 +3181,16 @@ def get_onboarding_choice(uid):
 # 📷 VISÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def download_photo_base64(bot, file_id):
+async def download_photo_base64(bot, file_id, uid=None):
     try:
         file = await bot.get_file(file_id)
         file_bytes = await file.download_as_bytearray()
-        return base64.b64encode(file_bytes).decode('utf-8')
+        result = base64.b64encode(file_bytes).decode('utf-8')
+        if uid is not None:
+            log_media_ok(logger, "PHOTO", uid, source="INBOUND_DOWNLOAD")
+        return result
     except Exception as e:
-        logger.error(f"Erro download foto: {e}")
+        log_media_error(logger, "PHOTO", uid or "-", e, source="INBOUND_DOWNLOAD")
         return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3711,14 +3728,20 @@ async def send_teaser_and_apex(bot, chat_id, uid):
             selected_photos = random.sample(fotos_teaser, num_photos)
 
             for i, photo_id in enumerate(selected_photos):
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo_id,
-                    connect_timeout=15,
-                    read_timeout=20,
-                    write_timeout=20
-                )
-
+                try:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo_id,
+                        connect_timeout=15,
+                        read_timeout=20,
+                        write_timeout=20
+                    )
+                    log_media_ok(logger, "PHOTO", uid, source="VIP_TEASER", detail=f"index={i+1}")
+                except Exception as photo_err:
+                    log_media_error(logger, "PHOTO", uid, photo_err, source="VIP_TEASER", detail=f"index={i+1} id={str(photo_id)[:70]}")
+                    if is_blocked_error(photo_err):
+                        add_to_blacklist(uid, origin="VIP_TEASER_PHOTO")
+                        return False
                 await asyncio.sleep(1.0)
 
         # Envia 1 vídeo
@@ -3731,9 +3754,6 @@ async def send_teaser_and_apex(bot, chat_id, uid):
                     await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
                     await asyncio.sleep(0.7)
                     
-                    # Esse print vai mostrar no Railway qual vídeo ele está tentando enviar
-                    print(f"DEBUG: Tentando enviar vídeo ID: {video_id}") 
-                    
                     await bot.send_video(
                         chat_id=chat_id,
                         video=video_id,
@@ -3741,9 +3761,12 @@ async def send_teaser_and_apex(bot, chat_id, uid):
                         read_timeout=20,
                         write_timeout=20
                     )
+                    log_media_ok(logger, "VIDEO", uid, source="VIP_TEASER", detail=f"index={i+1}")
                 except Exception as e:
-                    # Esse print vai te dar o ID exato do vídeo que está causando o erro 400
-                    print(f"❌ VÍDEO QUEBRADO IDENTIFICADO: {video_id} | ERRO: {e}")
+                    log_media_error(logger, "VIDEO", uid, e, source="VIP_TEASER", detail=f"index={i+1} id={str(video_id)[:70]}")
+                    if is_blocked_error(e):
+                        add_to_blacklist(uid, origin="VIP_TEASER_VIDEO")
+                        return False
                 
                 await asyncio.sleep(1.2)
 
@@ -3895,7 +3918,7 @@ async def _send_telegram_audio_file(bot, chat_id, file_id):
         )
         return True
     except Exception as voice_err:
-        logger.info(f"[VIP AUDIO] file_id não aceito como voice; tentando audio: {voice_err}")
+        logger.warning(f"⚠️ [AUDIO][VOICE_FALLBACK] erro={voice_err}")
 
     try:
         await bot.send_audio(
@@ -3907,7 +3930,7 @@ async def _send_telegram_audio_file(bot, chat_id, file_id):
         )
         return True
     except Exception as audio_err:
-        logger.error(f"[VIP AUDIO] Erro enviando file_id: {audio_err}")
+        logger.error(f"🚨 [AUDIO][ERROR] origem=VIP_AUDIO erro={audio_err}")
         return False
 
 
@@ -3937,11 +3960,11 @@ async def send_vip_intro_audio_once(bot, chat_id, uid):
 
         r.setex(key, timedelta(days=365), "1")
         save_message(uid, "system", "🔊 ÁUDIO DE APRESENTAÇÃO DO VIP ENVIADO")
-        logger.info(f"🔊 [VIP AUDIO] apresentação enviada uma vez uid={uid}")
+        log_media_ok(logger, "AUDIO", uid, source="VIP_INTRO")
         return True
 
     except Exception as e:
-        logger.error(f"[VIP AUDIO] Erro apresentação uid={uid}: {e}")
+        log_media_error(logger, "AUDIO", uid, e, source="VIP_INTRO")
         return False
 
 
@@ -3965,11 +3988,11 @@ async def send_vip_moan_audio_once(bot, chat_id, uid, reason="sample"):
 
         r.setex(key, timedelta(days=365), "1")
         save_message(uid, "system", f"🔊 PRÉVIA DE ÁUDIO ENVIADA ({reason})")
-        logger.info(f"🔊 [VIP AUDIO] prévia enviada uma vez uid={uid} reason={reason}")
+        log_media_ok(logger, "AUDIO", uid, source="VIP_MOAN", detail=f"reason={reason}")
         return True
 
     except Exception as e:
-        logger.error(f"[VIP AUDIO] Erro prévia uid={uid}: {e}")
+        log_media_error(logger, "AUDIO", uid, e, source="VIP_MOAN")
         return False
 
 
@@ -4183,7 +4206,11 @@ async def silent_recovery_scheduler(bot):
                             r.setex(silent_recovery_anchor_key(uid), timedelta(hours=2), datetime.now().isoformat())
                         await asyncio.sleep(0.2)
                 except Exception as item_err:
-                    logger.error(f"[SILENT RECOVERY] uid={uid}: {item_err}")
+                    if is_blocked_error(item_err):
+                        add_to_blacklist(uid, origin="SILENT_RECOVERY")
+                        cancel_silent_recovery(uid)
+                    else:
+                        logger.error(f"🚨 [SILENT_RECOVERY][ERROR] uid={uid} erro={item_err}")
         except Exception as e:
             logger.error(f"[SILENT RECOVERY] scheduler: {e}")
         await asyncio.sleep(60)
@@ -4250,13 +4277,19 @@ def is_sales_hard_wall(uid):
 
 def cancel_followup5(uid, paid=False):
     try:
+        was_active = bool(
+            r.exists(followup_active_key(uid))
+            or r.exists(followup_anchor_key(uid))
+            or (paid and r.exists(followup_stage_key(uid)))
+        )
         r.delete(followup_active_key(uid))
         r.delete(followup_anchor_key(uid))
         if paid:
             r.delete(followup_stage_key(uid))
             r.delete(followup_silent_key(uid))
             clear_sales_hard_wall(uid)
-        logger.info(f"🛑 [FOLLOWUP5] Cancelado uid={uid} paid={paid}")
+        if was_active:
+            logger.info(f"🛑 [FOLLOWUP5] cancelado uid={uid} paid={paid}")
     except Exception:
         pass
 
@@ -4307,10 +4340,17 @@ def activate_pix_desire_followup(uid, created_at=None, reset_stage=True):
 
 def cancel_pix_desire_followup(uid, paid=False):
     try:
+        was_active = bool(
+            r.exists(pix_desire_active_key(uid))
+            or r.exists(pix_desire_anchor_key(uid))
+            or r.exists(pix_desire_audio_key(uid))
+            or (paid and r.exists(pix_desire_stage_key(uid)))
+        )
         r.delete(pix_desire_active_key(uid), pix_desire_anchor_key(uid), pix_desire_audio_key(uid))
         if paid:
             r.delete(pix_desire_stage_key(uid))
-        logger.info(f"🛑 [PIX DESIRE] cancelado uid={uid} paid={paid}")
+        if was_active:
+            logger.info(f"🛑 [PIX DESIRE] cancelado uid={uid} paid={paid}")
     except Exception:
         pass
 
@@ -4404,10 +4444,11 @@ async def send_pix_desire_followup_stage(bot, uid, stage):
             r.delete(pix_desire_active_key(uid), pix_desire_anchor_key(uid))
         return True
     except Exception as e:
-        if "blocked" in str(e).lower():
-            add_to_blacklist(uid)
+        if is_blocked_error(e):
+            add_to_blacklist(uid, origin="PIX_DESIRE")
             cancel_pix_desire_followup(uid)
-        logger.error(f"[PIX DESIRE] Erro estágio {stage} uid={uid}: {e}")
+        else:
+            logger.error(f"🚨 [PIX DESIRE][ERROR] estágio={stage} uid={uid} erro={e}")
         return False
 
 
@@ -4684,10 +4725,11 @@ async def send_followup5_stage(bot, uid, stage):
             logger.info(f"🤫 [FOLLOWUP5] uid={uid} entrou em modo silencioso")
         return True
     except Exception as e:
-        if "blocked" in str(e).lower():
-            add_to_blacklist(uid)
+        if is_blocked_error(e):
+            add_to_blacklist(uid, origin="FOLLOWUP5")
             cancel_followup5(uid)
-        logger.error(f"[FOLLOWUP5] Erro estágio {stage} uid={uid}: {e}")
+        else:
+            logger.error(f"🚨 [FOLLOWUP5][ERROR] estágio={stage} uid={uid} erro={e}")
         return False
 
 async def followup5_scheduler(bot):
@@ -5180,8 +5222,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     connect_timeout=10, read_timeout=10, write_timeout=10
                 )
                 save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
+                log_media_ok(logger, "PHOTO", uid, source="WELCOME")
             except Exception as photo_error:
-                logger.error(f"❌ Erro enviando foto boas-vindas para {uid}: {photo_error}")
+                log_media_error(logger, "PHOTO", uid, photo_error, source="WELCOME")
+                if is_blocked_error(photo_error):
+                    add_to_blacklist(uid, origin="WELCOME_PHOTO")
 
         if START_SEND_WELCOME_VIDEO:
             try:
@@ -5194,8 +5239,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     connect_timeout=15, read_timeout=15, write_timeout=15
                 )
                 save_message(uid, "system", "VÍDEO BOAS-VINDAS ENVIADO APÓS ABERTURA REALISTA")
+                log_media_ok(logger, "VIDEO", uid, source="WELCOME")
             except Exception as video_error:
-                logger.error(f"❌ Erro enviando vídeo boas-vindas para {uid}: {video_error}")
+                log_media_error(logger, "VIDEO", uid, video_error, source="WELCOME")
+                if is_blocked_error(video_error):
+                    add_to_blacklist(uid, origin="WELCOME_VIDEO")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
@@ -5361,7 +5409,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_photo:
             photo_file_id = update.message.photo[-1].file_id
             caption = update.message.caption or ""
-            image_base64 = await download_photo_base64(context.bot, photo_file_id)
+            image_base64 = await download_photo_base64(context.bot, photo_file_id, uid=uid)
             
             if image_base64:
                 try:
@@ -5440,7 +5488,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
-            except:
+            except Exception as limit_photo_err:
+                log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
