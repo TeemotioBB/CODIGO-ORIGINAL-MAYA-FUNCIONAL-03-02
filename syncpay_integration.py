@@ -214,6 +214,7 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente", origin: s
     identifier = resultado["identifier"]
     pix_code   = resultado["pix_code"]
 
+    created_at = datetime.utcnow().isoformat()
     _r.setex(
         _sp_pix_key(uid),
         timedelta(minutes=PIX_VALIDADE_MINUTOS),
@@ -221,7 +222,7 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente", origin: s
             "identifier": identifier,
             "pix_code":   pix_code,
             "amount":     amount,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": created_at,
             "origin": origin,
             "checkout_qualified": bool(checkout_qualified),
         })
@@ -258,7 +259,7 @@ def _gerar_pix(uid: int, amount: float, nome_cliente: str = "Cliente", origin: s
         logger.debug(f"[Admin Funnel] Erro indexando pix_created uid={uid}: {idx_err}")
 
     logger.info(f"[SyncPay] 💸 PIX gerado: uid={uid} identifier={identifier} valor=R${amount}")
-    return {"pix_code": pix_code, "identifier": identifier}
+    return {"pix_code": pix_code, "identifier": identifier, "created_at": created_at}
 
 
 def _get_pix_pendente(uid: int):
@@ -581,8 +582,11 @@ async def _pagar_vip_callback(update: Update, context):
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
             logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin}")
-            await bot.send_message(chat_id=chat_id, text="⏳ Você já tem um PIX gerado! Mandando o código de novo pra você:")
+            await bot.send_message(chat_id=chat_id, text="😈 Seu acesso já tá separadinho aqui. Vou te mandar o PIX de novo:")
             await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
+            activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
+            if activate_pix_desire:
+                activate_pix_desire(uid, created_at=pix_pendente.get("created_at"), reset_stage=False)
             return
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
@@ -615,6 +619,10 @@ async def _pagar_vip_callback(update: Update, context):
         _r.expire(origin_key, timedelta(days=365))
 
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
+
+        activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
+        if activate_pix_desire:
+            activate_pix_desire(uid, created_at=pix_data.get("created_at"), reset_stage=True)
 
         try:
             track_source_event = _callbacks.get("track_source_event")
@@ -719,6 +727,9 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
         cancel_followup5 = _callbacks.get("cancel_followup5")
         if cancel_followup5:
             cancel_followup5(uid, paid=True)
+        cancel_pix_desire = _callbacks.get("cancel_pix_desire_followup")
+        if cancel_pix_desire:
+            cancel_pix_desire(uid, paid=True)
         clear_hard_wall = _callbacks.get("clear_hard_wall")
         if clear_hard_wall:
             clear_hard_wall(uid)

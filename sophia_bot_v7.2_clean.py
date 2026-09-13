@@ -1106,6 +1106,11 @@ def followup_anchor_key(uid): return f"followup5:anchor:{uid}"
 def followup_interest_key(uid): return f"followup5:interest:{uid}"
 def followup_silent_key(uid): return f"followup5:silent:{uid}"
 def followup_first_name_key(uid): return f"followup5:first_name:{uid}"
+# Pós-PIX: sequência própria baseada no momento em que o PIX foi gerado.
+def pix_desire_active_key(uid): return f"pix_desire:active:{uid}"
+def pix_desire_stage_key(uid): return f"pix_desire:stage:{uid}"
+def pix_desire_anchor_key(uid): return f"pix_desire:anchor:{uid}"
+def pix_desire_audio_key(uid): return f"pix_desire:audio5m:{uid}"
 def silent_recovery_active_key(uid): return f"silent_recovery:active:{uid}"
 def silent_recovery_stage_key(uid): return f"silent_recovery:stage:{uid}"
 def silent_recovery_anchor_key(uid): return f"silent_recovery:anchor:{uid}"
@@ -3333,6 +3338,9 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     lead = get_lead_profile(uid)
     lead_type = lead.get("last_type", "unknown")
     source = get_user_source(uid)
+    pix_pending = user_has_pending_pix(uid) and not user_has_paid(uid)
+    pix_followup_active = is_pix_desire_followup_active(uid) if not user_has_paid(uid) else False
+    pix_state = "PIX_GERADO" if pix_pending else ("PIX_GERADO_EXPIRADO" if pix_followup_active else "SEM_PIX")
 
     cold_mode = lead_type in {"desconfiado", "curioso_frio", "quer_conversar", "frio_neutro", "unknown"} and msg_count <= 6
     hot_mode = intent in {"hot", "pedido_conteudo"} and not cold_mode
@@ -3431,8 +3439,30 @@ ORIGEM: LEAD DE ADS.
 - Venda só quando houver sinal; antes disso, faça ele responder.
 """
 
-    # Defesa extra: o message_handler já intercepta o hard wall antes do Grok,
-    # mas esta regra evita vazamento caso outro fluxo chame a IA diretamente.
+    # Estado pós-PIX: a Maya deixa de soar como cobradora e passa a falar em expectativa.
+    # O message_handler normalmente intercepta o hard wall antes do Grok; estas regras são
+    # uma proteção adicional para qualquer outro ponto do código que chame a IA diretamente.
+    if pix_state in {"PIX_GERADO", "PIX_GERADO_EXPIRADO"}:
+        pix_instruction = (
+            "O PIX atual ainda está válido; fale como quem está aguardando a confirmação automática."
+            if pix_state == "PIX_GERADO"
+            else "O PIX anterior já pode ter expirado; se ele quiser concluir, diga que o botão gera um PIX novo."
+        )
+        behavior_block += f"""
+
+ESTADO: {pix_state} — PÓS-PIX, PRIORIDADE MÁXIMA.
+- {pix_instruction}
+- NÃO pergunte "você conseguiu pagar?" e não use tom de cobrança, suporte bancário ou cobrança de dívida.
+- Fale como uma mulher ansiosa/curiosa para liberar o acesso assim que o sistema confirmar.
+- Use expectativa, curiosidade e um leve recuo de atenção; não pressione nem humilhe.
+- Pode usar a lógica PAS de forma natural: curiosidade ainda não resolvida → sensação de ter parado na hora H → botão/PIX como caminho simples para concluir.
+- NÃO invente escassez, vagas, prazo da oferta, outras pessoas comprando ou bônus inexistente.
+- Só mencione bônus se ele realmente estiver configurado no sistema.
+- Não prometa conteúdo personalizado ou gravação exclusiva que não será entregue literalmente.
+- offer_teaser=false; o botão/PIX é controlado pelo fluxo externo.
+"""
+
+    # Defesa extra: bloqueia gratificação pós-pitch/PIX e mantém foco no acesso.
     if is_sales_hard_wall(uid) and not user_has_paid(uid):
         behavior_block += f"""
 
@@ -3440,7 +3470,7 @@ HARD WALL DE VENDA ATIVO — PRIORIDADE MÁXIMA:
 - O pitch/PIX já foi apresentado. NÃO continue descrevendo fantasias ou cenas sexuais gratuitamente.
 - Não dê novas descrições explícitas como recompensa pela conversa.
 - Use o desejo já demonstrado pelo usuário apenas para lembrar o que ele quer.
-- Conduza diretamente para o VIP/PIX de {preco}.
+- Conduza diretamente para o VIP/PIX de {preco}, sem soar como cobradora.
 - Se ele tiver dúvida sobre pagamento, responda somente à dúvida de pagamento.
 - offer_teaser=false, porque o botão/PIX é controlado pelo fluxo externo.
 """
@@ -3456,6 +3486,7 @@ CONTEXTO OPERACIONAL:
 - Origem: {source.get('source', 'telegram')} / campanha: {source.get('campaign', 'telegram_direct')}
 - Período: {time_ctx['period']}
 - Preço de acesso: {preco}
+- Estado de pagamento: {pix_state}
 
 REGRAS GERAIS:
 - Nunca diga que é IA, modelo, prompt ou sistema.
@@ -3756,9 +3787,22 @@ async def send_teaser_and_apex(bot, chat_id, uid):
 # 🔥 FOLLOW-UP 5 ESTÁGIOS — SILÊNCIO + INTERESSE + MODO SILENCIOSO
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Tempo desde a última interação do LEAD:
+# Follow-up comercial PRÉ-PIX (mantido para quem viu o pitch mas ainda não gerou PIX).
 # 1º 10 min | 2º 45 min | 3º 5h | 4º 24h | 5º 48h (final)
 FOLLOWUP_5_DELAYS_MINUTES = {1: 10, 2: 45, 3: 300, 4: 1440, 5: 2880}
+
+# Follow-up específico PÓS-PIX: relógio contado a partir da geração do PIX.
+# Áudio: 5 min (não consome estágio de texto)
+# Etapa 1: ansiedade (15 min)
+# Etapa 2: expectativa (30 min)
+# Etapa 3: provocação (2 h)
+# Etapa 4: dúvida (4 h)
+# Etapa 5: despedida (24 h)
+# Etapa 6: escassez de atenção / último contato (48 h)
+PIX_DESIRE_DELAYS_MINUTES = {1: 15, 2: 30, 3: 120, 4: 240, 5: 1440, 6: 2880}
+PIX_DESIRE_ACTIVE_HOURS = int(os.getenv("PIX_DESIRE_ACTIVE_HOURS", "54"))
+PIX_DESIRE_MIN_SILENCE_MINUTES = int(os.getenv("PIX_DESIRE_MIN_SILENCE_MINUTES", "5"))
+
 # Quem só deu /start e nunca respondeu recebe recuperação CONVERSACIONAL, sem PIX.
 SILENT_RECOVERY_DELAYS_MINUTES = {1: 10, 2: 45}
 FOLLOWUP_SILENT_RESTART_DAYS = 7
@@ -3770,7 +3814,8 @@ VIP_BONUS_TEXT = os.getenv("VIP_BONUS_TEXT", "").strip()
 # Podem ser definidos globalmente no Railway ou por IA em ias_config.json.
 VIP_INTRO_AUDIO_FILE_ID = os.getenv("VIP_INTRO_AUDIO_FILE_ID", "").strip()
 VIP_MOAN_AUDIO_FILE_ID = os.getenv("VIP_MOAN_AUDIO_FILE_ID", "").strip()
-PIX_AUDIO_RECOVERY_DELAY_MINUTES = int(os.getenv("PIX_AUDIO_RECOVERY_DELAY_MINUTES", "10"))
+# Prévia de áudio pós-PIX: dispara aos 5 min e NÃO consome estágio de texto.
+PIX_AUDIO_RECOVERY_DELAY_MINUTES = int(os.getenv("PIX_AUDIO_RECOVERY_DELAY_MINUTES", "5"))
 
 # A ordem importa: desejos mais específicos vêm antes dos genéricos.
 FOLLOWUP_INTEREST_FAMILIES = {
@@ -3972,67 +4017,53 @@ def _pending_pix_age_minutes(uid):
 
 async def maybe_send_pending_pix_audio_recovery(bot, uid):
     """
-    Se o usuário gerou PIX e ainda não pagou, envia a prévia de áudio uma vez
-    após o atraso configurado. Se o estágio 1 ainda não saiu, essa recuperação
-    ocupa o primeiro contato para evitar mensagens duplicadas no mesmo momento.
+    Envia a prévia de áudio aproximadamente 5 minutos após a criação do PIX.
+    É independente dos estágios de texto e nunca avança/consome um estágio.
     """
     try:
         if is_ai_manually_paused(uid):
             return False
-        if user_has_paid(uid) or not user_has_pending_pix(uid):
+        if user_has_paid(uid) or not is_pix_desire_followup_active(uid):
             return False
+        if r.exists(pix_desire_audio_key(uid)):
+            return False
+
+        # A mesma prévia não deve ser repetida se o lead já a ouviu em outro ponto.
         if r.exists(vip_moan_audio_sent_key(uid)):
+            r.setex(pix_desire_audio_key(uid), timedelta(days=4), "already_sent")
             return False
+
         if not _get_vip_audio_file_id(uid, "moan"):
             return False
 
-        age_minutes = _pending_pix_age_minutes(uid)
-        if age_minutes is None or age_minutes < PIX_AUDIO_RECOVERY_DELAY_MINUTES:
+        anchor_raw = r.get(pix_desire_anchor_key(uid))
+        if not anchor_raw:
+            return False
+        anchor = datetime.fromisoformat(anchor_raw)
+        age_minutes = max(0.0, (datetime.utcnow() - anchor).total_seconds() / 60.0)
+        if age_minutes < PIX_AUDIO_RECOVERY_DELAY_MINUTES:
             return False
 
+        # Tom de provocação, sem falar em cobrança/pagamento.
         await bot.send_message(
             chat_id=uid,
-            text="Vi que seu PIX ainda está pendente. Escuta essa prévia antes de decidir 👇"
+            text="Não aguentei esperar... escuta só isso 😈"
         )
         await asyncio.sleep(0.5)
 
         sent = await send_vip_moan_audio_once(
-            bot,
-            uid,
-            uid,
-            reason="pix_pending"
+            bot, uid, uid, reason="pix_desire_5m"
         )
         if not sent:
             return False
 
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
-        ]])
-
-        await asyncio.sleep(0.7)
-        await bot.send_message(
-            chat_id=uid,
-            text="Se quiser concluir, seu PIX continua disponível aqui 👇",
-            reply_markup=keyboard
-        )
-
-        current_stage = int(r.get(followup_stage_key(uid)) or 0)
-        if current_stage < 1:
-            r.set(followup_stage_key(uid), 1)
-            r.expire(followup_stage_key(uid), timedelta(days=30))
-            save_message(uid, "system", "🔥 FOLLOW-UP #1 SUBSTITUÍDO PELA RECUPERAÇÃO DE PIX COM ÁUDIO")
-
-        # A recuperação vira a nova âncora de silêncio para o próximo estágio.
-        r.setex(followup_anchor_key(uid), timedelta(days=8), datetime.now().isoformat())
-
-        logger.info(
-            f"🔊 [VIP AUDIO] recuperação PIX enviada uid={uid} "
-            f"age={age_minutes:.1f}min"
-        )
+        r.setex(pix_desire_audio_key(uid), timedelta(days=4), "sent")
+        track_source_event(uid, "pix_desire_audio_5m")
+        logger.info(f"🔊 [PIX DESIRE] áudio 5m enviado uid={uid} age={age_minutes:.1f}min")
         return True
 
     except Exception as e:
-        logger.error(f"[VIP AUDIO] Erro recovery PIX uid={uid}: {e}")
+        logger.error(f"[PIX DESIRE] Erro áudio 5m uid={uid}: {e}")
         return False
 
 
@@ -4229,6 +4260,223 @@ def cancel_followup5(uid, paid=False):
     except Exception:
         pass
 
+def is_pix_desire_followup_active(uid):
+    try:
+        return bool(r.exists(pix_desire_active_key(uid))) and not user_has_paid(uid)
+    except Exception:
+        return False
+
+
+def activate_pix_desire_followup(uid, created_at=None, reset_stage=True):
+    """Ativa a cadência pós-PIX ancorada na criação do PIX, sem misturar com o follow-up pré-PIX."""
+    try:
+        if user_has_paid(uid):
+            return False
+
+        # Um PIX real substitui a sequência comercial genérica anterior.
+        cancel_followup5(uid, paid=False)
+        r.delete(followup_stage_key(uid), followup_silent_key(uid))
+
+        if reset_stage:
+            r.set(pix_desire_stage_key(uid), 0)
+            r.delete(pix_desire_audio_key(uid))
+        elif r.get(pix_desire_stage_key(uid)) is None:
+            r.set(pix_desire_stage_key(uid), 0)
+
+        anchor = None
+        if created_at:
+            try:
+                anchor = datetime.fromisoformat(str(created_at)).isoformat()
+            except Exception:
+                anchor = None
+        if not anchor:
+            anchor = datetime.utcnow().isoformat()
+
+        ttl = timedelta(hours=max(50, PIX_DESIRE_ACTIVE_HOURS))
+        r.setex(pix_desire_active_key(uid), ttl, "1")
+        # Em reenvio de um PIX ainda pendente, preserva a âncora original se já existir.
+        if reset_stage or not r.get(pix_desire_anchor_key(uid)):
+            r.setex(pix_desire_anchor_key(uid), ttl, anchor)
+        r.expire(pix_desire_stage_key(uid), ttl)
+        logger.info(f"💓 [PIX DESIRE] ativado uid={uid} reset={reset_stage} anchor={anchor}")
+        return True
+    except Exception as e:
+        logger.error(f"[PIX DESIRE] Erro activate uid={uid}: {e}")
+        return False
+
+
+def cancel_pix_desire_followup(uid, paid=False):
+    try:
+        r.delete(pix_desire_active_key(uid), pix_desire_anchor_key(uid), pix_desire_audio_key(uid))
+        if paid:
+            r.delete(pix_desire_stage_key(uid))
+        logger.info(f"🛑 [PIX DESIRE] cancelado uid={uid} paid={paid}")
+    except Exception:
+        pass
+
+
+def _pix_desire_bonus_text():
+    if VIP_BONUS_TEXT:
+        return f" Se você resolver agora, eu ainda libero {VIP_BONUS_TEXT}."
+    return ""
+
+
+def build_pix_desire_followup_message(uid, stage):
+    """Copy pós-PIX em 6 etapas: ansiedade -> expectativa -> provocação -> dúvida -> despedida -> escassez de atenção."""
+    desejo = _followup_desire(uid)
+    pending = user_has_pending_pix(uid)
+    bonus = _pix_desire_bonus_text()
+
+    if stage == 1:  # 15 min — ansiedade
+        return (
+            "Amor, já deixei tudo separadinho aqui pra você... 😈 "
+            "tô só esperando o aviso do sistema pra te liberar. "
+            "Não demora, hein? Fiquei ansiosa pra te ver entrar."
+        )
+
+    if stage == 2:  # 30 min — expectativa
+        pix_action = (
+            "Como o primeiro código já pode ter vencido, se precisar eu gero outro em um toque."
+            if not pending
+            else "Seu PIX ainda aparece por aqui, então é só concluir quando quiser."
+        )
+        return (
+            "Eu ainda tô aqui esperando aquela confirmação aparecer 👀 "
+            "já tava imaginando sua reação quando eu liberasse tudo pra você... "
+            f"{pix_action}"
+        )
+
+    if stage == 3:  # 2 h — provocação
+        return (
+            f"Ih... você sumiu bem na hora H 😏 achei que sua curiosidade de {desejo} ia ganhar de você. "
+            "Vou voltar minha atenção pro pessoal que já tá lá dentro, mas seu acesso continua a um toque."
+            f"{bonus}"
+        )
+
+    if stage == 4:  # 4 h — dúvida
+        pix_action = (
+            "Se foi só o PIX que venceu, eu gero um novo pra você rapidinho."
+            if not pending
+            else "Se travou em alguma coisa no PIX, dá pra tentar de novo pelo botão."
+        )
+        return (
+            "Agora você me deixou na dúvida... ficou com vergonha, desistiu ou só se distraiu? 😈 "
+            f"{pix_action} Eu achei mesmo que você fosse até o fim."
+        )
+
+    if stage == 5:  # 24 h — despedida
+        return (
+            f"Passou um dia e eu ainda lembrei que você queria {desejo}... 😏 "
+            "vou te deixar quietinho por aqui pra não ficar te chamando toda hora. "
+            "Se ainda quiser entrar, o botão continua comigo."
+        )
+
+    # 48 h — escassez real de atenção / último contato automático
+    return (
+        "Último toque meu por aqui, tá? 😈 Depois dessa eu não vou mais ficar aparecendo pra te lembrar. "
+        "Se você ainda quiser entrar no VIP, toca no botão e eu preparo um PIX novo pra você."
+    )
+
+
+async def send_pix_desire_followup_stage(bot, uid, stage):
+    try:
+        if is_ai_manually_paused(uid):
+            return False
+        if user_has_paid(uid):
+            cancel_pix_desire_followup(uid, paid=True)
+            return False
+        if not is_pix_desire_followup_active(uid):
+            return False
+
+        msg = build_pix_desire_followup_message(uid, stage)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
+        ]])
+        await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
+
+        r.set(pix_desire_stage_key(uid), stage)
+        r.expire(pix_desire_stage_key(uid), timedelta(days=4))
+        save_message(uid, "system", f"💓 FOLLOW-UP PÓS-PIX #{stage} ENVIADO")
+        track_source_event(uid, f"pix_desire_followup_{stage}")
+        logger.info(f"💓 [PIX DESIRE] estágio={stage} enviado uid={uid}")
+
+        if stage >= max(PIX_DESIRE_DELAYS_MINUTES):
+            r.delete(pix_desire_active_key(uid), pix_desire_anchor_key(uid))
+        return True
+    except Exception as e:
+        if "blocked" in str(e).lower():
+            add_to_blacklist(uid)
+            cancel_pix_desire_followup(uid)
+        logger.error(f"[PIX DESIRE] Erro estágio {stage} uid={uid}: {e}")
+        return False
+
+
+async def pix_desire_followup_scheduler(bot):
+    """Cadência pós-PIX: áudio 5m; texto 15m, 30m, 2h, 4h, 24h e 48h."""
+    while True:
+        try:
+            now_utc = datetime.utcnow()
+            now_local = datetime.now()
+            for uid in get_all_active_users():
+                try:
+                    if is_blacklisted(uid) or is_ai_manually_paused(uid):
+                        continue
+                    if user_has_paid(uid):
+                        cancel_pix_desire_followup(uid, paid=True)
+                        continue
+
+                    # Migra PIX pendente criado antes desta versão para a nova sequência.
+                    if user_has_pending_pix(uid) and not is_pix_desire_followup_active(uid):
+                        created_at = None
+                        try:
+                            raw = r.get(f"sp:pix:{uid}")
+                            payload = json.loads(raw) if raw else {}
+                            created_at = payload.get("created_at")
+                        except Exception:
+                            pass
+                        activate_pix_desire_followup(uid, created_at=created_at, reset_stage=False)
+
+                    if not is_pix_desire_followup_active(uid):
+                        continue
+
+                    current_stage = int(r.get(pix_desire_stage_key(uid)) or 0)
+                    next_stage = current_stage + 1
+                    if next_stage not in PIX_DESIRE_DELAYS_MINUTES:
+                        cancel_pix_desire_followup(uid)
+                        continue
+
+                    anchor_raw = r.get(pix_desire_anchor_key(uid))
+                    if not anchor_raw:
+                        continue
+                    anchor = datetime.fromisoformat(anchor_raw)
+                    age_minutes = (now_utc - anchor).total_seconds() / 60.0
+
+                    # Áudio gemendo aos 5 minutos: independente dos 6 estágios de texto.
+                    # Não altera `pix_desire_stage`, então 15m continua sendo ansiedade.
+                    if age_minutes >= PIX_AUDIO_RECOVERY_DELAY_MINUTES:
+                        sent_audio = await maybe_send_pending_pix_audio_recovery(bot, uid)
+                        if sent_audio:
+                            await asyncio.sleep(0.2)
+
+                    if age_minutes < PIX_DESIRE_DELAYS_MINUTES[next_stage]:
+                        continue
+
+                    # Não solta automação no meio de uma conversa ativa.
+                    last = get_last_activity(uid)
+                    if last:
+                        silence_minutes = (now_local - last).total_seconds() / 60.0
+                        if silence_minutes < PIX_DESIRE_MIN_SILENCE_MINUTES:
+                            continue
+
+                    await send_pix_desire_followup_stage(bot, uid, next_stage)
+                    await asyncio.sleep(0.2)
+                except Exception as item_err:
+                    logger.error(f"[PIX DESIRE] scheduler uid={uid}: {item_err}")
+        except Exception as e:
+            logger.error(f"[PIX DESIRE] scheduler geral: {e}")
+        await asyncio.sleep(60)
+
+
 def touch_followup5_from_user(uid, text="", first_name=""):
     """Resposta zera relógio apenas de uma sequência COMERCIAL já válida."""
     save_followup_first_name(uid, first_name)
@@ -4379,9 +4627,16 @@ def build_sales_hard_wall_message(uid, text=""):
 
     if user_has_pending_pix(uid):
         return (
-            f"Eu sei que você quer continuar 😈 e eu não esqueci que você queria {desejo}. "
-            f"Mas agora eu paro por aqui: o resto eu libero só depois do PIX. "
-            f"Seu acesso é {preco}; clica no botão que eu recupero o PIX pra você.{bonus}"
+            f"Amor, eu já deixei seu acesso separadinho aqui 😈 e lembro que você queria {desejo}. "
+            "Tô só esperando a confirmação automática pra te liberar. "
+            f"Se o código sumiu, toca no botão que eu recupero pra você.{bonus}"
+        )
+
+    if is_pix_desire_followup_active(uid):
+        return (
+            f"Você voltou 😏 Eu ainda lembro que você queria {desejo}. "
+            "Aquele PIX já pode ter expirado, então não precisa ficar procurando o código antigo: "
+            f"toca no botão e eu gero outro pra você agora.{bonus}"
         )
 
     return (
@@ -4448,6 +4703,24 @@ async def followup5_scheduler(bot):
                         continue
                     if user_has_paid(uid):
                         cancel_followup5(uid, paid=True)
+                        cancel_pix_desire_followup(uid, paid=True)
+                        continue
+
+                    # Depois que existe PIX real, a cadência dedicada assume e o fluxo
+                    # genérico de 5 estágios fica totalmente silencioso. A migração aqui
+                    # também evita corrida entre o scheduler antigo e o novo no deploy.
+                    if user_has_pending_pix(uid):
+                        if not is_pix_desire_followup_active(uid):
+                            created_at = None
+                            try:
+                                raw_pix = r.get(f"sp:pix:{uid}")
+                                pix_payload = json.loads(raw_pix) if raw_pix else {}
+                                created_at = pix_payload.get("created_at")
+                            except Exception:
+                                pass
+                            activate_pix_desire_followup(uid, created_at=created_at, reset_stage=False)
+                        continue
+                    if is_pix_desire_followup_active(uid):
                         continue
 
                     # Migração/segurança: sequência comercial antiga não pode vender para
@@ -4462,10 +4735,8 @@ async def followup5_scheduler(bot):
                         activate_silent_recovery(uid, reset_stage=True)
                         continue
 
-                    # PIX gerado e ainda não pago: prévia de áudio uma única vez.
-                    if await maybe_send_pending_pix_audio_recovery(bot, uid):
-                        continue
-
+                    # O áudio pós-PIX é tratado separadamente aos 5 min; este scheduler
+                    # abaixo cuida apenas do fluxo comercial PRÉ-PIX.
                     if not is_followup5_active(uid) or is_followup5_silent(uid):
                         continue
                     current_stage = int(r.get(followup_stage_key(uid)) or 0)
@@ -4521,9 +4792,9 @@ async def send_pending_pix_followup(bot, uid, chat_id, level=1):
         if r.exists(key):
             return False
         msgs = {
-            1: "Vi que seu PIX ficou gerado aqui. Quer que eu te mande o código de novo pra facilitar?",
-            2: "Seu PIX ainda está pendente. Se quiser, clica no botão que eu reencontro o código pra você agora.",
-            3: "Último aviso: seu PIX pode expirar em breve. Quer liberar o acesso agora?",
+            1: "Amor, já deixei tudo separadinho aqui 😈 tô só esperando a confirmação automática pra te liberar.",
+            2: "Ih, você sumiu bem na hora H... 😏 Se o PIX antigo expirou, eu gero outro em um toque pra você.",
+            3: "Vou parar de te chamar por aqui 😈 Se ainda quiser entrar, toca no botão e eu deixo um PIX novo pronto.",
         }
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
@@ -5525,6 +5796,8 @@ syncpay_integration.init(
         "activate_followup5": activate_followup5,
         "touch_followup5": touch_followup5_from_user,
         "cancel_followup5": cancel_followup5,
+        "activate_pix_desire_followup": activate_pix_desire_followup,
+        "cancel_pix_desire_followup": cancel_pix_desire_followup,
         "activate_hard_wall": activate_sales_hard_wall,
         "clear_hard_wall": clear_sales_hard_wall,
         "send_vip_intro_audio": send_vip_intro_audio_once,
@@ -6758,14 +7031,15 @@ async def startup_sequence():
         # Retargeting desligado no boot porque pode travar a inicialização.
         loop.create_task(engagement_scheduler(application.bot))
         # loop.create_task(retargeting_scheduler(application.bot))
-        loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP 5 ESTÁGIOS (só comercial)
-        loop.create_task(silent_recovery_scheduler(application.bot))          # /start sem resposta, SEM PIX
+        loop.create_task(post_pitch_inactivity_scheduler(application.bot))  # FOLLOW-UP pré-PIX (comercial)
+        loop.create_task(pix_desire_followup_scheduler(application.bot))       # PÓS-PIX: áudio 5m + 15m/30m/2h/4h/24h/48h
+        loop.create_task(silent_recovery_scheduler(application.bot))           # /start sem resposta, SEM PIX
         loop.create_task(admin_stats_maintenance_scheduler())
         # Desligados para não gerar mensagens extras fora dos 5 estágios:
         # loop.create_task(pending_pix_followup_scheduler(application.bot))
         # loop.create_task(recovery_scheduler(application.bot))
 
-        logger.info("✅ Schedulers iniciados com FOLLOW-UP 5 ESTÁGIOS")
+        logger.info("✅ Schedulers iniciados: pré-PIX + pós-PIX áudio5m/15m/30m/2h/4h/24h/48h")
 
         # ====================== META CAPI TRACKER ======================
         try:
