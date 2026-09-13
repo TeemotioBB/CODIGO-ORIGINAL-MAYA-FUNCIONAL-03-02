@@ -1094,6 +1094,7 @@ def last_offer_rejected_key(uid): return f"offer_rejected:{uid}"
 def vip_just_offered_key(uid): return f"vip_just_offered:{uid}"
 def pending_teaser_video_key(uid): return f"pending_teaser_video:{uid}"
 def free_teaser_video_sent_key(uid): return f"free_teaser_video_sent:{uid}:{date.today()}"
+def free_teaser_video_sent_ever_key(uid): return f"free_teaser_video_sent_ever:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 FOLLOW-UP 5 ESTÁGIOS — silêncio + interesse + modo silencioso
@@ -2572,9 +2573,28 @@ def free_teaser_video_already_sent_today(uid):
     except Exception:
         return False
 
+def free_teaser_video_already_sent(uid):
+    """Uma única prévia de vídeo grátis por lead, não uma por dia.
+
+    Mantém compatibilidade com a chave antiga diária: se ela existir, migra o lead
+    para a chave permanente automaticamente.
+    """
+    try:
+        if r.exists(free_teaser_video_sent_ever_key(uid)):
+            return True
+        if r.exists(free_teaser_video_sent_key(uid)):
+            r.set(free_teaser_video_sent_ever_key(uid), "1")
+            return True
+        return False
+    except Exception:
+        return False
+
 def mark_free_teaser_video_sent(uid):
     try:
+        # Chave antiga diária continua sendo gravada por compatibilidade.
         r.setex(free_teaser_video_sent_key(uid), timedelta(hours=20), "1")
+        # Nova regra: o mesmo lead não recebe outra prévia grátis futuramente.
+        r.set(free_teaser_video_sent_ever_key(uid), "1")
         track_source_event(uid, "free_teaser_video_sent")
     except Exception:
         pass
@@ -2601,7 +2621,7 @@ def response_promises_teaser_video(response_text):
 def maybe_mark_teaser_video_promise(uid, response_text):
     if response_promises_teaser_video(response_text):
         # Evita prometer/entregar teaser grátis repetidas vezes no mesmo dia.
-        if not free_teaser_video_already_sent_today(uid):
+        if not free_teaser_video_already_sent(uid):
             mark_pending_teaser_video(uid)
 
 def is_video_confirmation(text):
@@ -2620,62 +2640,143 @@ def is_video_confirmation(text):
         return False
     return any(c in text for c in confirmations)
 
-async def send_free_teaser_video(bot, chat_id, uid):
+REPEAT_PREVIEW_TRIGGERS = [
+    "mais prévia", "mais previa", "outra prévia", "outra previa",
+    "manda outra", "manda mais", "tem mais", "quero mais",
+    "mais uma", "outra amostra", "mais amostra",
+    "manda uma prévia", "manda uma previa", "tem prévia", "tem previa",
+    "tem amostra", "manda uma amostra", "quero outra", "mostra mais",
+    "outro vídeo", "outro video", "mais vídeo", "mais video",
+    "outra foto", "mais foto", "manda outro vídeo", "manda outro video",
+    "manda outra foto", "quero outro vídeo", "quero outro video",
+]
+
+def is_preview_request_text(text):
+    low = (text or "").lower().strip()
+    if not low:
+        return False
+    return any(term in low for term in REPEAT_PREVIEW_TRIGGERS)
+
+def free_preview_already_consumed(uid):
+    """Verdadeiro quando o lead já recebeu alguma amostra grátis relevante."""
     try:
-        if not FREE_TEASER_VIDEO_IDS:
-            logger.warning("🎥 FREE_TEASER_VIDEO_IDS vazio. Configure o file_id do vídeo teaser.")
-            clear_pending_teaser_video(uid)
-            await bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    "Tentei te mandar agora, mas o vídeo não carregou aqui. "
-                    "Me chama de novo em instantes 😏"
-                )
-            )
-            save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
-            return True
+        return free_teaser_video_already_sent(uid) or bool(r.exists(vip_moan_audio_sent_key(uid)))
+    except Exception:
+        return free_teaser_video_already_sent(uid)
 
-        video_id = random.choice(FREE_TEASER_VIDEO_IDS)
-
-        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
-        await asyncio.sleep(1.0)
-        await bot.send_video(
-            chat_id=chat_id,
-            video=video_id,
-            caption=(
-                "Pronto… te mandei só um gostinho 😏\n\n"
-                "O resto eu libero no acesso completo."
-            ),
-            connect_timeout=15,
-            read_timeout=20,
-            write_timeout=20
+async def send_repeat_preview_vip_response(bot, chat_id, uid):
+    """Depois da 1ª prévia, não envia outra mídia: conduz direto ao VIP/PIX."""
+    preco = _followup_price(uid)
+    mensagens = [
+        "A prévia grátis eu já te mandei 😏 Se quiser ver mais, agora é só no VIP.",
+        "Mais prévia grátis não, safado 😈 O resto eu libero só no VIP.",
+        "Já te dei um gostinho 😏 Pra continuar e ver o resto, libera o VIP.",
+    ]
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            f"💳 GERAR PIX — {preco}",
+            callback_data=payment_callback_data("objection")
         )
+    ]])
+    await bot.send_message(
+        chat_id=chat_id,
+        text=random.choice(mensagens),
+        reply_markup=keyboard
+    )
+    track_source_event(uid, "repeat_preview_blocked")
+    save_message(uid, "system", "🎥 NOVA PRÉVIA BLOQUEADA — DIRECIONADO AO VIP")
+    return True
 
-        clear_pending_teaser_video(uid)
-        mark_free_teaser_video_sent(uid)
-        save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
-        log_media_ok(logger, "VIDEO", uid, source="FREE_TEASER", detail=str(video_id)[:80])
+async def send_free_teaser_video(bot, chat_id, uid):
+    """Envia a prévia real com fallback para um vídeo teaser já configurado.
 
-        await asyncio.sleep(1.6)
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
-        ]])
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
-                "Quando aprovar, o acesso cai automático."
-            ),
-            reply_markup=keyboard
-        )
-        return True
-
-    except Exception as e:
-        log_media_error(logger, "VIDEO", uid, e, source="FREE_TEASER")
-        if is_blocked_error(e):
-            add_to_blacklist(uid, origin="FREE_TEASER")
+    Um file_id do Telegram pode deixar de funcionar quando veio de outro bot/token.
+    Por isso tentamos primeiro a prévia dedicada e, se ela falhar, os vídeos do teaser
+    normal. Só marcamos como enviado depois que o Telegram confirmar o send_video.
+    """
+    if free_teaser_video_already_sent(uid):
         clear_pending_teaser_video(uid)
         return False
+
+    candidates = []
+    for candidate in list(FREE_TEASER_VIDEO_IDS or []) + list(VIDEOS_TEASER or []):
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    if not candidates:
+        logger.warning("🎥 Nenhum vídeo de prévia/teaser configurado.")
+        clear_pending_teaser_video(uid)
+        await bot.send_message(
+            chat_id=chat_id,
+            text="A prévia não carregou aqui agora 😕 Tenta me pedir de novo daqui a pouco."
+        )
+        save_message(uid, "system", "⚠️ VÍDEO TEASER NÃO CONFIGURADO")
+        return False
+
+    last_error = None
+    sent_video_id = None
+
+    for idx, video_id in enumerate(candidates, start=1):
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
+            await asyncio.sleep(0.7)
+            await bot.send_video(
+                chat_id=chat_id,
+                video=video_id,
+                caption=(
+                    "Pronto… te mandei só um gostinho 😏\n\n"
+                    "O resto eu libero no acesso completo."
+                ),
+                connect_timeout=15,
+                read_timeout=20,
+                write_timeout=20
+            )
+            sent_video_id = video_id
+            if idx > 1:
+                logger.warning(
+                    f"🎥 FREE_TEASER fallback funcionou uid={uid} tentativa={idx}"
+                )
+            break
+        except Exception as e:
+            last_error = e
+            log_media_error(
+                logger, "VIDEO", uid, e, source="FREE_TEASER",
+                detail=f"tentativa={idx}/{len(candidates)} id={str(video_id)[:70]}"
+            )
+            if is_blocked_error(e):
+                add_to_blacklist(uid, origin="FREE_TEASER")
+                clear_pending_teaser_video(uid)
+                return False
+
+    if not sent_video_id:
+        clear_pending_teaser_video(uid)
+        logger.error(f"🎥 Nenhuma prévia pôde ser enviada uid={uid}: {last_error}")
+        await bot.send_message(
+            chat_id=chat_id,
+            text="A prévia deu erro no envio aqui agora 😕 Não vou fingir que mandei. Tenta novamente em instantes."
+        )
+        save_message(uid, "system", "⚠️ FALHA AO ENVIAR VÍDEO TEASER")
+        return False
+
+    clear_pending_teaser_video(uid)
+    mark_free_teaser_video_sent(uid)
+    save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
+    log_media_ok(logger, "VIDEO", uid, source="FREE_TEASER", detail=str(sent_video_id)[:80])
+
+    await asyncio.sleep(1.0)
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
+    ]])
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
+            "Quando aprovar, o acesso cai automático."
+        ),
+        reply_markup=keyboard
+    )
+    return True
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
@@ -3766,7 +3867,7 @@ def enforce_deliverable_promises(uid, grok_response):
     cleaned = dict(grok_response)
     cleaned["response"] = safe
     cleaned["offer_teaser"] = False
-    if FREE_TEASER_VIDEO_IDS and not free_teaser_video_already_sent_today(uid):
+    if FREE_TEASER_VIDEO_IDS and not free_teaser_video_already_sent(uid):
         mark_pending_teaser_video(uid)
     track_source_event(uid, "promise_guard_triggered")
     save_message(uid, "system", "🛡️ PROMISE GUARD substituiu promessa de mídia não garantida")
@@ -4716,11 +4817,14 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     preco = _followup_price(uid)
 
     if kind == "preview":
-        if not free_teaser_video_already_sent_today(uid) and FREE_TEASER_VIDEO_IDS:
+        if not free_teaser_video_already_sent(uid) and (FREE_TEASER_VIDEO_IDS or VIDEOS_TEASER):
             await bot.send_message(chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
-            await send_free_teaser_video(bot, chat_id, uid)
+            sent = await send_free_teaser_video(bot, chat_id, uid)
+            if sent:
+                return True
+            # O próprio send_free_teaser_video já informa a falha ao usuário.
             return True
-        msg = "A prévia que eu libero já foi enviada por aqui. O acesso completo só abre depois da confirmação do pagamento."
+        return await send_repeat_preview_vip_response(bot, chat_id, uid)
     elif kind == "trust":
         msg = "Pergunta justa. O acesso só é liberado depois da confirmação automática do PIX, e você recebe o link aqui no próprio chat. Não precisa mandar comprovante."
     elif kind == "delivery":
@@ -5651,6 +5755,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         intent = detect_intent(text) if text else "neutral"
         lead_type = classify_lead(uid, text, intent)
         save_lead_signal(uid, lead_type, intent, text)
+
+        # 0.9) Uma prévia grátis por lead. Se pedir outra, não envia mídia novamente:
+        # conduz direto ao VIP com o botão transacional já mostrando o preço.
+        if is_preview_request_text(text) and free_preview_already_consumed(uid) and not user_has_paid(uid):
+            clear_pending_teaser_video(uid)
+            await send_repeat_preview_vip_response(
+                context.bot, update.effective_chat.id, uid
+            )
+            return
 
         # 1) Objeção de confiança: responde como conversa real, sem empurrar PIX.
         if should_send_trust_response(lead_type, text):
