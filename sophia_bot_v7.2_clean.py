@@ -3377,6 +3377,16 @@ LIMIT_REACHED_MESSAGE = (
     "Se quiser, eu deixo o PIX pronto pra você."
 )
 
+# Depois que a oferta completa do limite já foi mostrada uma vez,
+# evita reenviar a mesma foto/caption em toda mensagem. O botão de PIX
+# permanece disponível em todas as respostas dessa etapa.
+LIMIT_REPEAT_MESSAGES = [
+    "Agora é só liberar o VIP 😏\n\nSe quiser continuar, deixo o PIX pronto aqui embaixo.",
+    "Quer continuar comigo? 💕\n\nÉ só gerar o PIX pelo botão abaixo.",
+    "Daqui pra frente é pelo acesso VIP 😈\n\nSe quiser, seu PIX fica pronto em um clique.",
+    "Eu ainda tô aqui 😏\n\nPra continuar e liberar tudo, gera o PIX aqui embaixo.",
+]
+
 LIMIT_WARNING_MESSAGE = (
     "⚠️ **Restam apenas 5 mensagens hoje!**\n\n"
     "Depois disso você vai precisar esperar até amanhã... 😢\n\n"
@@ -5568,40 +5578,65 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = get_user_daily_limit(uid) + bonus
         if current_count >= total:
             last_chance_key = f"last_chance:{uid}:{date.today()}"
+            pix_keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    f"💳 GERAR PIX — {PRECO_VIP}",
+                    callback_data=payment_callback_data("limit")
+                )
+            ]])
+
+            # 1ª mensagem após atingir o limite: aviso contextual, já com PIX direto.
             if not r.exists(last_chance_key):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
-                keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
-                ]])
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=get_contextual_limit_message(uid),
-                    reply_markup=keyboard,
+                    reply_markup=pix_keyboard,
                     parse_mode="Markdown"
                 )
                 save_message(uid, "system", "🎁 ÚLTIMA CHANCE ATIVADA")
                 return
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("limit"))
-            ]])
+
+            # 2ª mensagem: mostra a oferta completa com foto apenas uma vez.
+            limit_offer_key = f"limit_offer_sent:{uid}:{date.today()}"
+            if not r.exists(limit_offer_key):
+                r.setex(limit_offer_key, timedelta(hours=20), "1")
+                try:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=FOTO_LIMITE_ATINGIDO,
+                        caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                        reply_markup=pix_keyboard,
+                        parse_mode="Markdown"
+                    )
+                except Exception as limit_photo_err:
+                    log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                        reply_markup=pix_keyboard,
+                        parse_mode="Markdown"
+                    )
+                save_message(uid, "system", "🚫 LIMITE ATINGIDO — OFERTA COMPLETA")
+                return
+
+            # 3ª mensagem em diante: não repete a foto. Alterna textos curtos,
+            # mantendo SEMPRE o botão direto para gerar o PIX.
+            rotation_key = f"limit_repeat_rotation:{uid}:{date.today()}"
             try:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=FOTO_LIMITE_ATINGIDO,
-                    caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            except Exception as limit_photo_err:
-                log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            save_message(uid, "system", "🚫 LIMITE ATINGIDO")
+                rotation = int(r.incr(rotation_key)) - 1
+                r.expire(rotation_key, 20 * 60 * 60)
+            except Exception:
+                rotation = random.randrange(len(LIMIT_REPEAT_MESSAGES))
+            repeat_text = LIMIT_REPEAT_MESSAGES[rotation % len(LIMIT_REPEAT_MESSAGES)]
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=repeat_text,
+                reply_markup=pix_keyboard,
+                parse_mode="Markdown"
+            )
+            save_message(uid, "system", "🚫 LIMITE ATINGIDO — LEMBRETE PIX")
             return
 
         if bonus > 0:
