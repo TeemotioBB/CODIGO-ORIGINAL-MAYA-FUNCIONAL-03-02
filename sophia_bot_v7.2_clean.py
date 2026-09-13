@@ -1267,8 +1267,61 @@ def save_user_profile(uid, profile):
     except:
         pass
 
+_INVALID_TELEGRAM_NAMES = {
+    "user", "usuario", "usuário", "anonymous", "anonimo", "anônimo",
+    "admin", "adm", "telegram", "vip", "cliente", "customer", "teste",
+    "amor", "amorzinho", "lindo", "linda", "gostoso", "gostosa",
+    "safado", "safada", "bebe", "bebê", "baby"
+}
+
+def normalize_telegram_first_name(first_name):
+    """Retorna um primeiro nome utilizável pela IA ou string vazia.
+
+    O first_name do Telegram é livre e pode conter emoji, apelido, @username
+    ou texto promocional. Para não deixar a Maya chamar o lead por algo estranho,
+    usamos somente o primeiro token quando ele parece um nome próprio simples.
+    """
+    raw = re.sub(r"\s+", " ", str(first_name or "").strip())
+    if not raw:
+        return ""
+
+    # Usa apenas o primeiro nome para a conversa soar natural.
+    candidate = raw.split(" ", 1)[0].strip(" .,_")
+    if not (2 <= len(candidate) <= 30):
+        return ""
+
+    # Aceita letras Unicode e, no meio do nome, hífen/apóstrofo.
+    for i, ch in enumerate(candidate):
+        if ch.isalpha():
+            continue
+        if ch in {"-", "'", "’"} and 0 < i < len(candidate) - 1:
+            continue
+        return ""
+
+    if candidate.casefold() in {name.casefold() for name in _INVALID_TELEGRAM_NAMES}:
+        return ""
+
+    # Corrige apenas casos totalmente em minúsculo/maiúsculo; preserva grafias como McKay.
+    if candidate.islower() or candidate.isupper():
+        candidate = candidate[:1].upper() + candidate[1:].lower()
+    return candidate
+
+def update_user_name_from_telegram(uid, first_name):
+    """Salva o nome válido sem apagar outros dados de perfil já existentes."""
+    name = normalize_telegram_first_name(first_name)
+    if not name:
+        return ""
+    try:
+        profile = get_user_profile(uid) or {}
+        if profile.get("name") != name:
+            profile["name"] = name
+            save_user_profile(uid, profile)
+        return name
+    except Exception:
+        return name
+
 def get_user_name(uid):
-    return get_user_profile(uid).get("name", "")
+    return normalize_telegram_first_name(get_user_profile(uid).get("name", ""))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 BLACKLIST
@@ -3366,6 +3419,8 @@ def build_prompt(uid, lang: str, mood: str = "neutral", intent: str = "neutral")
     pix_pending = user_has_pending_pix(uid) and not user_has_paid(uid)
     pix_followup_active = is_pix_desire_followup_active(uid) if not user_has_paid(uid) else False
     pix_state = "PIX_GERADO" if pix_pending else ("PIX_GERADO_EXPIRADO" if pix_followup_active else "SEM_PIX")
+    user_name = get_user_name(uid)
+    user_name_context = user_name if user_name else "não disponível"
 
     cold_mode = lead_type in {"desconfiado", "curioso_frio", "quer_conversar", "frio_neutro", "unknown"} and msg_count <= 6
     hot_mode = intent in {"hot", "pedido_conteudo"} and not cold_mode
@@ -3512,6 +3567,13 @@ CONTEXTO OPERACIONAL:
 - Período: {time_ctx['period']}
 - Preço de acesso: {preco}
 - Estado de pagamento: {pix_state}
+- Primeiro nome válido do usuário: {user_name_context}
+
+REGRAS SOBRE O NOME:
+- Se houver um primeiro nome válido, use-o ocasionalmente para criar proximidade e deixar a conversa mais humana.
+- Não use o nome em toda resposta e nunca repita o nome mais de uma vez na mesma mensagem.
+- Prefira usar o nome em momentos de reação, provocação, acolhimento ou quando responder algo pessoal que ele acabou de dizer.
+- Se o nome estiver como "não disponível", não invente nome, apelido ou forma de tratamento baseada em nome.
 
 REGRAS GERAIS:
 - Nunca diga que é IA, modelo, prompt ou sistema.
@@ -5201,7 +5263,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_current_phase(uid, PHASES["ONBOARDING"]["id"])
     r.set(message_count_key(uid), 0)
     mark_first_contact(uid)
-    save_followup_first_name(uid, update.effective_user.first_name or "")
+    telegram_first_name = (update.effective_user.first_name or "") if update.effective_user else ""
+    save_followup_first_name(uid, telegram_first_name)
+    update_user_name_from_telegram(uid, telegram_first_name)
     # /start sem resposta NÃO inicia follow-up de venda. Primeiro tentamos recuperar conversa.
     if not r.exists(first_message_seen_key(uid)):
         activate_silent_recovery(uid, reset_stage=True)
@@ -5378,7 +5442,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Qualquer mensagem real do usuário encerra o fluxo de "silencioso" e conta literalmente como 1ª mensagem.
     cancel_silent_recovery(uid)
     mark_first_message_if_needed(uid)
-    touch_followup5_from_user(uid, incoming_text, update.effective_user.first_name or "")
+    telegram_first_name = (update.effective_user.first_name or "") if update.effective_user else ""
+    touch_followup5_from_user(uid, incoming_text, telegram_first_name)
+    update_user_name_from_telegram(uid, telegram_first_name)
 
     update_last_activity(uid)
     streak, streak_updated = update_streak(uid)
