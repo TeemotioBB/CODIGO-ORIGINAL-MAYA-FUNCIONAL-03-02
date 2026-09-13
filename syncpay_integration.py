@@ -567,18 +567,15 @@ async def _pagar_vip_callback(update: Update, context):
     if activate_hard_wall:
         activate_hard_wall(uid)
 
+    # Esta etapa agora é estritamente transacional: o clique de intenção no teaser
+    # é registrado antes, em confirmar_vip|origem. Aqui registramos apenas o pedido
+    # consciente de gerar/reusar a cobrança PIX.
     try:
-        set_clicked_vip = _callbacks.get("set_clicked_vip")
-        track_funnel = _callbacks.get("track_funnel")
         track_source_event = _callbacks.get("track_source_event")
-        if set_clicked_vip:
-            set_clicked_vip(uid)
-        if track_funnel:
-            track_funnel(uid, "clicked_vip")
         if track_source_event:
             track_source_event(uid, f"pix_click_{origin}")
-    except Exception as funnel_err:
-        logger.error(f"[Tracking] Erro clicked_vip uid={uid}: {funnel_err}")
+    except Exception as track_err:
+        logger.error(f"[Tracking] Erro pix_click uid={uid}: {track_err}")
 
     try:
         pix_pendente = _get_pix_pendente(uid)
