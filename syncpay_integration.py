@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, date
 from flask import request as flask_request, jsonify
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import CallbackQueryHandler
 
 
@@ -618,7 +619,23 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
 
 async def _pagar_vip_callback(update: Update, context):
     query = update.callback_query
-    await query.answer()
+    if not query:
+        return
+
+    # Confirma o clique imediatamente. Se o callback já tiver expirado no
+    # Telegram, não abortamos a geração do PIX: o clique ainda é processado.
+    try:
+        await query.answer()
+    except BadRequest as e:
+        err = str(e).lower()
+        if "query is too old" in err or "query id is invalid" in err or "response timeout expired" in err:
+            logger.warning(
+                f"⚠️ [SyncPay] Callback expirado no ACK; continuando processamento "
+                f"uid={query.from_user.id} data={query.data}"
+            )
+        else:
+            raise
+
     uid = query.from_user.id
     chat_id = query.message.chat_id
     bot = context.bot
