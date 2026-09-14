@@ -54,11 +54,52 @@ PIX_QUALIFIED_ORIGINS = {"teaser", "direct_intent", "followup", "objection", "re
 def _normalize_pix_origin(raw_callback: str) -> str:
     raw = str(raw_callback or "pagar_vip")
     origin = raw.split("|", 1)[1].strip().lower() if "|" in raw else "unknown"
+
+    # Broadcast do painel usa uma origem dinâmica curta:
+    # pagar_vip|broadcast_<campaign_id>
+    if origin.startswith("broadcast_"):
+        campaign_id = origin.removeprefix("broadcast_")
+        if campaign_id and campaign_id.isalnum() and len(campaign_id) <= 24:
+            return origin
+
     return origin if origin in PIX_ALLOWED_ORIGINS else "unknown"
 
 def _is_checkout_qualified(origin: str, first_message: bool, saw_teaser: bool) -> bool:
     """Sinal forte para Meta: contexto comercial + alguma interação/pitch real."""
+    # No broadcast, o usuário clica explicitamente em um botão que já exibe
+    # o valor do PIX. Portanto o checkout é intencional mesmo sem teaser atual.
+    if origin.startswith("broadcast_"):
+        return True
     return bool(origin in PIX_QUALIFIED_ORIGINS and (first_message or saw_teaser))
+
+def _broadcast_campaign_id_from_origin(origin: str):
+    origin = str(origin or "")
+    if not origin.startswith("broadcast_"):
+        return None
+    campaign_id = origin.removeprefix("broadcast_").strip().lower()
+    if not campaign_id or not campaign_id.isalnum() or len(campaign_id) > 24:
+        return None
+    return campaign_id
+
+def _get_broadcast_campaign(origin: str):
+    """Lê a campanha criada pelo painel para resolver o preço especial."""
+    if _r is None:
+        return None
+    campaign_id = _broadcast_campaign_id_from_origin(origin)
+    if not campaign_id:
+        return None
+    data = _r.hgetall(f"admin:broadcast:campaign:{campaign_id}") or {}
+    if not data:
+        return None
+    try:
+        amount = float(str(data.get("amount") or "").replace(",", "."))
+    except Exception:
+        return None
+    if amount <= 0:
+        return None
+    data["amount_float"] = amount
+    data["campaign_id"] = campaign_id
+    return data
 
 def _parse_syncpay_webhook(payload):
     """Aceita payload oficial no corpo raiz e envelopes legados data/transaction."""
@@ -554,47 +595,101 @@ async def _pagar_vip_callback(update: Update, context):
     bot = context.bot
 
     origin = _normalize_pix_origin(query.data)
+    broadcast_campaign = _get_broadcast_campaign(origin)
+    is_broadcast = bool(broadcast_campaign)
+
+    # Se o callback é de broadcast mas a campanha não existe mais, não cai
+    # silenciosamente no preço normal.
+    if str(query.data or "").split("|", 1)[-1].startswith("broadcast_") and not broadcast_campaign:
+        await bot.send_message(
+            chat_id=chat_id,
+            text="Essa oferta não está mais disponível. Se quiser, me chama aqui que eu te passo a opção atual."
+        )
+        logger.warning(f"[Broadcast PIX] Campanha ausente/expirada uid={uid} callback={query.data}")
+        return
 
     # Qualificação: InitiateCheckout só vai à Meta quando houve contexto comercial real.
+    # Broadcast é qualificado porque o botão já mostra explicitamente o valor do PIX.
     first_message = bool(_r.exists(f"first_message_seen:{uid}"))
     saw_teaser = bool(_r.exists(f"saw_teaser:{uid}"))
     checkout_qualified = _is_checkout_qualified(origin, first_message, saw_teaser)
 
-    touch_followup5 = _callbacks.get("touch_followup5")
-    if touch_followup5:
-        touch_followup5(uid, "pix", query.from_user.first_name or "")
-    activate_hard_wall = _callbacks.get("activate_hard_wall")
-    if activate_hard_wall:
-        activate_hard_wall(uid)
+    # Broadcast não deve misturar a oferta promocional com follow-ups antigos
+    # do preço principal. Ao clicar numa oferta de broadcast, cancelamos apenas
+    # os agendamentos comerciais anteriores desse usuário.
+    if is_broadcast:
+        cancel_followup5 = _callbacks.get("cancel_followup5")
+        if cancel_followup5:
+            cancel_followup5(uid)
+        cancel_pix_desire = _callbacks.get("cancel_pix_desire_followup")
+        if cancel_pix_desire:
+            cancel_pix_desire(uid)
 
-    # Esta etapa agora é estritamente transacional: o clique de intenção no teaser
-    # é registrado antes, em confirmar_vip|origem. Aqui registramos apenas o pedido
-    # consciente de gerar/reusar a cobrança PIX.
+    # Broadcast também não ativa hard wall/follow-up padrão novo, porque pode
+    # usar preço promocional diferente do preço principal.
+    if not is_broadcast:
+        touch_followup5 = _callbacks.get("touch_followup5")
+        if touch_followup5:
+            touch_followup5(uid, "pix", query.from_user.first_name or "")
+        activate_hard_wall = _callbacks.get("activate_hard_wall")
+        if activate_hard_wall:
+            activate_hard_wall(uid)
+
     try:
         track_source_event = _callbacks.get("track_source_event")
         if track_source_event:
-            track_source_event(uid, f"pix_click_{origin}")
+            event_name = "pix_click_broadcast" if is_broadcast else f"pix_click_{origin}"
+            track_source_event(uid, event_name)
     except Exception as track_err:
         logger.error(f"[Tracking] Erro pix_click uid={uid}: {track_err}")
 
     try:
+        nome = query.from_user.full_name or "Cliente"
+
+        # Resolve o preço desejado ANTES de decidir reaproveitar um PIX pendente.
+        if is_broadcast:
+            valor = float(broadcast_campaign["amount_float"])
+        else:
+            preco_str = _callbacks.get("PRECO_VIP", "7,90")
+            try:
+                valor = float(preco_str.replace("R$", "").replace("R$ ", "").replace(",", ".").strip())
+            except Exception:
+                valor = 7.90
+
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
-            logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin}")
-            await bot.send_message(chat_id=chat_id, text="😈 Seu acesso já tá separadinho aqui. Vou te mandar o PIX de novo:")
-            await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
-            activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
-            if activate_pix_desire:
-                activate_pix_desire(uid, created_at=pix_pendente.get("created_at"), reset_stage=False)
-            return
+            try:
+                pending_amount = float(pix_pendente.get("amount") or 0)
+            except Exception:
+                pending_amount = 0.0
+            pending_origin = str(pix_pendente.get("origin") or "")
+
+            # Em oferta especial, só reaproveita PIX da mesma campanha/valor.
+            can_reuse = True
+            if is_broadcast:
+                can_reuse = (
+                    abs(pending_amount - valor) < 0.005
+                    and pending_origin == origin
+                )
+
+            if can_reuse:
+                logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin} valor=R${pending_amount}")
+                await bot.send_message(chat_id=chat_id, text="Seu PIX ainda está válido. Vou te mandar o código de novo:")
+                await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
+
+                if not is_broadcast:
+                    activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
+                    if activate_pix_desire:
+                        activate_pix_desire(uid, created_at=pix_pendente.get("created_at"), reset_stage=False)
+                return
+
+            logger.info(
+                f"[Broadcast PIX] PIX pendente ignorado por preço/origem diferente "
+                f"uid={uid} antigo=R${pending_amount} origem_antiga={pending_origin} "
+                f"novo=R${valor} origem_nova={origin}"
+            )
 
         await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
-        nome = query.from_user.full_name or "Cliente"
-        preco_str = _callbacks.get("PRECO_VIP", "7,90")
-        try:
-            valor = float(preco_str.replace("R$", "").replace("R$ ", "").replace(",", ".").strip())
-        except Exception:
-            valor = 7.90
 
         pix_data = _gerar_pix(
             uid=uid, amount=valor, nome_cliente=nome,
@@ -602,8 +697,6 @@ async def _pagar_vip_callback(update: Update, context):
         )
         customer_data = _salvar_customer(uid, query.from_user, pix_data["identifier"])
 
-        # Guarda a PRIMEIRA origem de geração por usuário (coerente com o funil único)
-        # e também a última para diagnóstico de tentativas posteriores.
         origin_key = _sp_pix_origin_key(uid)
         _r.hsetnx(origin_key, "first_origin", origin)
         _r.hsetnx(origin_key, "first_identifier", pix_data["identifier"])
@@ -619,18 +712,26 @@ async def _pagar_vip_callback(update: Update, context):
 
         await _enviar_pix_no_chat(bot, chat_id, uid, pix_data)
 
-        activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
-        if activate_pix_desire:
-            activate_pix_desire(uid, created_at=pix_data.get("created_at"), reset_stage=True)
+        # Broadcast não ativa follow-up padrão porque o preço pode ser diferente.
+        if not is_broadcast:
+            activate_pix_desire = _callbacks.get("activate_pix_desire_followup")
+            if activate_pix_desire:
+                activate_pix_desire(uid, created_at=pix_data.get("created_at"), reset_stage=True)
 
         try:
             track_source_event = _callbacks.get("track_source_event")
             if track_source_event:
-                track_source_event(uid, f"pix_from_{origin}")
+                event_name = "pix_from_broadcast" if is_broadcast else f"pix_from_{origin}"
+                track_source_event(uid, event_name)
         except Exception as track_err:
             logger.error(f"[Tracking] Erro pix_created: {track_err}")
 
         try:
+            plan_name = (
+                f"Broadcast {broadcast_campaign['campaign_id']}"
+                if is_broadcast else
+                "Plano Normal"
+            )
             event_data = {
                 "event": "payment_created",
                 "timestamp": int(time.time()),
@@ -640,7 +741,7 @@ async def _pagar_vip_callback(update: Update, context):
                     "internal_transaction_id": pix_data["identifier"],
                     "sale_code": f"SALE-{uid}-{int(time.time())}",
                     "category": "Assinatura Premium",
-                    "plan_name": "Plano Normal",
+                    "plan_name": plan_name,
                     "plan_value": int(valor * 100),
                     "currency": "BRL",
                     "payment_platform": "syncpay",
@@ -649,7 +750,10 @@ async def _pagar_vip_callback(update: Update, context):
                 },
             }
             _r.publish("apex:events", json.dumps(event_data))
-            logger.info(f"[Meta CAPI] payment_created uid={uid} origin={origin} qualified={checkout_qualified}")
+            logger.info(
+                f"[Meta CAPI] payment_created uid={uid} origin={origin} "
+                f"qualified={checkout_qualified} valor=R${valor}"
+            )
         except Exception as capi_err:
             logger.error(f"[Meta CAPI] Erro ao publicar payment_created: {capi_err}")
 
