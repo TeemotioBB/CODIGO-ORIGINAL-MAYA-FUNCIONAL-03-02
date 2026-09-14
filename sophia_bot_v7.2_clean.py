@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, redirect
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ChatAction
-from telegram.error import RetryAfter
+from telegram.error import RetryAfter, BadRequest
 from telegram.ext import (
     Application, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler, CommandHandler
@@ -5485,7 +5485,28 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    if not query:
+        return
+
+    # Os callbacks de pagamento são processados pelo handler do SyncPay no grupo -1.
+    # Não tente responder o mesmo callback novamente aqui, pois o Telegram pode
+    # devolver "Query is too old ... or query id is invalid" após o primeiro ACK.
+    if str(query.data or "").startswith("pagar_vip"):
+        return
+
+    # ACK precisa ser imediato. Se o Telegram considerar o callback expirado,
+    # seguimos com a lógica do botão em vez de abortar todo o fluxo.
+    try:
+        await query.answer()
+    except BadRequest as e:
+        err = str(e).lower()
+        if "query is too old" in err or "query id is invalid" in err or "response timeout expired" in err:
+            logger.warning(
+                f"⚠️ Callback expirado no ACK; continuando processamento "
+                f"uid={query.from_user.id} data={query.data}"
+            )
+        else:
+            raise
 
     try:
         uid = query.from_user.id
