@@ -565,6 +565,87 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
 }
 .lead-pagination b { color: var(--text-2); font-family: var(--mono); }
 
+/* ─── broadcast ──────────────────────────────────────────── */
+.broadcast-card { padding: 16px; }
+.broadcast-grid {
+  display: grid;
+  grid-template-columns: 1.4fr .6fr;
+  gap: 14px;
+}
+.broadcast-col { display: grid; gap: 12px; align-content: start; }
+.broadcast-field { display: grid; gap: 6px; }
+.broadcast-field label {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.broadcast-textarea,
+.broadcast-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.broadcast-textarea {
+  min-height: 145px;
+  resize: vertical;
+  padding: 11px 12px;
+  line-height: 1.45;
+}
+.broadcast-input { height: 38px; padding: 0 12px; }
+.broadcast-textarea:focus,
+.broadcast-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,90,31,.10); }
+.broadcast-file {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.broadcast-hint { color: var(--text-3); font-size: 10.5px; line-height: 1.45; }
+.broadcast-button-preview {
+  min-height: 42px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(22,163,74,.35);
+  background: rgba(22,163,74,.08);
+  color: #86efac;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px 12px;
+}
+.broadcast-status {
+  min-height: 46px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 10px 12px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.broadcast-status strong { color: var(--text); }
+.broadcast-status.success { border-color: rgba(22,163,74,.35); color: #86efac; }
+.broadcast-status.error { border-color: rgba(239,68,68,.35); color: #fca5a5; }
+.broadcast-status.sending { border-color: rgba(59,130,246,.35); color: #93c5fd; }
+.broadcast-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.broadcast-actions .btn-primary { min-width: 190px; }
+@media (max-width: 760px) {
+  .broadcast-grid { grid-template-columns: 1fr; }
+  .broadcast-actions .btn { width: 100%; }
+}
+
 /* ─── skeleton ───────────────────────────────────────────── */
 .skel {
   display: inline-block;
@@ -714,6 +795,90 @@ tbody tr:hover { background: rgba(255,255,255,.02); }
     </div>
   </div>
 
+  <!-- broadcast -->
+  <div class="section-head">
+    <h2>Broadcast · oferta com PIX</h2>
+  </div>
+  <div class="card broadcast-card">
+    <div class="broadcast-grid">
+      <div class="broadcast-col">
+        <div class="broadcast-field">
+          <label for="broadcastMessage">Mensagem</label>
+          <textarea
+            class="broadcast-textarea"
+            id="broadcastMessage"
+            maxlength="4096"
+            placeholder="Digite a mensagem que será enviada junto com a foto/vídeo e o botão de PIX."
+          ></textarea>
+          <div class="broadcast-hint">
+            Com foto/vídeo, mensagens de até 1024 caracteres viram legenda. Acima disso, a mídia vai primeiro e o texto + botão logo depois.
+          </div>
+        </div>
+
+        <div class="broadcast-field">
+          <label for="broadcastMedia">Foto ou vídeo · opcional</label>
+          <input
+            class="broadcast-file"
+            id="broadcastMedia"
+            type="file"
+            accept="image/*,video/*"
+          >
+          <div class="broadcast-hint" id="broadcastMediaHint">
+            Foto até 10 MB · vídeo até 49 MB.
+          </div>
+        </div>
+      </div>
+
+      <div class="broadcast-col">
+        <div class="broadcast-field">
+          <label for="broadcastTarget">Público</label>
+          <select class="select" id="broadcastTarget">
+            <option value="not_converted" selected>Viu teaser e ainda não pagou</option>
+            <option value="saw_teaser">Todos que viram teaser</option>
+            <option value="active_24h">Ativos nas últimas 24h</option>
+            <option value="all">Todos os usuários</option>
+          </select>
+        </div>
+
+        <div class="broadcast-field">
+          <label for="broadcastAmount">Valor especial do PIX</label>
+          <input
+            class="broadcast-input mono"
+            id="broadcastAmount"
+            type="number"
+            inputmode="decimal"
+            min="0.01"
+            max="9999.99"
+            step="0.01"
+            value="9.00"
+            placeholder="9,00"
+          >
+        </div>
+
+        <div class="broadcast-field">
+          <label>Botão que o usuário receberá</label>
+          <div class="broadcast-button-preview" id="broadcastButtonPreview">
+            💳 GERAR PIX — R$ 9,00
+          </div>
+        </div>
+
+        <div class="broadcast-status" id="broadcastStatus">
+          Nenhum broadcast em andamento.
+        </div>
+
+        <div class="broadcast-actions">
+          <button class="btn btn-primary" id="sendBroadcastBtn" type="button">
+            📣 Enviar broadcast
+          </button>
+        </div>
+
+        <div class="broadcast-hint">
+          O PIX só é criado quando o usuário clicar no botão. O valor acima vale apenas para esta campanha e não altera o preço normal do VIP.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- charts -->
   <div class="section-head">
     <h2>Performance</h2>
@@ -859,6 +1024,7 @@ const state = {
   openChats: new Set(),
   chatCache: {},
   funnelPeriod: { preset: 'today', start: '', end: '', source: 'all' },
+  broadcastCampaign: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -2170,6 +2336,177 @@ async function exportConversations() {
   }
 }
 
+// ─── broadcast ────────────────────────────────────────────
+function formatBroadcastAmount(value) {
+  const num = Number(String(value ?? '').replace(',', '.'));
+  if (!Number.isFinite(num) || num <= 0) return 'R$ 0,00';
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function updateBroadcastPreview() {
+  const amount = $('broadcastAmount')?.value || '0';
+  const preview = $('broadcastButtonPreview');
+  if (preview) preview.textContent = `💳 GERAR PIX — ${formatBroadcastAmount(amount)}`;
+}
+
+function setBroadcastStatus(html, type = '') {
+  const box = $('broadcastStatus');
+  if (!box) return;
+  box.className = `broadcast-status${type ? ` ${type}` : ''}`;
+  box.innerHTML = html;
+}
+
+async function pollBroadcastStatus(campaignId) {
+  const token = localStorage.getItem('adminToken');
+  if (!token || !campaignId) return;
+
+  state.broadcastCampaign = campaignId;
+
+  for (let i = 0; i < 300; i++) {
+    if (state.broadcastCampaign !== campaignId) return;
+
+    try {
+      const response = await fetch(`/admin/broadcast/${encodeURIComponent(campaignId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/admin/login';
+        return;
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+      const bc = data.broadcast || {};
+      const total = Number(bc.total || 0);
+      const sent = Number(bc.sent || 0);
+      const failed = Number(bc.failed || 0);
+      const status = String(bc.status || 'sending');
+
+      if (status === 'completed') {
+        setBroadcastStatus(
+          `<strong>Broadcast concluído.</strong><br>` +
+          `Enviados: ${sent}/${total} · Falhas: ${failed} · PIX: ${escapeHtml(bc.amount_label || '')}<br>` +
+          `<span class="mono">ID ${escapeHtml(campaignId)}</span>`,
+          failed ? 'sending' : 'success'
+        );
+        state.broadcastCampaign = null;
+        return;
+      }
+
+      if (status === 'failed') {
+        setBroadcastStatus(
+          `<strong>Broadcast interrompido.</strong><br>` +
+          `Enviados: ${sent}/${total} · Falhas: ${failed}<br>` +
+          `${escapeHtml(bc.error || 'Erro desconhecido')}`,
+          'error'
+        );
+        state.broadcastCampaign = null;
+        return;
+      }
+
+      setBroadcastStatus(
+        `<strong>Enviando broadcast…</strong><br>` +
+        `Enviados: ${sent}/${total} · Falhas: ${failed}<br>` +
+        `<span class="mono">ID ${escapeHtml(campaignId)}</span>`,
+        'sending'
+      );
+    } catch (err) {
+      console.error('pollBroadcastStatus:', err);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}
+
+async function submitBroadcast() {
+  const token = localStorage.getItem('adminToken');
+  if (!token) {
+    window.location.href = '/admin/login';
+    return;
+  }
+
+  const message = $('broadcastMessage')?.value.trim() || '';
+  const target = $('broadcastTarget')?.value || 'not_converted';
+  const amount = $('broadcastAmount')?.value || '';
+  const media = $('broadcastMedia')?.files?.[0] || null;
+
+  if (!message) {
+    alert('Digite a mensagem do broadcast.');
+    $('broadcastMessage')?.focus();
+    return;
+  }
+
+  const amountNumber = Number(String(amount).replace(',', '.'));
+  if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+    alert('Informe um valor de PIX válido.');
+    $('broadcastAmount')?.focus();
+    return;
+  }
+
+  const targetLabels = {
+    not_converted: 'quem viu teaser e ainda não pagou',
+    saw_teaser: 'todos que viram teaser',
+    active_24h: 'ativos nas últimas 24h',
+    all: 'todos os usuários',
+  };
+
+  const confirmation =
+    `Enviar broadcast para ${targetLabels[target] || target}?\n\n` +
+    `PIX especial: ${formatBroadcastAmount(amountNumber)}\n` +
+    `Mídia: ${media ? media.name : 'sem mídia'}\n\n` +
+    `O PIX só será criado quando a pessoa clicar no botão.`;
+
+  if (!window.confirm(confirmation)) return;
+
+  const btn = $('sendBroadcastBtn');
+  if (btn) btn.disabled = true;
+
+  setBroadcastStatus('<strong>Preparando broadcast…</strong>', 'sending');
+
+  const form = new FormData();
+  form.append('message', message);
+  form.append('target', target);
+  form.append('amount', String(amountNumber));
+  if (media) form.append('media', media);
+
+  try {
+    const response = await fetch('/admin/broadcast', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: form,
+    });
+
+    if (response.status === 401) {
+      localStorage.removeItem('adminToken');
+      window.location.href = '/admin/login';
+      return;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+
+    setBroadcastStatus(
+      `<strong>Broadcast enfileirado.</strong><br>` +
+      `Público: ${Number(data.total || 0)} usuários · PIX: ${escapeHtml(data.amount_label || '')}<br>` +
+      `<span class="mono">ID ${escapeHtml(data.campaign_id || '')}</span>`,
+      'sending'
+    );
+
+    if (data.campaign_id) pollBroadcastStatus(data.campaign_id);
+  } catch (err) {
+    console.error('submitBroadcast:', err);
+    setBroadcastStatus(
+      `<strong>Falha ao criar broadcast.</strong><br>${escapeHtml(err.message || 'Erro desconhecido')}`,
+      'error'
+    );
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ─── wire up ─────────────────────────────────────────────
 async function init() {
   // Começa a buscar os dados ANTES de configurar recursos secundários.
@@ -2178,6 +2515,19 @@ async function init() {
 
   $('refreshBtn')?.addEventListener('click', loadAllData);
   $('fabRefresh')?.addEventListener('click', loadAllData);
+
+  $('broadcastAmount')?.addEventListener('input', updateBroadcastPreview);
+  $('broadcastMedia')?.addEventListener('change', () => {
+    const file = $('broadcastMedia')?.files?.[0];
+    const hint = $('broadcastMediaHint');
+    if (hint) {
+      hint.textContent = file
+        ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
+        : 'Foto até 10 MB · vídeo até 49 MB.';
+    }
+  });
+  $('sendBroadcastBtn')?.addEventListener('click', submitBroadcast);
+  updateBroadcastPreview();
   $('conversationFilter')?.addEventListener('change', () => loadConversations({ append: false }));
   $('conversationPhase')?.addEventListener('change', () => loadConversations({ append: false }));
 
