@@ -36,8 +36,9 @@ import syncpay_integration
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, redirect
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ChatAction
+from telegram.error import RetryAfter
 from telegram.ext import (
     Application, MessageHandler, ContextTypes, filters,
     CallbackQueryHandler, CommandHandler
@@ -7243,39 +7244,301 @@ def admin_send_user_message(user_id):
         return {"error": str(e)}, 500
 
 
-@app.route("/admin/broadcast", methods=["POST"])
-def admin_broadcast():
+BROADCAST_CAMPAIGN_TTL_DAYS = 90
+
+def _broadcast_campaign_key(campaign_id):
+    return f"admin:broadcast:campaign:{campaign_id}"
+
+def _format_brl(value):
+    try:
+        value = float(value)
+    except Exception:
+        value = 0.0
+    formatted = f"{value:,.2f}"
+    formatted = formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {formatted}"
+
+def _broadcast_target_users(target_group):
+    users = get_all_active_users()
+    users = [u for u in users if not is_blacklisted(u)]
+
+    if target_group == "active_24h":
+        filtered = []
+        for uid in users:
+            hours = get_hours_since_activity(uid)
+            if hours is not None and hours < 24:
+                filtered.append(uid)
+        users = filtered
+    elif target_group == "saw_teaser":
+        users = [u for u in users if saw_teaser(u)]
+    elif target_group == "not_converted":
+        users = [u for u in users if saw_teaser(u) and not user_has_paid(u)]
+    elif target_group == "all":
+        pass
+    else:
+        raise ValueError("Target inválido")
+
+    return users
+
+@app.route("/admin/broadcast/<campaign_id>", methods=["GET"])
+def admin_broadcast_status(campaign_id):
     if not admin_request_authorized():
         return {"error": "Unauthorized"}, 401
+
+    campaign_id = str(campaign_id or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9]{6,24}", campaign_id):
+        return {"error": "Campaign id inválido"}, 400
+
+    data = r.hgetall(_broadcast_campaign_key(campaign_id)) or {}
+    if not data:
+        return {"error": "Broadcast não encontrado"}, 404
+
+    for field in ("total", "sent", "failed"):
+        try:
+            data[field] = int(data.get(field) or 0)
+        except Exception:
+            data[field] = 0
     try:
-        data = request.json or {}
-        message = data.get("message")
-        target_group = data.get("target", "all")
+        data["amount"] = float(data.get("amount") or 0)
+    except Exception:
+        data["amount"] = 0.0
+
+    data["campaign_id"] = campaign_id
+    return {"success": True, "broadcast": data}, 200
+
+
+@app.route("/admin/broadcast", methods=["POST"])
+def admin_broadcast():
+    """Broadcast pelo painel com texto + foto/vídeo opcional + oferta PIX própria."""
+    if not admin_request_authorized():
+        return {"error": "Unauthorized"}, 401
+
+    try:
+        is_multipart = bool(request.files) or (
+            request.content_type and "multipart/form-data" in request.content_type.lower()
+        )
+
+        if is_multipart:
+            payload = request.form
+            media_file = request.files.get("media")
+        else:
+            payload = request.get_json(silent=True) or {}
+            media_file = None
+
+        message = str(payload.get("message") or "").strip()
+        target_group = str(payload.get("target") or "not_converted").strip().lower()
+        amount_raw = str(payload.get("amount") or "").strip().replace("R$", "").replace(" ", "").replace(",", ".")
+
         if not message:
-            return {"error": "Message required"}, 400
-        users = get_all_active_users()
-        if target_group == "active_24h":
-            users = [u for u in users if get_hours_since_activity(u) and get_hours_since_activity(u) < 24]
-        elif target_group == "saw_teaser":
-            users = [u for u in users if saw_teaser(u)]
-        elif target_group == "not_converted":
-            users = [u for u in users if saw_teaser(u) and not user_has_paid(u)]
+            return {"error": "Mensagem obrigatória"}, 400
+        if len(message) > 4096:
+            return {"error": "A mensagem pode ter no máximo 4096 caracteres"}, 400
+
+        try:
+            amount = round(float(amount_raw), 2)
+        except Exception:
+            return {"error": "Valor do PIX inválido"}, 400
+        if amount <= 0 or amount > 9999.99:
+            return {"error": "Informe um valor de PIX entre R$ 0,01 e R$ 9.999,99"}, 400
+
+        try:
+            users = _broadcast_target_users(target_group)
+        except ValueError:
+            return {"error": "Público inválido"}, 400
+
+        if not users:
+            return {"error": "Nenhum usuário encontrado para esse público"}, 400
+
+        media_bytes = None
+        media_kind = ""
+        media_filename = ""
+
+        if media_file and media_file.filename:
+            media_filename = os.path.basename(str(media_file.filename))
+            media_mimetype = str(media_file.mimetype or "").lower()
+            media_bytes = media_file.read()
+
+            if media_mimetype.startswith("image/"):
+                media_kind = "photo"
+                if len(media_bytes) > 10 * 1024 * 1024:
+                    return {"error": "A foto deve ter no máximo 10 MB"}, 400
+            elif media_mimetype.startswith("video/"):
+                media_kind = "video"
+                if len(media_bytes) > 49 * 1024 * 1024:
+                    return {"error": "O vídeo deve ter no máximo 49 MB"}, 400
+            else:
+                return {"error": "Anexe apenas foto ou vídeo"}, 400
+
+        campaign_id = secrets.token_hex(5)
+        campaign_key = _broadcast_campaign_key(campaign_id)
+        callback_origin = f"broadcast_{campaign_id}"
+        amount_label = _format_brl(amount)
+        button_text = f"💳 GERAR PIX — {amount_label}"
+
+        now_iso = local_now().isoformat(timespec="seconds")
+        r.hset(campaign_key, mapping={
+            "status": "queued",
+            "target": target_group,
+            "amount": f"{amount:.2f}",
+            "amount_label": amount_label,
+            "button_text": button_text,
+            "message": message[:4096],
+            "media_kind": media_kind or "none",
+            "media_filename": media_filename,
+            "total": len(users),
+            "sent": 0,
+            "failed": 0,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+        r.expire(campaign_key, timedelta(days=BROADCAST_CAMPAIGN_TTL_DAYS))
+
+        async def _send_one(uid, telegram_media_id=None):
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    button_text,
+                    callback_data=f"pagar_vip|{callback_origin}",
+                )
+            ]])
+
+            if not media_bytes or not media_kind:
+                sent_msg = await application.bot.send_message(
+                    chat_id=uid,
+                    text=message,
+                    reply_markup=keyboard,
+                )
+                return sent_msg, telegram_media_id
+
+            use_caption = len(message) <= 1024
+            media_obj = telegram_media_id or InputFile(
+                media_bytes,
+                filename=media_filename or ("broadcast.jpg" if media_kind == "photo" else "broadcast.mp4")
+            )
+
+            if media_kind == "photo":
+                sent_media = await application.bot.send_photo(
+                    chat_id=uid,
+                    photo=media_obj,
+                    caption=message if use_caption else None,
+                    reply_markup=keyboard if use_caption else None,
+                )
+                if not telegram_media_id and sent_media.photo:
+                    telegram_media_id = sent_media.photo[-1].file_id
+            else:
+                sent_media = await application.bot.send_video(
+                    chat_id=uid,
+                    video=media_obj,
+                    caption=message if use_caption else None,
+                    reply_markup=keyboard if use_caption else None,
+                    supports_streaming=True,
+                )
+                if not telegram_media_id and sent_media.video:
+                    telegram_media_id = sent_media.video.file_id
+
+            if not use_caption:
+                await application.bot.send_message(
+                    chat_id=uid,
+                    text=message,
+                    reply_markup=keyboard,
+                )
+
+            return sent_media, telegram_media_id
 
         async def send_broadcast():
             sent = 0
             failed = 0
-            for uid in users:
-                try:
-                    await application.bot.send_message(chat_id=uid, text=message)
-                    sent += 1
-                    await asyncio.sleep(0.05)
-                except Exception as e:
-                    failed += 1
-            return sent, failed
+            telegram_media_id = None
 
-        future = asyncio.run_coroutine_threadsafe(send_broadcast(), loop)
-        sent, failed = future.result(timeout=300)
-        return {"success": True, "sent": sent, "failed": failed, "total": len(users)}, 200
+            r.hset(campaign_key, mapping={
+                "status": "sending",
+                "updated_at": local_now().isoformat(timespec="seconds"),
+            })
+
+            try:
+                for index, uid in enumerate(users, start=1):
+                    delivered = False
+
+                    for attempt in range(2):
+                        try:
+                            _, telegram_media_id = await _send_one(uid, telegram_media_id)
+                            delivered = True
+                            break
+                        except RetryAfter as rate_err:
+                            retry_value = getattr(rate_err, "retry_after", 1) or 1
+                            wait_for = (
+                                retry_value.total_seconds()
+                                if hasattr(retry_value, "total_seconds")
+                                else float(retry_value)
+                            )
+                            logger.warning(
+                                f"📣 [BROADCAST] Rate limit; aguardando {wait_for}s "
+                                f"campaign={campaign_id} uid={uid}"
+                            )
+                            await asyncio.sleep(wait_for + 0.25)
+                        except Exception as send_err:
+                            logger.warning(
+                                f"📣 [BROADCAST] Falha campaign={campaign_id} uid={uid}: {send_err}"
+                            )
+                            break
+
+                    if delivered:
+                        sent += 1
+                        try:
+                            save_message(uid, "admin", f"📣 [BROADCAST {campaign_id}] {message}")
+                            track_source_event(uid, "broadcast_received")
+                        except Exception:
+                            pass
+                    else:
+                        failed += 1
+
+                    if index % 5 == 0 or index == len(users):
+                        r.hset(campaign_key, mapping={
+                            "sent": sent,
+                            "failed": failed,
+                            "updated_at": local_now().isoformat(timespec="seconds"),
+                        })
+                        r.expire(campaign_key, timedelta(days=BROADCAST_CAMPAIGN_TTL_DAYS))
+
+                    await asyncio.sleep(0.06)
+
+                r.hset(campaign_key, mapping={
+                    "status": "completed",
+                    "sent": sent,
+                    "failed": failed,
+                    "finished_at": local_now().isoformat(timespec="seconds"),
+                    "updated_at": local_now().isoformat(timespec="seconds"),
+                })
+                logger.info(
+                    f"📣 [BROADCAST] Concluído campaign={campaign_id} "
+                    f"sent={sent} failed={failed} total={len(users)} valor={amount_label}"
+                )
+            except Exception as broadcast_err:
+                r.hset(campaign_key, mapping={
+                    "status": "failed",
+                    "sent": sent,
+                    "failed": max(failed, len(users) - sent),
+                    "error": str(broadcast_err)[:500],
+                    "updated_at": local_now().isoformat(timespec="seconds"),
+                })
+                logger.exception(f"📣 [BROADCAST] Erro geral campaign={campaign_id}: {broadcast_err}")
+
+        asyncio.run_coroutine_threadsafe(send_broadcast(), loop)
+
+        logger.info(
+            f"📣 [BROADCAST] Enfileirado campaign={campaign_id} target={target_group} "
+            f"total={len(users)} media={media_kind or 'none'} valor={amount_label}"
+        )
+
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "status": "queued",
+            "total": len(users),
+            "amount": amount,
+            "amount_label": amount_label,
+            "button_text": button_text,
+            "media_kind": media_kind or "none",
+        }, 202
 
     except Exception as e:
         logger.exception(f"Erro broadcast: {e}")
