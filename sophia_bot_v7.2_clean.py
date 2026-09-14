@@ -68,6 +68,44 @@ def local_now():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ⌨️ TYPING HUMANO — 7 segundos antes de cada mensagem automática de texto
+# ═══════════════════════════════════════════════════════════════════════════════
+TYPING_DELAY_SECONDS = float(os.getenv("TYPING_DELAY_SECONDS", "7"))
+
+async def show_typing_for(bot, chat_id, seconds=None):
+    """Mantém o indicador 'Digitando...' visível pelo tempo configurado.
+
+    O Telegram costuma expirar a ação de typing após alguns segundos, então
+    renovamos a ação durante a espera para garantir os 7s completos.
+    """
+    try:
+        duration = TYPING_DELAY_SECONDS if seconds is None else float(seconds)
+    except Exception:
+        duration = 7.0
+    duration = max(0.0, duration)
+    if duration <= 0:
+        return
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + duration
+    while True:
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except Exception:
+            pass
+
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(4.0, remaining))
+
+async def send_typing_message(bot, chat_id, text, **kwargs):
+    """Envia texto ao lead somente após exibir 'Digitando...' por 7s."""
+    await show_typing_for(bot, chat_id)
+    return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 v8.3 - SISTEMA DE FASES
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2685,7 +2723,7 @@ async def send_repeat_preview_vip_response(bot, chat_id, uid):
             callback_data=payment_callback_data("objection")
         )
     ]])
-    await bot.send_message(
+    await send_typing_message(bot, 
         chat_id=chat_id,
         text=random.choice(mensagens),
         reply_markup=keyboard
@@ -2714,7 +2752,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
     if not candidates:
         logger.warning("🎥 Nenhum vídeo de prévia/teaser configurado.")
         clear_pending_teaser_video(uid)
-        await bot.send_message(
+        await send_typing_message(bot, 
             chat_id=chat_id,
             text="A prévia não carregou aqui agora 😕 Tenta me pedir de novo daqui a pouco."
         )
@@ -2759,7 +2797,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
     if not sent_video_id:
         clear_pending_teaser_video(uid)
         logger.error(f"🎥 Nenhuma prévia pôde ser enviada uid={uid}: {last_error}")
-        await bot.send_message(
+        await send_typing_message(bot, 
             chat_id=chat_id,
             text="A prévia deu erro no envio aqui agora 😕 Não vou fingir que mandei. Tenta novamente em instantes."
         )
@@ -2775,7 +2813,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
     ]])
-    await bot.send_message(
+    await send_typing_message(bot, 
         chat_id=chat_id,
         text=(
             f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
@@ -3277,7 +3315,7 @@ async def handle_return(uid, bot, chat_id):
             return
         r.setex(last_return_pitch_key(uid), timedelta(hours=24), "1")
         message = get_unique_response(uid, "retorno")
-        await bot.send_message(chat_id=chat_id, text=message)
+        await send_typing_message(bot, chat_id=chat_id, text=message)
         r.incr(return_count_key(uid))
         r.expire(return_count_key(uid), timedelta(days=30))
         save_message(uid, "system", "PITCH DE RETORNO (6h+)")
@@ -3907,7 +3945,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         reset_msgs_since_offer(uid)
 
                 # === TEASER MAIS FORTE (v9.0 PUNHETERO) ===
-        await bot.send_message(chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
+        await send_typing_message(bot, chat_id=chat_id, text="Olha só o que eu separei pra você bater punheta agora 🔥")
         await asyncio.sleep(1.5)
 
         # Envia 2 fotos
@@ -3977,7 +4015,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
             InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
         ]])
 
-        await bot.send_message(chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
+        await send_typing_message(bot, chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")
         mark_vip_just_offered(uid)
         activate_sales_hard_wall(uid)
         activate_followup5(uid, reset_stage=False)
@@ -4136,7 +4174,7 @@ async def send_vip_intro_audio_once(bot, chat_id, uid):
         if not file_id:
             return False
 
-        await bot.send_message(
+        await send_typing_message(bot, 
             chat_id=chat_id,
             text="Amor, deixa eu te explicar rapidinho por áudio como funciona meu VIP 👇"
         )
@@ -4256,7 +4294,7 @@ async def maybe_send_pending_pix_audio_recovery(bot, uid):
             return False
 
         # Tom de provocação, sem falar em cobrança/pagamento.
-        await bot.send_message(
+        await send_typing_message(bot, 
             chat_id=uid,
             text="Não aguentei esperar... escuta só isso 😈"
         )
@@ -4361,7 +4399,7 @@ async def send_silent_recovery_stage(bot, uid, stage):
     if not msg:
         cancel_silent_recovery(uid)
         return False
-    await bot.send_message(chat_id=uid, text=msg)
+    await send_typing_message(bot, chat_id=uid, text=msg)
     r.set(silent_recovery_stage_key(uid), stage)
     save_message(uid, "system", f"💬 SILENT RECOVERY #{stage} ENVIADO (SEM PIX)")
     track_source_event(uid, f"silent_recovery_{stage}")
@@ -4620,7 +4658,7 @@ async def send_pix_desire_followup_stage(bot, uid, stage):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
         ]])
-        await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
+        await send_typing_message(bot, chat_id=uid, text=msg, reply_markup=keyboard)
 
         r.set(pix_desire_stage_key(uid), stage)
         r.expire(pix_desire_stage_key(uid), timedelta(days=4))
@@ -4825,7 +4863,7 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
 
     if kind == "preview":
         if not free_teaser_video_already_sent(uid) and (FREE_TEASER_VIDEO_IDS or VIDEOS_TEASER):
-            await bot.send_message(chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
+            await send_typing_message(bot, chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
             sent = await send_free_teaser_video(bot, chat_id, uid)
             if sent:
                 return True
@@ -4844,7 +4882,7 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
     ]])
-    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+    await send_typing_message(bot, chat_id=chat_id, text=msg, reply_markup=keyboard)
     save_message(uid, "system", f"🛡️ OBJEÇÃO COMERCIAL RESPONDIDA ({kind})")
     return True
 
@@ -4885,7 +4923,7 @@ async def send_sales_hard_wall_response(bot, chat_id, uid, text=""):
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("objection"))
     ]])
-    await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+    await send_typing_message(bot, chat_id=chat_id, text=msg, reply_markup=keyboard)
     save_message(uid, "system", "🧱 HARD WALL PÓS-PITCH/PIX ENVIADO")
     logger.info(f"🧱 [HARD WALL] Resposta enviada uid={uid} interesse={get_followup_interest(uid) or 'geral'}")
     return True
@@ -4904,7 +4942,7 @@ async def send_followup5_stage(bot, uid, stage):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
-        await bot.send_message(chat_id=uid, text=msg, reply_markup=keyboard)
+        await send_typing_message(bot, chat_id=uid, text=msg, reply_markup=keyboard)
         r.set(followup_stage_key(uid), stage)
         r.expire(followup_stage_key(uid), timedelta(days=30))
         save_message(uid, "system", f"🔥 FOLLOW-UP 5 ESTÁGIOS #{stage} ENVIADO")
@@ -5005,7 +5043,7 @@ async def send_inactivity_followup(bot, uid, chat_id):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
         ]])
-        await bot.send_message(chat_id=chat_id, text=msg, reply_markup=keyboard)
+        await send_typing_message(bot, chat_id=chat_id, text=msg, reply_markup=keyboard)
         save_message(uid, "system", "FOLLOW-UP INATIVIDADE ENVIADO")
         logger.info(f"📨 Follow-up por inatividade enviado para {uid}")
         return True
@@ -5032,7 +5070,7 @@ async def send_pending_pix_followup(bot, uid, chat_id, level=1):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
         ]])
-        await bot.send_message(chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
+        await send_typing_message(bot, chat_id=chat_id, text=msgs.get(level, msgs[1]), reply_markup=keyboard)
         r.setex(key, timedelta(hours=24), "1")
         save_message(uid, "system", f"FOLLOW-UP PIX PENDENTE nível {level} enviado")
         track_source_event(uid, f"pending_pix_followup_{level}")
@@ -5058,7 +5096,7 @@ async def send_reengagement_message(bot, uid, level):
         return False
     try:
         message = random.choice(messages)
-        await bot.send_message(chat_id=uid, text=message)
+        await send_typing_message(bot, chat_id=uid, text=message)
         set_last_reengagement(uid, level)
         set_awaiting_response(uid)
         increment_ignored(uid)
@@ -5124,7 +5162,7 @@ async def retarget_locked_users(bot):
                         InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
                     ]])
 
-                    await bot.send_message(
+                    await send_typing_message(bot, 
                         chat_id=uid,
                         text=(
                             "Amor, tá com saudade de mim? 🥺\n\n"
@@ -5254,7 +5292,7 @@ async def recover_silent_users(bot):
 
                 if 0.16 <= hours_since_start < 2 and not r.exists(recovery_10min_key):
                     message = random.choice(RECOVERY_MESSAGES["10min"])
-                    await bot.send_message(chat_id=uid, text=message)
+                    await send_typing_message(bot, chat_id=uid, text=message)
                     r.setex(recovery_10min_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 10min enviado")
@@ -5262,7 +5300,7 @@ async def recover_silent_users(bot):
 
                 elif 2 <= hours_since_start < 12 and not r.exists(recovery_2h_key):
                     message = random.choice(RECOVERY_MESSAGES["2h"])
-                    await bot.send_message(chat_id=uid, text=message)
+                    await send_typing_message(bot, chat_id=uid, text=message)
                     r.setex(recovery_2h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 2h enviado")
@@ -5270,7 +5308,7 @@ async def recover_silent_users(bot):
 
                 elif 12 <= hours_since_start < 24 and not r.exists(recovery_12h_key):
                     message = random.choice(RECOVERY_MESSAGES["12h"])
-                    await bot.send_message(chat_id=uid, text=message)
+                    await send_typing_message(bot, chat_id=uid, text=message)
                     r.setex(recovery_12h_key, timedelta(hours=24), "1")
                     recovered_count += 1
                     save_message(uid, "system", "🔄 RECOVERY 12h enviado")
@@ -5282,7 +5320,7 @@ async def recover_silent_users(bot):
                     keyboard = InlineKeyboardMarkup([[
                         InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
                     ]])
-                    await bot.send_message(
+                    await send_typing_message(bot, 
                         chat_id=uid, text=message,
                         reply_markup=keyboard, parse_mode="Markdown"
                     )
@@ -5327,7 +5365,7 @@ async def check_and_send_limit_warning(uid, context, chat_id):
     if count == total - 5:
         mark_limit_warning_sent(uid)
         try:
-            await context.bot.send_message(chat_id=chat_id, text=LIMIT_WARNING_MESSAGE, parse_mode="Markdown")
+            await send_typing_message(context.bot, chat_id=chat_id, text=LIMIT_WARNING_MESSAGE, parse_mode="Markdown")
         except:
             pass
 
@@ -5395,14 +5433,14 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
         opening = get_realistic_start_message(uid, ia_config)
         try:
-            await context.bot.send_message(
+            await send_typing_message(context.bot, 
                 chat_id=update.effective_chat.id,
                 text=opening
             )
             save_message(uid, "maya", opening)
         except Exception as msg_error:
             logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
 
         # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
         if START_SEND_WELCOME_MEDIA:
@@ -5441,7 +5479,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Oi 😏 Me chama aqui que eu respondo.")
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Oi 😏 Me chama aqui que eu respondo.")
         except:
             pass
 
@@ -5483,7 +5521,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     callback_data=payment_callback_data(origin),
                 )
             ]])
-            await context.bot.send_message(
+            await send_typing_message(context.bot, 
                 chat_id=query.message.chat_id,
                 text=(
                     f"Acesso VIP completo por **{preco_exibicao}** 💕\n\n"
@@ -5501,7 +5539,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if query.data == "quick_chat":
             track_source_event(uid, "legacy_quick_chat")
-            await context.bot.send_message(
+            await send_typing_message(context.bot, 
                 chat_id=query.message.chat_id,
                 text="Perfeito. Então me chama do seu jeito — pode falar qualquer coisa, sem precisar escolher opção."
             )
@@ -5516,7 +5554,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ia_config = router.get_ia_config(uid=uid)
             canal_vip = ia_config.get("vip_link", CANAL_VIP_LINK)
 
-            await context.bot.send_message(
+            await send_typing_message(context.bot, 
                 chat_id=query.message.chat_id,
                 text=(
                     f"💎 **PERFEITO AMOR!**\n\n"
@@ -5593,7 +5631,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("remarketing"))
         ]])
-        await context.bot.send_message(
+        await send_typing_message(context.bot, 
             chat_id=update.effective_chat.id,
             text=random.choice(remarketing_msgs),
             reply_markup=keyboard
@@ -5638,11 +5676,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             image_base64 = await download_photo_base64(context.bot, photo_file_id, uid=uid)
             
             if image_base64:
-                try:
-                    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-                except:
-                    pass
-
                 # ==================== v8.5 - MODO HÍBRIDO (FOTO) ====================
                 if was_vip_just_offered(uid):
                     msgs_since = get_msgs_since_offer(uid)
@@ -5652,7 +5685,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if is_ai_manually_paused(uid):
                             logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                             return
-                        await update.message.reply_text(grok_response["response"])
+                        await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
                     else:
                         response_text = random.choice([
                             "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
@@ -5660,7 +5693,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "Ainda tô aqui te esperando amor... quer que eu te mande mais uma foto enquanto você paga? 🔥",
                             "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
                         ])
-                        await update.message.reply_text(response_text)
+                        await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response_text)
                         grok_response = {"response": response_text, "offer_teaser": False}
                 else:
                     grok_response = await grok.reply(uid, caption, image_base64=image_base64)
@@ -5668,7 +5701,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if is_ai_manually_paused(uid):
                         logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                         return
-                    await update.message.reply_text(grok_response["response"])
+                    await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
                 # =================================================================
 
                 maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
@@ -5680,7 +5713,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
                 return
             else:
-                await update.message.reply_text("😔 Não consegui ver a foto... tenta de novo? 💕")
+                await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="😔 Não consegui ver a foto... tenta de novo? 💕")
                 return
 
                 # ====================== MENSAGEM DE TEXTO NORMAL ======================
@@ -5700,7 +5733,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not r.exists(last_chance_key):
                 r.setex(last_chance_key, timedelta(hours=20), "1")
                 r.decr(count_key(uid))
-                await context.bot.send_message(
+                await send_typing_message(context.bot, 
                     chat_id=update.effective_chat.id,
                     text=get_contextual_limit_message(uid),
                     reply_markup=pix_keyboard,
@@ -5723,7 +5756,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 except Exception as limit_photo_err:
                     log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
-                    await context.bot.send_message(
+                    await send_typing_message(context.bot, 
                         chat_id=update.effective_chat.id,
                         text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                         reply_markup=pix_keyboard,
@@ -5741,7 +5774,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 rotation = random.randrange(len(LIMIT_REPEAT_MESSAGES))
             repeat_text = LIMIT_REPEAT_MESSAGES[rotation % len(LIMIT_REPEAT_MESSAGES)]
-            await context.bot.send_message(
+            await send_typing_message(context.bot, 
                 chat_id=update.effective_chat.id,
                 text=repeat_text,
                 reply_markup=pix_keyboard,
@@ -5775,13 +5808,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1) Objeção de confiança: responde como conversa real, sem empurrar PIX.
         if should_send_trust_response(lead_type, text):
             response_text = get_trust_response(uid)
-            await update.message.reply_text(response_text)
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response_text)
             save_message(uid, "maya", response_text)
             return
 
         # 1.25) Se o lead pedir uma amostra/duvidar da intensidade, envia a prévia uma vez.
         if should_send_vip_moan_sample(uid, text):
-            await update.message.reply_text("Você quer saber como é? Escuta um pedacinho da prévia 👇")
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Você quer saber como é? Escuta um pedacinho da prévia 👇")
             sent_audio = await send_vip_moan_audio_once(
                 context.bot,
                 update.effective_chat.id,
@@ -5822,17 +5855,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_message(uid, "system", "SYNC PAY FORÇADO (pedido direto de acesso/pagamento)")
                 return
 
-        try:
-            await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
-            # Delay menor no começo para não parecer travado; mantém sensação humana.
-            await asyncio.sleep(1.1 if get_conversation_messages_count(uid) <= 3 else 1.8)
-        except:
-            pass
-
         # 3) Economia sem matar realismo: lead frio começa com Grok; lead quente recorrente usa pool.
         if should_use_pool_response(uid, intent, lead_type):
             response = get_unique_response(uid, "provocacao_pesada")
-            await update.message.reply_text(response)
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
         elif was_vip_just_offered(uid):
             msgs_since = get_msgs_since_offer(uid)
@@ -5842,7 +5868,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if is_ai_manually_paused(uid):
                     logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                     return
-                await update.message.reply_text(grok_response["response"])
+                await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
             else:
                 response_text = random.choice([
                     "Eu tô aqui ainda. Se você quiser continuar, a parte do acesso já ficou no ponto pra você.",
@@ -5850,7 +5876,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Não vou ficar te pressionando, mas se você quiser continuar comigo agora, eu deixo o acesso pronto.",
                     "Se travou em alguma coisa no PIX, me fala. Eu te ajudo rapidinho."
                 ])
-                await update.message.reply_text(response_text)
+                await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response_text)
                 grok_response = {"response": response_text, "offer_teaser": False, "interest_level": "medium"}
         else:
             grok_response = await grok.reply(uid, text)
@@ -5858,7 +5884,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_ai_manually_paused(uid):
                 logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                 return
-            await update.message.reply_text(grok_response["response"])
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
 
         maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
         # =====================================================================
@@ -5892,7 +5918,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("resend"))
                 ]])
                 await asyncio.sleep(1)
-                await context.bot.send_message(
+                await send_typing_message(context.bot, 
                     chat_id=update.effective_chat.id,
                     text="👇",
                     reply_markup=keyboard
@@ -5924,7 +5950,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             streak_msg = get_streak_message(streak)
             if streak_msg:
                 await asyncio.sleep(1)
-                await context.bot.send_message(update.effective_chat.id, streak_msg)
+                await send_typing_message(context.bot, update.effective_chat.id, streak_msg)
 
         check_phase_transition(uid)
 

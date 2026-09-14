@@ -22,6 +22,35 @@ from telegram.ext import CallbackQueryHandler
 
 logger = logging.getLogger(__name__)
 
+# Mesmo tempo humano usado pelo bot principal. Pode ser alterado no Railway
+# por TYPING_DELAY_SECONDS, mas o padrão solicitado é 7 segundos.
+TYPING_DELAY_SECONDS = float(os.getenv("TYPING_DELAY_SECONDS", "7"))
+
+async def _show_typing_for(bot, chat_id, seconds=None):
+    try:
+        duration = TYPING_DELAY_SECONDS if seconds is None else float(seconds)
+    except Exception:
+        duration = 7.0
+    duration = max(0.0, duration)
+    if duration <= 0:
+        return
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + duration
+    while True:
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except Exception:
+            pass
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(4.0, remaining))
+
+async def _send_typing_message(bot, chat_id, text, **kwargs):
+    await _show_typing_for(bot, chat_id)
+    return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️  CONFIGURAÇÕES SYNCPAY
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -439,7 +468,7 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         ]
     ])
 
-    await bot.send_message(
+    await _send_typing_message(bot, 
         chat_id=chat_id,
         text=mensagem,
         parse_mode="HTML",
@@ -510,7 +539,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
         intro_pool = teaser_intro_messages.get(ab_group) or teaser_intro_messages.get("A") or []
         if intro_pool:
             intro = random.choice(intro_pool)
-            await bot.send_message(chat_id=chat_id, text=intro)
+            await _send_typing_message(bot, chat_id=chat_id, text=intro)
             await asyncio.sleep(2)
 
         num_photos = random.randint(3, 4)
@@ -556,7 +585,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
             InlineKeyboardButton(cta_label, callback_data=f"pagar_vip|{payment_origin}")
         ]])
 
-        await bot.send_message(
+        await _send_typing_message(bot, 
             chat_id=chat_id,
             text=pitch,
             reply_markup=keyboard,
@@ -601,7 +630,7 @@ async def _pagar_vip_callback(update: Update, context):
     # Se o callback é de broadcast mas a campanha não existe mais, não cai
     # silenciosamente no preço normal.
     if str(query.data or "").split("|", 1)[-1].startswith("broadcast_") and not broadcast_campaign:
-        await bot.send_message(
+        await _send_typing_message(bot, 
             chat_id=chat_id,
             text="Essa oferta não está mais disponível. Se quiser, me chama aqui que eu te passo a opção atual."
         )
@@ -674,7 +703,7 @@ async def _pagar_vip_callback(update: Update, context):
 
             if can_reuse:
                 logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin} valor=R${pending_amount}")
-                await bot.send_message(chat_id=chat_id, text="Seu PIX ainda está válido. Vou te mandar o código de novo:")
+                await _send_typing_message(bot, chat_id=chat_id, text="Seu PIX ainda está válido. Vou te mandar o código de novo:")
                 await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
 
                 if not is_broadcast:
@@ -689,7 +718,7 @@ async def _pagar_vip_callback(update: Update, context):
                 f"novo=R${valor} origem_nova={origin}"
             )
 
-        await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
+        await _send_typing_message(bot, chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
 
         pix_data = _gerar_pix(
             uid=uid, amount=valor, nome_cliente=nome,
@@ -759,13 +788,13 @@ async def _pagar_vip_callback(update: Update, context):
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
-        await bot.send_message(
+        await _send_typing_message(bot, 
             chat_id=chat_id,
             text="😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
         )
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
-        await bot.send_message(chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
+        await _send_typing_message(bot, chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
 
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
@@ -891,7 +920,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
                 pass
 
         bot = _bot_app.bot
-        await bot.send_message(
+        await _send_typing_message(bot, 
             chat_id=uid,
             text=(
                 "🎉 *PAGAMENTO CONFIRMADO!*\n\n"
@@ -905,7 +934,7 @@ async def _processar_pagamento_confirmado(identifier: str, amount):
             keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("💎 ACESSAR VIP AGORA", url=canal_vip)
             ]])
-            await bot.send_message(chat_id=uid, text="👇", reply_markup=keyboard)
+            await _send_typing_message(bot, chat_id=uid, text="👇", reply_markup=keyboard)
 
         # Marca DONE por 30 dias: retries posteriores da mesma tx são idempotentes.
         _r.setex(processing_key, timedelta(days=30), "done")
