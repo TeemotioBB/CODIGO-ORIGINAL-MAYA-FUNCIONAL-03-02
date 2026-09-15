@@ -46,6 +46,17 @@ from telegram.ext import (
 
 from ia_router import init_router, get_router
 from log_utils import configure_clean_logging, log_media_ok, log_media_error
+from midias_config import (
+    FOTO_APOS_START,
+    VIDEO_APOS_START,
+    VIDEOS_PREVIA_UNICA,
+    FOTOS_OFERTA_VIP,
+    VIDEOS_OFERTA_VIP,
+    AUDIO_APRESENTACAO_VIP,
+    AUDIO_POS_PIX,
+    FOTO_LIMITE,
+    limpar_lista_midias,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO INICIAL
@@ -997,28 +1008,19 @@ async def admin_stats_maintenance_scheduler():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🎨 ASSETS
+# 🎨 MÍDIAS
 # ═══════════════════════════════════════════════════════════════════════════════
-
-FOTOS_TEASER = [
-    "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg",
-]
-
-VIDEOS_TEASER = [
-    "BAACAgEAAxkBAAEulm5qooGC1PQW4VHOL09xQbCrRf8_zgACkAcAAimzEEV7i8pn-XsI0D0E",
-]
-
-FOTO_LIMITE_ATINGIDO = "https://i.postimg.cc/ZnpXbj9R/content.png"
-FOTO_BEM_VINDA = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
-
-VIDEO_BEM_VINDO = ""
-
-FREE_TEASER_VIDEO_IDS = [
-    "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
-]
-
-AUDIO_PT_1 = "CQACAgEAAxkBAAEDDXFpaYkigGDlcTzZxaJXFuWDj1Ow5gAC5QQAAiq7UUdXWpPNiiNd1jgE"
-AUDIO_PT_2 = "CQACAgEAAxkBAAEDAAEmaVRmPJ5iuBOaXyukQ06Ui23TSokAAocGAAIZwaFGkIERRmRoPes4BA"
+# Todos os FILE_IDs/URLs editáveis ficam em `midias_config.py`.
+# Não coloque mídia nova neste arquivo.
+#
+# Compatibilidade interna com integrações antigas: estes aliases NÃO precisam
+# ser editados. A fonte única de verdade continua sendo midias_config.py.
+FOTOS_TEASER = limpar_lista_midias(FOTOS_OFERTA_VIP)
+VIDEOS_TEASER = limpar_lista_midias(VIDEOS_OFERTA_VIP)
+FREE_TEASER_VIDEO_IDS = limpar_lista_midias(VIDEOS_PREVIA_UNICA)
+FOTO_LIMITE_ATINGIDO = str(FOTO_LIMITE or "").strip()
+FOTO_BEM_VINDA = str(FOTO_APOS_START or "").strip()
+VIDEO_BEM_VINDO = str(VIDEO_APOS_START or "").strip()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔑 KEYWORDS
@@ -2758,24 +2760,21 @@ async def send_repeat_preview_vip_response(bot, chat_id, uid):
     return True
 
 async def send_free_teaser_video(bot, chat_id, uid):
-    """Envia a prévia real com fallback para um vídeo teaser já configurado.
+    """Envia exatamente UMA prévia grátis por lead.
 
-    Um file_id do Telegram pode deixar de funcionar quando veio de outro bot/token.
-    Por isso tentamos primeiro a prévia dedicada e, se ela falhar, os vídeos do teaser
-    normal. Só marcamos como enviado depois que o Telegram confirmar o send_video.
+    As opções vêm SOMENTE de VIDEOS_PREVIA_UNICA em midias_config.py.
+    Se houver várias, a ordem é sorteada e apenas a primeira que funcionar é enviada.
+    Vídeos da oferta VIP nunca são usados como fallback da prévia.
     """
     if free_teaser_video_already_sent(uid):
         clear_pending_teaser_video(uid)
         return False
 
-    candidates = []
-    for candidate in list(FREE_TEASER_VIDEO_IDS or []) + list(VIDEOS_TEASER or []):
-        candidate = str(candidate or "").strip()
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
+    candidates = limpar_lista_midias(VIDEOS_PREVIA_UNICA)
+    random.shuffle(candidates)
 
     if not candidates:
-        logger.warning("🎥 Nenhum vídeo de prévia/teaser configurado.")
+        logger.warning("🎥 Nenhuma prévia única configurada em midias_config.py.")
         clear_pending_teaser_video(uid)
         await send_typing_message(bot, 
             chat_id=chat_id,
@@ -2805,7 +2804,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
             sent_video_id = video_id
             if idx > 1:
                 logger.warning(
-                    f"🎥 FREE_TEASER fallback funcionou uid={uid} tentativa={idx}"
+                    f"🎥 PREVIA_UNICA alternativa funcionou uid={uid} tentativa={idx}"
                 )
             break
         except Exception as e:
@@ -3999,8 +3998,9 @@ async def send_teaser_and_apex(bot, chat_id, uid):
     try:
         router = get_router()
         ia_config = router.get_ia_config(uid=uid)
-        fotos_teaser = ia_config.get("fotos_teaser", FOTOS_TEASER)
-        videos_teaser = ia_config.get("videos_teaser", VIDEOS_TEASER)
+        # Mídias são centralizadas em midias_config.py; ias_config.json não sobrescreve mídia.
+        fotos_teaser = limpar_lista_midias(FOTOS_OFERTA_VIP)
+        videos_teaser = limpar_lista_midias(VIDEOS_OFERTA_VIP)
         preco = ia_config.get("preco", PRECO_VIP)
 
         can_offer, reason = can_offer_vip(uid)
@@ -4129,10 +4129,8 @@ SALES_HARD_WALL_DAYS = int(os.getenv("SALES_HARD_WALL_DAYS", "30"))
 # Só coloque algo aqui se esse bônus REALMENTE existir e for entregue no VIP.
 VIP_BONUS_TEXT = os.getenv("VIP_BONUS_TEXT", "").strip()
 
-# Áudios pré-gravados do Telegram (use file_id, não caminho local).
-# Podem ser definidos globalmente no Railway ou por IA em ias_config.json.
-VIP_INTRO_AUDIO_FILE_ID = os.getenv("VIP_INTRO_AUDIO_FILE_ID", "").strip()
-VIP_MOAN_AUDIO_FILE_ID = os.getenv("VIP_MOAN_AUDIO_FILE_ID", "").strip()
+# Os FILE_IDs dos áudios ficam somente em midias_config.py.
+# Deixe AUDIO_APRESENTACAO_VIP ou AUDIO_POS_PIX = "" para desativar aquele áudio.
 # Prévia de áudio pós-PIX: dispara aos 5 min e NÃO consome estágio de texto.
 PIX_AUDIO_RECOVERY_DELAY_MINUTES = int(os.getenv("PIX_AUDIO_RECOVERY_DELAY_MINUTES", "5"))
 
@@ -4176,26 +4174,11 @@ FOLLOWUP_INTEREST_LABELS = {
 
 
 def _get_vip_audio_file_id(uid, kind):
-    """Busca o file_id específico da IA; se não existir, usa a variável do Railway."""
-    try:
-        ia_config = get_router().get_ia_config(uid=uid) or {}
-    except Exception:
-        ia_config = {}
-
+    """Retorna os áudios definidos exclusivamente em midias_config.py."""
     if kind == "intro":
-        return str(
-            ia_config.get("audio_vip_intro")
-            or VIP_INTRO_AUDIO_FILE_ID
-            or ""
-        ).strip()
-
+        return str(AUDIO_APRESENTACAO_VIP or "").strip()
     if kind == "moan":
-        return str(
-            ia_config.get("audio_moan")
-            or VIP_MOAN_AUDIO_FILE_ID
-            or ""
-        ).strip()
-
+        return str(AUDIO_POS_PIX or "").strip()
     return ""
 
 
@@ -4930,7 +4913,7 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
     preco = _followup_price(uid)
 
     if kind == "preview":
-        if not free_teaser_video_already_sent(uid) and (FREE_TEASER_VIDEO_IDS or VIDEOS_TEASER):
+        if not free_teaser_video_already_sent(uid) and limpar_lista_midias(VIDEOS_PREVIA_UNICA):
             await send_typing_message(bot, chat_id=chat_id, text="Tem prévia sim. Vou te mandar a que já está separada aqui 👇")
             sent = await send_free_teaser_video(bot, chat_id, uid)
             if sent:
@@ -5510,14 +5493,16 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
             await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
 
-        # Mídia é opcional e vem depois da abertura para não parecer menu/robô.
-        if START_SEND_WELCOME_MEDIA:
+        # Mídia do /start é opcional e centralizada em midias_config.py.
+        # String vazia ("") = não envia aquela mídia.
+        foto_start = str(FOTO_APOS_START or "").strip()
+        if START_SEND_WELCOME_MEDIA and foto_start:
             try:
                 await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
                 await asyncio.sleep(0.8)
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
-                    photo=ia_config["foto_bem_vinda"],
+                    photo=foto_start,
                     connect_timeout=10, read_timeout=10, write_timeout=10
                 )
                 save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
@@ -5527,13 +5512,14 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if is_blocked_error(photo_error):
                     add_to_blacklist(uid, origin="WELCOME_PHOTO")
 
-        if START_SEND_WELCOME_VIDEO:
+        video_start = str(VIDEO_APOS_START or "").strip()
+        if START_SEND_WELCOME_VIDEO and video_start:
             try:
                 await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
                 await asyncio.sleep(1)
                 await context.bot.send_video(
                     chat_id=update.effective_chat.id,
-                    video=ia_config["video_bem_vindo"],
+                    video=video_start,
                     caption="Só um gostinho do clima daqui… se quiser, me chama do seu jeito 😏",
                     connect_timeout=15, read_timeout=15, write_timeout=15
                 )
@@ -5833,17 +5819,26 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             limit_offer_key = f"limit_offer_sent:{uid}:{date.today()}"
             if not r.exists(limit_offer_key):
                 r.setex(limit_offer_key, timedelta(hours=20), "1")
-                try:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=FOTO_LIMITE_ATINGIDO,
-                        caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
-                        reply_markup=pix_keyboard,
-                        parse_mode="Markdown"
-                    )
-                except Exception as limit_photo_err:
-                    log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
-                    await send_typing_message(context.bot, 
+                foto_limite = str(FOTO_LIMITE or "").strip()
+                if foto_limite:
+                    try:
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=foto_limite,
+                            caption=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                            reply_markup=pix_keyboard,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as limit_photo_err:
+                        log_media_error(logger, "PHOTO", uid, limit_photo_err, source="LIMIT_REACHED")
+                        await send_typing_message(context.bot, 
+                            chat_id=update.effective_chat.id,
+                            text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
+                            reply_markup=pix_keyboard,
+                            parse_mode="Markdown"
+                        )
+                else:
+                    await send_typing_message(context.bot,
                         chat_id=update.effective_chat.id,
                         text=LIMIT_REACHED_MESSAGE.format(preco=PRECO_VIP),
                         reply_markup=pix_keyboard,
@@ -6238,7 +6233,7 @@ syncpay_integration.init(
 
         # SyncPay recebe referências do processo principal em vez de reimportar
         # sophia_bot_v7.2_clean.py a cada teaser/PIX.
-        "FOTOS_TEASER": FOTOS_TEASER,
+        "FOTOS_OFERTA_VIP": limpar_lista_midias(FOTOS_OFERTA_VIP),
         "can_offer_vip": can_offer_vip,
         "get_ab_group": get_ab_group,
         "set_saw_teaser": set_saw_teaser,
