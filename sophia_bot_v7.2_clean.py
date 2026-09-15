@@ -2650,18 +2650,38 @@ def response_promises_teaser_video(response_text):
     text = response_text.lower()
     triggers = [
         "vou te mandar um vídeo", "vou te mandar um video",
+        "vou mandar um vídeo", "vou mandar um video",
+        "vou te mandar a prévia", "vou te mandar a previa",
+        "vou mandar a prévia", "vou mandar a previa",
         "te mando um vídeo", "te mando um video",
+        "te mando a prévia", "te mando a previa",
         "te mandar um videozinho", "te mandar um vídeozinho",
         "mandar um videozinho", "mandar um vídeozinho",
         "videozinho meu", "vídeozinho meu",
         "um videozinho meu", "um vídeozinho meu",
         "quer que eu mande", "posso te mandar",
+        "quer ver a prévia", "quer ver a previa",
+        "quer uma prévia", "quer uma previa",
+        "posso te mostrar", "quer que eu te mostre",
         "tá preparado pra ver", "ta preparado pra ver",
         "abre aí", "abre ai",
         "já te mando o video", "já te mando o vídeo",
         "ja te mando o video", "ja te mando o vídeo",
+        "já te mando a prévia", "já te mando a previa",
+        "ja te mando a prévia", "ja te mando a previa",
     ]
     return any(t in text for t in triggers)
+
+
+def ai_response_wants_preview_delivery(grok_response):
+    """Decide se uma resposta da IA deve virar entrega imediata da única prévia grátis."""
+    if not isinstance(grok_response, dict):
+        return False
+    if grok_response.get("send_preview_now"):
+        return True
+    if grok_response.get("offer_teaser"):
+        return True
+    return response_promises_teaser_video(grok_response.get("response", ""))
 
 def maybe_mark_teaser_video_promise(uid, response_text):
     if response_promises_teaser_video(response_text):
@@ -2686,6 +2706,14 @@ def is_video_confirmation(text):
     return any(c in text for c in confirmations)
 
 REPEAT_PREVIEW_TRIGGERS = [
+    "prévia", "previa", "amostra",
+    "manda vídeo", "manda video", "manda o vídeo", "manda o video",
+    "me manda vídeo", "me manda video", "me manda o vídeo", "me manda o video",
+    "quero vídeo", "quero video", "quero o vídeo", "quero o video",
+    "quero ver o vídeo", "quero ver o video",
+    "quero ver a prévia", "quero ver a previa",
+    "me mostra a prévia", "me mostra a previa",
+    "mostra a prévia", "mostra a previa",
     "mais prévia", "mais previa", "outra prévia", "outra previa",
     "manda outra", "manda mais", "tem mais", "quero mais",
     "mais uma", "outra amostra", "mais amostra",
@@ -2703,11 +2731,8 @@ def is_preview_request_text(text):
     return any(term in low for term in REPEAT_PREVIEW_TRIGGERS)
 
 def free_preview_already_consumed(uid):
-    """Verdadeiro quando o lead já recebeu alguma amostra grátis relevante."""
-    try:
-        return free_teaser_video_already_sent(uid) or bool(r.exists(vip_moan_audio_sent_key(uid)))
-    except Exception:
-        return free_teaser_video_already_sent(uid)
+    """A prévia de VÍDEO é única por lead; áudio não consome essa única entrega."""
+    return free_teaser_video_already_sent(uid)
 
 async def send_repeat_preview_vip_response(bot, chat_id, uid):
     """Depois da 1ª prévia, não envia outra mídia: conduz direto ao VIP/PIX."""
@@ -2806,6 +2831,11 @@ async def send_free_teaser_video(bot, chat_id, uid):
 
     clear_pending_teaser_video(uid)
     mark_free_teaser_video_sent(uid)
+    if not saw_teaser(uid):
+        set_saw_teaser(uid)
+        track_funnel(uid, "saw_teaser")
+    increment_vip_offers(uid)
+    reset_msgs_since_offer(uid)
     save_message(uid, "system", "🎥 VÍDEO TEASER GRÁTIS ENVIADO")
     log_media_ok(logger, "VIDEO", uid, source="FREE_TEASER", detail=str(sent_video_id)[:80])
 
@@ -2821,7 +2851,34 @@ async def send_free_teaser_video(bot, chat_id, uid):
         ),
         reply_markup=keyboard
     )
+    # A prévia foi entregue. Daqui em diante o fluxo vende o VIP e não entrega outro vídeo grátis.
+    mark_vip_just_offered(uid)
+    activate_sales_hard_wall(uid)
+    activate_followup5(uid, reset_stage=False)
+    r.setex(f"post_pitch_time:{uid}", timedelta(hours=12), datetime.now().isoformat())
     return True
+
+
+async def send_preview_once_or_sell_vip(bot, chat_id, uid, announce=True):
+    """Entrega a única prévia de vídeo imediatamente; depois disso, só vende o VIP."""
+    clear_pending_teaser_video(uid)
+
+    if user_has_paid(uid):
+        return False
+
+    if free_teaser_video_already_sent(uid):
+        await send_repeat_preview_vip_response(bot, chat_id, uid)
+        return False
+
+    if announce:
+        await send_typing_message(
+            bot,
+            chat_id=chat_id,
+            text="Tô te mandando a prévia que já está separada aqui 😏👇"
+        )
+
+    sent = await send_free_teaser_video(bot, chat_id, uid)
+    return bool(sent)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧪 A/B TEST
@@ -3737,8 +3794,11 @@ REGRAS GERAIS:
 - Não escreva textos longos; prefira 1 a 3 linhas.
 - Não use linguagem corporativa.
 - Não use menu no começo.
-- NUNCA prometa gravar/enviar uma mídia específica imediatamente, vídeo ao vivo, câmera ou conteúdo personalizado se o sistema não vai entregar isso literalmente.
-- Para prévias, diga apenas que existe uma prévia já disponível/separada; o envio real é controlado pelo fluxo externo.
+- NUNCA diga que já enviou uma mídia se o backend ainda não confirmou o envio.
+- NUNCA ofereça prévia perguntando "quer ver?", "quer que eu mande?" ou "posso mandar?".
+- Quando achar que é hora da prévia, marque offer_teaser=true. O fluxo externo vai dizer que está mandando e enviar a única prévia imediatamente.
+- A prévia grátis de vídeo existe uma única vez por lead. Depois disso, conduza para o VIP e não prometa outra mídia grátis.
+- NUNCA prometa vídeo ao vivo, câmera ou conteúdo personalizado que o sistema não vai entregar literalmente.
 - Botão/PIX só deve aparecer quando offer_teaser=true ou quando o fluxo externo detectar pagamento.
 
 REGRAS DE FORMATO:
@@ -3896,26 +3956,36 @@ class Grok:
 grok = Grok()
 
 def enforce_deliverable_promises(uid, grok_response):
-    """Impede a IA de prometer mídia personalizada/imediata que o sistema não vai entregar."""
+    """A IA nunca pergunta se pode mandar a prévia nem finge que enviou: o backend entrega de verdade."""
     if not isinstance(grok_response, dict):
         return grok_response
+
     text = str(grok_response.get("response") or "")
     low = text.lower()
     forbidden = [
         "vou gravar agora", "gravo agora", "vou te mandar agora", "vou mandar agora",
         "já te mando", "video ao vivo", "vídeo ao vivo", "abre a câmera", "abre a camera",
         "liga a câmera", "liga a camera", "gravando pra você agora", "gravando pra voce agora",
+        "já mandei", "ja mandei", "te enviei", "acabei de enviar",
     ]
-    if not any(term in low for term in forbidden):
+
+    wants_preview = response_promises_teaser_video(text) or bool(grok_response.get("offer_teaser"))
+    unsafe_media_claim = any(term in low for term in forbidden)
+    if not wants_preview and not unsafe_media_claim:
         return grok_response
-    safe = "Posso te mostrar uma prévia que já está separada aqui 😏 Quer ver?"
+
     cleaned = dict(grok_response)
-    cleaned["response"] = safe
-    cleaned["offer_teaser"] = False
-    if FREE_TEASER_VIDEO_IDS and not free_teaser_video_already_sent(uid):
-        mark_pending_teaser_video(uid)
+    if free_teaser_video_already_sent(uid):
+        cleaned["response"] = "A prévia eu já te mandei 😏 Se quiser continuar, o resto eu libero no VIP."
+        cleaned["offer_teaser"] = False
+        cleaned["send_preview_now"] = False
+    else:
+        cleaned["response"] = "Tô te mandando a prévia que já está separada aqui 😏👇"
+        cleaned["offer_teaser"] = False
+        cleaned["send_preview_now"] = True
+
     track_source_event(uid, "promise_guard_triggered")
-    save_message(uid, "system", "🛡️ PROMISE GUARD substituiu promessa de mídia não garantida")
+    save_message(uid, "system", "🛡️ PROMISE GUARD converteu promessa/oferta em entrega real de prévia")
     logger.warning(f"[PROMISE GUARD] Resposta ajustada uid={uid}")
     return cleaned
 
@@ -4223,13 +4293,11 @@ async def send_vip_moan_audio_once(bot, chat_id, uid, reason="sample"):
 
 
 VIP_MOAN_SAMPLE_TRIGGERS = [
-    "é quente mesmo", "e quente mesmo", "mas é quente", "mas e quente",
-    "é bom mesmo", "e bom mesmo", "vale a pena", "quero ver se vale",
+    # Áudio só é enviado quando o lead pede ÁUDIO/voz/gemido de forma explícita.
+    # Pedido genérico de "prévia" pertence ao vídeo e não cai mais aqui.
     "tem áudio", "tem audio", "manda áudio", "manda audio",
-    "quero ouvir", "manda uma prévia", "manda uma previa",
-    "tem prévia", "tem previa", "tem amostra", "manda uma amostra",
-    "é pesado", "e pesado", "é explícito", "e explicito",
-    "tem vídeo mesmo", "tem video mesmo", "gemido", "gemendo",
+    "me manda áudio", "me manda audio", "quero ouvir",
+    "manda voz", "quero ouvir sua voz", "gemido", "gemendo",
 ]
 
 
@@ -5555,7 +5623,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if query.data == "quick_teaser":
             track_source_event(uid, "legacy_quick_teaser")
-            await send_teaser_and_apex(context.bot, query.message.chat_id, uid)
+            await send_preview_once_or_sell_vip(context.bot, query.message.chat_id, uid, announce=True)
             return
 
         if query.data == "quick_chat":
@@ -5675,11 +5743,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if attachment["level"] >= 6:
                     set_current_phase(uid, PHASES["RELATIONSHIP"]["id"])
 
-            # v10.2: se a IA prometeu um vídeo e o usuário confirmou, entrega o teaser real agora.
-            if has_pending_teaser_video(uid) and is_video_confirmation(text):
-                sent = await send_free_teaser_video(context.bot, update.effective_chat.id, uid)
-                if sent:
-                    return
+            # Prévia não espera confirmação. Chaves pendentes antigas são apenas descartadas.
+            if has_pending_teaser_video(uid):
+                clear_pending_teaser_video(uid)
 
         # ====================== TRATAMENTO DE FOTO ======================
         # Depois do pitch/PIX, foto também respeita o hard wall: não chama Grok
@@ -5706,12 +5772,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if is_ai_manually_paused(uid):
                             logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                             return
+                        if ai_response_wants_preview_delivery(grok_response):
+                            await send_preview_once_or_sell_vip(context.bot, update.effective_chat.id, uid, announce=True)
+                            return
                         await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
                     else:
                         response_text = random.choice([
                             "Amor, tô aqui doida esperando você pagar o PIX... 🔥 Quando cair eu libero tudo pra você 😈",
                             "Hmmm... mandou foto gostosa hein? 😏 Me avisa quando o PIX cair que eu te mostro muito mais 💦",
-                            "Ainda tô aqui te esperando amor... quer que eu te mande mais uma foto enquanto você paga? 🔥",
+                            "Ainda tô aqui te esperando amor... quando o PIX confirmar eu libero o acesso 🔥",
                             "O VIP tá pronto pra você... é só pagar que eu sou toda sua 😘"
                         ])
                         await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response_text)
@@ -5722,16 +5791,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if is_ai_manually_paused(uid):
                         logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                         return
+                    if ai_response_wants_preview_delivery(grok_response):
+                        await send_preview_once_or_sell_vip(context.bot, update.effective_chat.id, uid, announce=True)
+                        return
                     await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
                 # =================================================================
 
-                maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
-
-                if grok_response.get("offer_teaser", False):
-                    can_offer, reason = can_offer_vip(uid)
-                    if can_offer:
-                        await asyncio.sleep(2)
-                        await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
+                # offer_teaser/promessa de prévia já é resolvida acima com envio imediato e único.
                 return
             else:
                 await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="😔 Não consegui ver a foto... tenta de novo? 💕")
@@ -5817,12 +5883,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lead_type = classify_lead(uid, text, intent)
         save_lead_signal(uid, lead_type, intent, text)
 
-        # 0.9) Uma prévia grátis por lead. Se pedir outra, não envia mídia novamente:
-        # conduz direto ao VIP com o botão transacional já mostrando o preço.
-        if is_preview_request_text(text) and free_preview_already_consumed(uid) and not user_has_paid(uid):
-            clear_pending_teaser_video(uid)
-            await send_repeat_preview_vip_response(
-                context.bot, update.effective_chat.id, uid
+        # 0.9) Pedido explícito de prévia: NÃO pergunta confirmação.
+        # Primeira vez -> anuncia e envia o vídeo real imediatamente.
+        # Depois que o vídeo já foi entregue -> nunca repete; insiste no VIP.
+        if is_preview_request_text(text) and not user_has_paid(uid):
+            await send_preview_once_or_sell_vip(
+                context.bot, update.effective_chat.id, uid, announce=True
             )
             return
 
@@ -5879,8 +5945,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 3) Economia sem matar realismo: lead frio começa com Grok; lead quente recorrente usa pool.
         if should_use_pool_response(uid, intent, lead_type):
             response = get_unique_response(uid, "provocacao_pesada")
-            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response)
             grok_response = {"response": response, "offer_teaser": True, "interest_level": "high"}
+            if ai_response_wants_preview_delivery(grok_response):
+                await send_preview_once_or_sell_vip(context.bot, update.effective_chat.id, uid, announce=True)
+                return
+            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=response)
         elif was_vip_just_offered(uid):
             msgs_since = get_msgs_since_offer(uid)
             if msgs_since <= 4:
@@ -5888,6 +5957,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 grok_response = enforce_deliverable_promises(uid, grok_response)
                 if is_ai_manually_paused(uid):
                     logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
+                    return
+                if ai_response_wants_preview_delivery(grok_response):
+                    await send_preview_once_or_sell_vip(context.bot, update.effective_chat.id, uid, announce=True)
                     return
                 await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
             else:
@@ -5905,9 +5977,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_ai_manually_paused(uid):
                 logger.info(f"🖐️ [MODO MANUAL] Resposta Grok em voo descartada uid={uid}")
                 return
+            if ai_response_wants_preview_delivery(grok_response):
+                await send_preview_once_or_sell_vip(context.bot, update.effective_chat.id, uid, announce=True)
+                return
             await send_typing_message(context.bot, chat_id=update.effective_chat.id, text=grok_response["response"])
 
-        maybe_mark_teaser_video_promise(uid, grok_response.get("response", ""))
+        # Prévia é resolvida imediatamente; não existe mais confirmação pendente.
         # =====================================================================
 
         # (O resto do seu código continua igual - CONFIRM_KEYWORDS, should_resend_button, should_offer, follow-up, streak, etc.)
@@ -5962,8 +6037,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if should_offer:
                 can_offer, reason = can_offer_vip(uid)
                 if can_offer:
-                    await asyncio.sleep(2)
-                    await send_teaser_and_apex(context.bot, update.effective_chat.id, uid)
+                    await send_preview_once_or_sell_vip(
+                        context.bot, update.effective_chat.id, uid, announce=True
+                    )
+                    return
 
         # Follow-up agora é controlado exclusivamente pelo scheduler de 5 estágios.
 
