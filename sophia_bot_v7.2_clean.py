@@ -486,7 +486,6 @@ GROK_API_URL = os.getenv(
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_MEMORIA = 12
 START_SEND_WELCOME_MEDIA = os.getenv("START_SEND_WELCOME_MEDIA", "1") == "1"
-START_SEND_WELCOME_VIDEO = os.getenv("START_SEND_WELCOME_VIDEO", "0") == "1"  # vídeo no /start fica desligado por padrão no fluxo realista
 
 logger.info(f"🚀 Sophia Bot v8.6 APEX TRACKING iniciando...")
 logger.info(f"🤖 Modelo Grok configurado: {GROK_MODEL}")
@@ -5513,7 +5512,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     add_to_blacklist(uid, origin="WELCOME_PHOTO")
 
         video_start = str(VIDEO_APOS_START or "").strip()
-        if START_SEND_WELCOME_VIDEO and video_start:
+        if video_start:
             try:
                 await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
                 await asyncio.sleep(1)
