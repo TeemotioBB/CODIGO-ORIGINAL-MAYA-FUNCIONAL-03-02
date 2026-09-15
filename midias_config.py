@@ -25,12 +25,12 @@ def limpar_lista_midias(itens):
 # ========= /START =========
 # Foto enviada depois da primeira mensagem do /start.
 # Para NÃO enviar foto: FOTO_APOS_START = ""
-FOTO_APOS_START = "https://i.postimg.cc/434G8CYL/photo-2026-07-09-19-51-37.jpg"
+FOTO_APOS_START = ""
 
 # Vídeo opcional depois do /start.
 # Para NÃO enviar vídeo: VIDEO_APOS_START = ""
 # OBS.: o envio também depende de START_SEND_WELCOME_VIDEO=1 no Railway.
-VIDEO_APOS_START = "AAMCAQADGQEAASt_zGpC5e216YNG1joqWE9PSBObbmMzAAI-BwAC8nURRqiW4P-tj41ZAQAHbQADPAQ"
+VIDEO_APOS_START = "BAACAgEAAxkBAALf_WqpO5Vn18Wyl7IOZnxy_9eAiAw1AAIPCAACNgVIRTHi4B8fqGvhPQQ"
 
 
 # ========= PRÉVIA GRÁTIS 1X =========
@@ -52,23 +52,23 @@ FOTOS_OFERTA_VIP = [
 # NÃO são usados como fallback da prévia grátis.
 # Para não enviar vídeos no pitch: VIDEOS_OFERTA_VIP = []
 VIDEOS_OFERTA_VIP = [
-    "BAACAgEAAxkBAALRd2qmAmiF6x1wOzeyD_pkAAGK_MY6uAAC6wYAAjkeMUWQBcuWVd7olT0E",
+    "BAACAgEAAxkBAALgCGqpPZCC6VTPu5J1Joi-aOSi1jKzAAIXCAACNgVIRaljFNOd7K-PPQQ",
 ]
 
 # Áudio de apresentação do VIP, antes do pitch.
 # Para não enviar: AUDIO_APRESENTACAO_VIP = ""
 # Cole aqui o file_id do Telegram.
-AUDIO_APRESENTACAO_VIP = ""
+AUDIO_APRESENTACAO_VIP = "AwACAgEAAxkBAALgEGqpPkW3anFEvm2hJkvkSm-zh9E1AAIaCAACNgVIRdo-F8gAATclPT0E"
 
 
 # ========= PÓS PIX =========
 # Áudio usado pelo fluxo de recuperação pós-PIX.
 # Para não enviar: AUDIO_POS_PIX = ""
 # Cole aqui o file_id do Telegram.
-AUDIO_POS_PIX = ""
+AUDIO_POS_PIX = "CQACAgEAAxkBAALgD2qpPkQcOqShlvgdkons9LbVJXa1AAIZCAACNgVIRUcjp2m9Si-hPQQ"
 
 
 # ========= LIMITE =========
 # Foto mostrada quando o usuário atinge o limite.
 # Para não enviar foto: FOTO_LIMITE = ""
-FOTO_LIMITE = "https://i.postimg.cc/ZnpXbj9R/content.png"
+FOTO_LIMITE = "AgACAgEAAxkBAALgAmqpPAW94AxhlBWBK46phR8cVdstAAJ8DWsbNgVIRdW3Mzj71fzjAQADAgADeQADPQQ"
