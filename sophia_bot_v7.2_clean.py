@@ -408,7 +408,7 @@ REDIS_URL = os.getenv("REDIS_URL", "").strip()
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://codigo-original-maya-funcional-03-02-production.up.railway.app")
 WEBHOOK_PATH = "/telegram"
 
-CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/+5TbunKV5131kMDFh")
+CANAL_VIP_LINK = os.getenv("CANAL_VIP_LINK", "https://t.me/+uaHpsD8KvQk0OWEx")
 PRECO_VIP = os.getenv("PRECO_VIP", "R$ 7,90")
 
 ADMIN_IDS = set(map(int, os.getenv("ADMIN_IDS", "1293602874").split(",")))
