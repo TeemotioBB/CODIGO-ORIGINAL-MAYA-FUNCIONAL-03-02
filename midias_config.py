@@ -38,7 +38,7 @@ VIDEO_APOS_START = "BAACAgEAAxkBAALf_WqpO5Vn18Wyl7IOZnxy_9eAiAw1AAIPCAACNgVIRTHi
 # Se houver vários IDs, o bot sorteia a ordem e envia somente UM.
 # Para NÃO enviar prévia de vídeo: VIDEOS_PREVIA_UNICA = []
 VIDEOS_PREVIA_UNICA = [
-    "BAACAgEAAxkBAAEDwGhqUBZqECtnmKGj9yDHhvqkWvzOHgAClQYAAlgQgEaPXqEB6sorEzwE",
+    "BAACAgEAAxkBAALgKGqpTM91rhoG4-PEbsNB6YDthc4YAAKKBwACNgVQRUc9wSuV5y7FPQQ",
 ]
 
 
