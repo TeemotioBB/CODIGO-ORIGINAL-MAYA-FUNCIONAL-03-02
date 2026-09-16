@@ -3008,7 +3008,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
 
     await asyncio.sleep(1.0)
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
+        InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
     ]])
     await send_typing_message(bot, 
         chat_id=chat_id,
@@ -4250,7 +4250,7 @@ async def send_teaser_and_apex(bot, chat_id, uid):
         )
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(get_cta_label(uid), callback_data=vip_confirmation_callback_data("teaser"))
+            InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("teaser"))
         ]])
 
         await send_typing_message(bot, chat_id=chat_id, text=pitch, reply_markup=keyboard, parse_mode="Markdown")

@@ -646,6 +646,24 @@ async def _pagar_vip_callback(update: Update, context):
     broadcast_campaign = _get_broadcast_campaign(origin)
     is_broadcast = bool(broadcast_campaign)
 
+    # O clique no botão que gera o PIX também é, literalmente, um clique no VIP.
+    # Antes existia uma etapa intermediária (confirmar_vip) que registrava isso;
+    # agora preservamos a mesma etapa do funil no clique transacional direto.
+    try:
+        already_clicked_vip = bool(_r.exists(f"clicked_vip:{uid}"))
+        set_clicked_vip = _callbacks.get("set_clicked_vip")
+        track_funnel = _callbacks.get("track_funnel")
+        save_message = _callbacks.get("save_message")
+
+        if set_clicked_vip:
+            set_clicked_vip(uid)
+        if track_funnel and not already_clicked_vip:
+            track_funnel(uid, "clicked_vip")
+        if save_message:
+            save_message(uid, "action", f"💎 CLICOU VIP / GERAR PIX (origem={origin})")
+    except Exception as funnel_err:
+        logger.error(f"[Tracking] Erro clicked_vip no clique PIX uid={uid}: {funnel_err}")
+
     # Se o callback é de broadcast mas a campanha não existe mais, não cai
     # silenciosamente no preço normal.
     if str(query.data or "").split("|", 1)[-1].startswith("broadcast_") and not broadcast_campaign:
