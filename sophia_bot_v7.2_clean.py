@@ -83,6 +83,16 @@ def local_now():
 # ═══════════════════════════════════════════════════════════════════════════════
 TYPING_DELAY_SECONDS = float(os.getenv("TYPING_DELAY_SECONDS", "7"))
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💌 FOTO PERSONALIZADA COM O NOME — API EXTERNA
+# ═══════════════════════════════════════════════════════════════════════════════
+# URL base do projeto Gerador-Placa-com-Nome-IA hospedado no Railway.
+# Ex.: https://gerador-placa.up.railway.app
+PERSONALIZED_PHOTO_API_URL = os.getenv("PERSONALIZED_PHOTO_API_URL", "").strip().rstrip("/")
+PERSONALIZED_PHOTO_API_KEY = os.getenv("PERSONALIZED_PHOTO_API_KEY", "").strip()
+PERSONALIZED_PHOTO_TIMEOUT_SECONDS = float(os.getenv("PERSONALIZED_PHOTO_TIMEOUT_SECONDS", "20"))
+PERSONALIZED_PHOTO_SENT_TTL_DAYS = int(os.getenv("PERSONALIZED_PHOTO_SENT_TTL_DAYS", "365"))
+
 async def show_typing_for(bot, chat_id, seconds=None):
     """Mantém o indicador 'Digitando...' visível pelo tempo configurado.
 
@@ -1157,6 +1167,8 @@ def pix_origin_key(uid): return f"sp:pix_origin:{uid}"
 def sales_hard_wall_key(uid): return f"sales:hard_wall:{uid}"
 def vip_intro_audio_sent_key(uid): return f"audio:vip_intro_sent:{uid}"
 def vip_moan_audio_sent_key(uid): return f"audio:moan_sent:{uid}"
+def personalized_photo_sent_key(uid): return f"personalized_photo:sent:{uid}"
+def personalized_photo_trigger_key(uid): return f"personalized_photo:trigger:{uid}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 FUNÇÕES DE COOLDOWN/REJEIÇÃO
@@ -1363,6 +1375,163 @@ def update_user_name_from_telegram(uid, first_name):
 
 def get_user_name(uid):
     return normalize_telegram_first_name(get_user_profile(uid).get("name", ""))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 💌 FOTO PERSONALIZADA — GERAÇÃO VIA SERVIÇO EXTERNO
+# ═══════════════════════════════════════════════════════════════════════════════
+def personalized_photo_already_sent(uid):
+    try:
+        return bool(r.exists(personalized_photo_sent_key(uid)))
+    except Exception:
+        return False
+
+
+def mark_personalized_photo_sent(uid, trigger="unknown"):
+    try:
+        ttl = timedelta(days=max(1, PERSONALIZED_PHOTO_SENT_TTL_DAYS))
+        r.setex(personalized_photo_sent_key(uid), ttl, "1")
+        r.setex(personalized_photo_trigger_key(uid), ttl, str(trigger or "unknown")[:80])
+    except Exception as e:
+        logger.error(f"[PERSONALIZED PHOTO] erro ao marcar envio uid={uid}: {e}")
+
+
+def _personalized_photo_endpoint():
+    base = (PERSONALIZED_PHOTO_API_URL or "").strip().rstrip("/")
+    if not base:
+        return ""
+    if base.endswith("/generate"):
+        return base
+    return f"{base}/generate"
+
+
+async def fetch_personalized_photo_bytes(name):
+    """Busca o JPEG do projeto Gerador-Placa-com-Nome-IA."""
+    endpoint = _personalized_photo_endpoint()
+    if not endpoint:
+        return None
+
+    headers = {}
+    if PERSONALIZED_PHOTO_API_KEY:
+        headers["X-API-Key"] = PERSONALIZED_PHOTO_API_KEY
+
+    timeout = aiohttp.ClientTimeout(total=max(3.0, PERSONALIZED_PHOTO_TIMEOUT_SECONDS))
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                endpoint,
+                json={"name": name},
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    logger.warning(
+                        f"[PERSONALIZED PHOTO] API status={response.status} "
+                        f"name={name!r} body={body[:180]!r}"
+                    )
+                    return None
+
+                data = await response.read()
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                if not data or len(data) < 1000:
+                    logger.warning(
+                        f"[PERSONALIZED PHOTO] resposta vazia/pequena name={name!r} bytes={len(data)}"
+                    )
+                    return None
+                if "image" not in content_type:
+                    logger.warning(
+                        f"[PERSONALIZED PHOTO] content-type inesperado name={name!r}: {content_type}"
+                    )
+                return data
+    except asyncio.TimeoutError:
+        logger.warning(f"[PERSONALIZED PHOTO] timeout gerando foto para {name!r}")
+        return None
+    except Exception as e:
+        logger.error(f"[PERSONALIZED PHOTO] erro na API para {name!r}: {e}")
+        return None
+
+
+async def maybe_send_personalized_photo(bot, chat_id, uid, trigger="followup", pre_notice=False):
+    """Envia no máximo uma foto personalizada por lead.
+
+    Regras:
+    - só funciona quando a URL da API está configurada;
+    - exige primeiro nome válido já salvo no perfil;
+    - nunca envia para quem já pagou;
+    - nunca repete a foto para o mesmo lead;
+    - a legenda fala em personalização, sem usar a imagem como falsa prova
+      de que a foto foi tirada naquele instante.
+    """
+    if not PERSONALIZED_PHOTO_API_URL:
+        return False
+    if user_has_paid(uid):
+        return False
+    if personalized_photo_already_sent(uid):
+        return False
+
+    name = get_user_name(uid)
+    if not name:
+        logger.info(f"💌 [PERSONALIZED PHOTO] sem nome válido uid={uid}; envio ignorado")
+        return False
+
+    # Segurança de funil: não gastar a cartada antes de existir intenção comercial.
+    try:
+        commercial_intent = bool(
+            saw_teaser(uid)
+            or clicked_vip(uid)
+            or is_sales_hard_wall(uid)
+            or user_has_pending_pix(uid)
+            or is_pix_desire_followup_active(uid)
+        )
+    except Exception:
+        commercial_intent = False
+
+    if not commercial_intent:
+        return False
+
+    photo_bytes = await fetch_personalized_photo_bytes(name)
+    if not photo_bytes:
+        return False
+
+    try:
+        # Em objeções explícitas, evita que a foto apareça instantaneamente.
+        # Primeiro avisa que vai PREPARAR a personalização e aguarda alguns
+        # segundos com variação natural. A mensagem não afirma que uma nova
+        # fotografia física foi tirada naquele instante.
+        if pre_notice:
+            await bot.send_message(
+                chat_id=chat_id,
+                text="pera aí, vou preparar uma foto com seu nome, gostoso! 😏",
+            )
+            await asyncio.sleep(random.uniform(8.0, 15.0))
+
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO)
+        photo_file = io.BytesIO(photo_bytes)
+        photo_file.name = f"personalizada_{uid}.jpg"
+        photo_file.seek(0)
+
+        caption = f"Olha a personalizada que preparei com seu nome, {name} 😏💌"
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_file,
+            caption=caption,
+            connect_timeout=20,
+            read_timeout=25,
+            write_timeout=25,
+        )
+
+        mark_personalized_photo_sent(uid, trigger=trigger)
+        save_message(uid, "system", f"💌 FOTO PERSONALIZADA ENVIADA trigger={trigger}")
+        track_source_event(uid, f"personalized_photo_{trigger}")
+        logger.info(f"💌 [PERSONALIZED PHOTO] enviada uid={uid} nome={name!r} trigger={trigger}")
+        return True
+    except Exception as e:
+        if is_blocked_error(e):
+            add_to_blacklist(uid, origin="PERSONALIZED_PHOTO")
+        else:
+            logger.error(f"[PERSONALIZED PHOTO] erro ao enviar uid={uid}: {e}")
+        return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚫 BLACKLIST
@@ -4704,6 +4873,15 @@ async def send_pix_desire_followup_stage(bot, uid, stage):
         if not is_pix_desire_followup_active(uid):
             return False
 
+        # Se chegou aos 30 min pós-PIX sem pagamento e ainda não recebeu
+        # a personalizada, usa a mesma cartada uma única vez.
+        if stage == 2:
+            sent_personalized = await maybe_send_personalized_photo(
+                bot, uid, uid, trigger="post_pix_30m"
+            )
+            if sent_personalized:
+                await asyncio.sleep(0.8)
+
         msg = build_pix_desire_followup_message(uid, stage)
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("pix_recovery"))
@@ -4898,6 +5076,12 @@ def detect_sales_objection(text):
         return "preview"
     if _contains_any(t, ["como funciona", "o que recebo", "oque recebo", "onde acesso", "onde entra", "acesso", "vitalicio", "vitalício"]):
         return "delivery"
+    if _contains_any(t, [
+        "vou pensar", "depois eu vejo", "depois eu pago", "talvez depois",
+        "mais tarde", "agora não", "agora nao", "tô em dúvida", "to em duvida",
+        "estou em dúvida", "estou em duvida", "não sei se", "nao sei se"
+    ]):
+        return "hesitation"
     if _contains_any(t, ["caro", "barato demais", "bom demais", "por que tão barato", "porque tao barato", "valor"]):
         return "price"
     return None
@@ -4910,6 +5094,19 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
         return False
     track_source_event(uid, f"sales_objection_{kind}")
     preco = _followup_price(uid)
+
+    # Cartada personalizada: imediata quando existe objeção de preço/hesitação.
+    # Não usamos em objeção de confiança, para a imagem não virar falsa prova de identidade.
+    if kind in {"price", "hesitation"}:
+        sent_personalized = await maybe_send_personalized_photo(
+            bot,
+            chat_id,
+            uid,
+            trigger=f"objection_{kind}",
+            pre_notice=True,
+        )
+        if sent_personalized:
+            await asyncio.sleep(0.8)
 
     if kind == "preview":
         if not free_teaser_video_already_sent(uid) and limpar_lista_midias(VIDEOS_PREVIA_UNICA):
@@ -4926,6 +5123,11 @@ async def send_sales_objection_response(bot, chat_id, uid, text="", kind=None):
         msg = "Funciona assim: você gera o PIX pelo botão, paga no banco e, quando a SyncPay confirmar, o bot libera automaticamente o link do VIP aqui no chat."
     elif kind == "payment":
         msg = "Se o PIX sumiu ou expirou, eu consigo gerar/reabrir por aqui. O valor mostrado no banco deve bater com o valor do acesso antes de você confirmar."
+    elif kind == "hesitation":
+        msg = (
+            f"Sem pressão 😏 A personalizada fica como um mimo pra você. "
+            f"Se decidir entrar, o acesso continua por {preco} e você conclui pelo botão aqui embaixo."
+        )
     else:
         msg = f"O valor atual é {preco}. Antes de confirmar no banco, confira o valor e o beneficiário exibidos pelo seu app. Se algo não bater, não pague e me avise."
 
@@ -4988,6 +5190,16 @@ async def send_followup5_stage(bot, uid, stage):
             return False
         if not is_followup5_active(uid):
             return False
+
+        # Se o lead viu o pitch e ficou 10 min em silêncio, usamos a foto
+        # personalizada como recuperação forte antes do 1º follow-up.
+        if stage == 1:
+            sent_personalized = await maybe_send_personalized_photo(
+                bot, uid, uid, trigger="pre_pix_10m"
+            )
+            if sent_personalized:
+                await asyncio.sleep(0.8)
+
         msg = build_followup5_message(uid, stage)
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton(get_cta_label(uid), callback_data=payment_callback_data("followup"))
