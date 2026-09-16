@@ -435,7 +435,7 @@ import html
 
 
 async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
-    preco = _callbacks.get("PRECO_VIP", "R$ 7,90")
+    preco = _callbacks.get("PRECO_VIP", "R$ 9,90")
     pix_code = pix_data["pix_code"]
 
     preco_html = html.escape(str(preco))
@@ -497,7 +497,7 @@ async def send_teaser_com_pix(bot, chat_id: int, uid: int, payment_origin: str =
 
         fotos_teaser_default = _callbacks.get("FOTOS_TEASER", [])
         fotos_teaser = ia_config.get("fotos_teaser", fotos_teaser_default)
-        preco = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 7,90"))
+        preco = ia_config.get("preco", _callbacks.get("PRECO_VIP", "R$ 9,90"))
 
         can_offer_vip = _callbacks.get("can_offer_vip")
         get_ab_group = _callbacks.get("get_ab_group")
@@ -698,11 +698,11 @@ async def _pagar_vip_callback(update: Update, context):
         if is_broadcast:
             valor = float(broadcast_campaign["amount_float"])
         else:
-            preco_str = _callbacks.get("PRECO_VIP", "7,90")
+            preco_str = _callbacks.get("PRECO_VIP", "9,90")
             try:
                 valor = float(preco_str.replace("R$", "").replace("R$ ", "").replace(",", ".").strip())
             except Exception:
-                valor = 7.90
+                valor = 9.90
 
         pix_pendente = _get_pix_pendente(uid)
         if pix_pendente:
