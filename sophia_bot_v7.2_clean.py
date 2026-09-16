@@ -5595,7 +5595,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     callback_data=payment_callback_data(origin),
                 )
             ]])
-            await send_typing_message(context.bot, 
+            # Clique em "QUERO VER TUDO AGORA": resposta transacional deve ser imediata.
+            # Não usa o typing humano de 7s neste passo.
+            await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
                     f"Acesso VIP completo por **{preco_exibicao}** 💕\n\n"

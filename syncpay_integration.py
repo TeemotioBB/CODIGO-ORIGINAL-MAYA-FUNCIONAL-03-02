@@ -469,7 +469,9 @@ async def _enviar_pix_no_chat(bot, chat_id: int, uid: int, pix_data: dict):
         ]
     ])
 
-    await _send_typing_message(bot, 
+    # O PIX é consequência direta do clique em "GERAR PIX": envia imediatamente,
+    # sem aplicar o typing humano de 7s.
+    await bot.send_message(
         chat_id=chat_id,
         text=mensagem,
         parse_mode="HTML",
@@ -647,7 +649,7 @@ async def _pagar_vip_callback(update: Update, context):
     # Se o callback é de broadcast mas a campanha não existe mais, não cai
     # silenciosamente no preço normal.
     if str(query.data or "").split("|", 1)[-1].startswith("broadcast_") and not broadcast_campaign:
-        await _send_typing_message(bot, 
+        await bot.send_message(
             chat_id=chat_id,
             text="Essa oferta não está mais disponível. Se quiser, me chama aqui que eu te passo a opção atual."
         )
@@ -720,7 +722,7 @@ async def _pagar_vip_callback(update: Update, context):
 
             if can_reuse:
                 logger.info(f"[SyncPay] ♻️ Reusando PIX pendente: uid={uid} origin={origin} valor=R${pending_amount}")
-                await _send_typing_message(bot, chat_id=chat_id, text="Seu PIX ainda está válido. Vou te mandar o código de novo:")
+                await bot.send_message(chat_id=chat_id, text="Seu PIX ainda está válido. Vou te mandar o código de novo:")
                 await _enviar_pix_no_chat(bot, chat_id, uid, pix_pendente)
 
                 if not is_broadcast:
@@ -735,7 +737,8 @@ async def _pagar_vip_callback(update: Update, context):
                 f"novo=R${valor} origem_nova={origin}"
             )
 
-        await _send_typing_message(bot, chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
+        # Clique em "GERAR PIX": confirma visualmente de imediato, sem esperar 7s.
+        await bot.send_message(chat_id=chat_id, text="⏳ Gerando seu PIX, um segundo...")
 
         pix_data = _gerar_pix(
             uid=uid, amount=valor, nome_cliente=nome,
@@ -805,13 +808,13 @@ async def _pagar_vip_callback(update: Update, context):
 
     except requests.exceptions.HTTPError as e:
         logger.error(f"[SyncPay] Erro HTTP ao gerar PIX: {e}")
-        await _send_typing_message(bot, 
+        await bot.send_message(
             chat_id=chat_id,
             text="😔 Tive um probleminha pra gerar o PIX...\nMe chama de novo em instantes que resolvo! 💕"
         )
     except Exception as e:
         logger.error(f"[SyncPay] Erro _pagar_vip_callback: {e}")
-        await _send_typing_message(bot, chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
+        await bot.send_message(chat_id=chat_id, text="😔 Ops, tive um erro aqui. Tenta de novo em alguns segundos? 💕")
 
 def _register_webhook_route(flask_app):
     @flask_app.route(SYNCPAY_WEBHOOK_PATH, methods=["POST"])
