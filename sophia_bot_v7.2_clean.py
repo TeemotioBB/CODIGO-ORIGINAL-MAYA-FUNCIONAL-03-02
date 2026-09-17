@@ -82,6 +82,9 @@ def local_now():
 # ⌨️ TYPING HUMANO — 7 segundos antes de cada mensagem automática de texto
 # ═══════════════════════════════════════════════════════════════════════════════
 TYPING_DELAY_SECONDS = float(os.getenv("TYPING_DELAY_SECONDS", "7"))
+# O primeiro contato precisa parecer imediato. Mantemos os 7s nas mensagens
+# normais, mas o /start usa um atraso curto separado para não perder o lead.
+START_TYPING_DELAY_SECONDS = float(os.getenv("START_TYPING_DELAY_SECONDS", "1.5"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 💌 FOTO PERSONALIZADA COM O NOME — API EXTERNA
@@ -2464,17 +2467,25 @@ def get_source_context_line(uid):
 
 
 def get_realistic_start_message(uid, ia_config=None):
-    """Abertura do /start usando o primeiro nome válido do Telegram quando disponível."""
+    """Abertura curta do /start: mostra as escolhas sem esconder que o chat aceita texto livre."""
     user_name = get_user_name(uid)
     if user_name:
-        opening = f"E aí {user_name}, safado 😈 Chegou!"
+        first_line = f"Chegou, {user_name} 😏 Quer ver uma prévia primeiro ou quer ver como funciona o VIP?"
     else:
-        opening = "E aí safado 😈 Chegou!"
+        first_line = "Chegou 😏 Quer ver uma prévia primeiro ou quer ver como funciona o VIP?"
 
     return (
-        f"{opening} Me conta, o que te deixou curioso pra falar comigo? "
-        "Quer ver meu bumbum, meus seios ou minha bocetinha molhadinha? 🔥"
+        f"{first_line}\n\n"
+        "Pode tocar em um botão ou me mandar uma mensagem aqui também 👇"
     )
+
+
+def get_start_choice_keyboard():
+    """Primeira microdecisão do funil: reduz a fricção de precisar digitar."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👀 VER PRÉVIA", callback_data="start_preview")],
+        [InlineKeyboardButton("🔒 VER ACESSO VIP", callback_data="start_vip")],
+    ])
 
 def classify_lead(uid, text, intent=None):
     """Classificação invisível para guiar o fluxo sem parecer bot."""
@@ -3596,6 +3607,20 @@ def mark_first_message_if_needed(uid):
     except Exception as e:
         logger.error(f"Erro mark_first_message_if_needed: {e}")
 
+
+def mark_first_button_interaction_if_needed(uid, choice):
+    """Conta o primeiro clique do onboarding como primeira interação do funil.
+
+    Usa a mesma etapa `first_message` do painel para que Start → interação continue
+    comparável mesmo quando o lead avança sem digitar nada.
+    """
+    try:
+        if r.set(first_message_seen_key(uid), "1", nx=True, ex=86400 * 365):
+            track_funnel(uid, "first_message")
+            save_message(uid, "system", f"📍 PRIMEIRA INTERAÇÃO DO USUÁRIO — BOTÃO {choice}")
+    except Exception as e:
+        logger.error(f"Erro mark_first_button_interaction_if_needed: {e}")
+
 def set_onboarding_choice(uid, choice):
     try:
         r.set(onboarding_choice_key(uid), choice)
@@ -4606,19 +4631,20 @@ def is_silent_recovery_active(uid):
 
 
 async def send_silent_recovery_stage(bot, uid, stage):
-    """Recupera conversa; deliberadamente NÃO inclui CTA de pagamento."""
+    """Recupera quem abriu o bot mas ainda não fez nenhuma interação."""
     if user_has_paid(uid) or r.exists(first_message_seen_key(uid)) or not is_silent_recovery_active(uid):
         cancel_silent_recovery(uid)
         return False
     messages = {
-        1: "Você sumiu? 😏 Me responde uma coisa: o que te trouxe aqui de verdade?",
-        2: "Acho que te perdi por aí 😅 Se ainda quiser conversar, me chama do seu jeito. Eu respondo quando você voltar.",
+        1: "Ainda tá por aí? 😏 Se quiser, eu te mostro uma prévia primeiro.",
+        2: "Acho que te perdi 😅 Se ainda quiser ver, escolhe uma opção aqui e eu continuo de onde parou.",
     }
     msg = messages.get(stage)
     if not msg:
         cancel_silent_recovery(uid)
         return False
-    await send_typing_message(bot, chat_id=uid, text=msg)
+    # O recovery repete a microdecisão em vez de pedir uma resposta aberta.
+    await send_typing_message(bot, chat_id=uid, text=msg, reply_markup=get_start_choice_keyboard())
     r.set(silent_recovery_stage_key(uid), stage)
     save_message(uid, "system", f"💬 SILENT RECOVERY #{stage} ENVIADO (SEM PIX)")
     track_source_event(uid, f"silent_recovery_{stage}")
@@ -5692,59 +5718,68 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         activate_silent_recovery(uid, reset_stage=True)
 
     try:
-        # Fluxo novo: abertura humana, sem menu genérico e sem botões iniciais.
+        # Novo onboarding: uma foto + legenda curta + dois botões. A legenda deixa
+        # explícito que o usuário também pode escrever normalmente no chat.
         opening = get_realistic_start_message(uid, ia_config)
+        keyboard = get_start_choice_keyboard()
         try:
-            await send_typing_message(context.bot, 
-                chat_id=update.effective_chat.id,
-                text=opening
+            await show_typing_for(
+                context.bot,
+                update.effective_chat.id,
+                seconds=START_TYPING_DELAY_SECONDS,
             )
-            save_message(uid, "maya", opening)
+
+            if FOTO_BEM_VINDA:
+                try:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=FOTO_BEM_VINDA,
+                        caption=opening,
+                        reply_markup=keyboard,
+                    )
+                    save_message(uid, "maya", opening)
+                    save_message(uid, "system", "📸 FOTO DE ABERTURA ENVIADA COM BOTÕES")
+                    track_source_event(uid, "start_photo_shown")
+                except Exception as photo_error:
+                    log_media_error(logger, "PHOTO", uid, photo_error, source="START_OPENING")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=opening,
+                        reply_markup=keyboard,
+                    )
+                    save_message(uid, "maya", opening)
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=opening,
+                    reply_markup=keyboard,
+                )
+                save_message(uid, "maya", opening)
         except Exception as msg_error:
-            logger.error(f"❌ Falha no start realista para {uid}: {msg_error}")
-            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Olha só quem resolveu aparecer... 😏\n\nVou ser sincera: eu não falo com todo mundo, mas abri uma exceção pra você. O que você quer saber primeiro?")
+            logger.error(f"❌ Falha no start com escolhas para {uid}: {msg_error}")
+            fallback = (
+                "Chegou 😏 Quer ver uma prévia primeiro ou ver o acesso VIP?\n\n"
+                "Pode tocar em um botão ou me mandar uma mensagem aqui também 👇"
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=fallback,
+                reply_markup=keyboard,
+            )
+            save_message(uid, "maya", fallback)
 
-        # Mídia do /start é opcional e centralizada em midias_config.py.
-        # String vazia ("") = não envia aquela mídia.
-        foto_start = str(FOTO_APOS_START or "").strip()
-        if START_SEND_WELCOME_MEDIA and foto_start:
-            try:
-                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_PHOTO)
-                await asyncio.sleep(0.8)
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=foto_start,
-                    connect_timeout=10, read_timeout=10, write_timeout=10
-                )
-                save_message(uid, "system", "FOTO BOAS-VINDAS ENVIADA APÓS ABERTURA REALISTA")
-                log_media_ok(logger, "PHOTO", uid, source="WELCOME")
-            except Exception as photo_error:
-                log_media_error(logger, "PHOTO", uid, photo_error, source="WELCOME")
-                if is_blocked_error(photo_error):
-                    add_to_blacklist(uid, origin="WELCOME_PHOTO")
-
-        video_start = str(VIDEO_APOS_START or "").strip()
-        if video_start:
-            try:
-                await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VIDEO)
-                await asyncio.sleep(1)
-                await context.bot.send_video(
-                    chat_id=update.effective_chat.id,
-                    video=video_start,
-                    caption="Só um gostinho do clima daqui… se quiser, me chama do seu jeito 😏",
-                    connect_timeout=15, read_timeout=15, write_timeout=15
-                )
-                save_message(uid, "system", "VÍDEO BOAS-VINDAS ENVIADO APÓS ABERTURA REALISTA")
-                log_media_ok(logger, "VIDEO", uid, source="WELCOME")
-            except Exception as video_error:
-                log_media_error(logger, "VIDEO", uid, video_error, source="WELCOME")
-                if is_blocked_error(video_error):
-                    add_to_blacklist(uid, origin="WELCOME_VIDEO")
+        # O vídeo continua bloqueado no /start. A foto serve só como presença visual;
+        # a prévia em vídeo só sai após o clique consciente em 👀 VER PRÉVIA.
+        track_source_event(uid, "start_choice_menu_shown")
 
     except Exception as e:
         logger.exception(f"💥 Erro geral /start para {uid}: {e}")
         try:
-            await send_typing_message(context.bot, chat_id=update.effective_chat.id, text="Oi 😏 Me chama aqui que eu respondo.")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Chegou 😏 Quer ver uma prévia primeiro?",
+                reply_markup=get_start_choice_keyboard(),
+            )
         except:
             pass
 
@@ -5783,8 +5818,56 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Botões antigos de conversa/teaser não furam o handoff manual.
         # Ações transacionais (PIX/VIP) continuam permitidas.
-        if is_ai_manually_paused(uid) and query.data in {"quick_teaser", "quick_chat"}:
+        if is_ai_manually_paused(uid) and query.data in {"quick_teaser", "quick_chat", "start_preview"}:
             logger.info(f"🖐️ [MODO MANUAL] Callback conversacional bloqueado uid={uid} data={query.data}")
+            return
+
+        if query.data == "start_preview":
+            cancel_silent_recovery(uid)
+            mark_first_button_interaction_if_needed(uid, "PRÉVIA")
+            set_onboarding_choice(uid, "preview")
+            track_source_event(uid, "start_click_preview")
+            save_message(uid, "action", "👀 CLICOU VER PRÉVIA NO /START")
+            # Sem anúncio textual de 7s: o clique já é a confirmação.
+            await send_preview_once_or_sell_vip(
+                context.bot, query.message.chat_id, uid, announce=False
+            )
+            return
+
+        if query.data == "start_vip":
+            cancel_silent_recovery(uid)
+            mark_first_button_interaction_if_needed(uid, "VIP")
+            set_onboarding_choice(uid, "vip")
+            # Este clique já é intenção VIP, mesmo antes de gerar o PIX.
+            already_clicked_vip = clicked_vip(uid)
+            set_clicked_vip(uid)
+            if not already_clicked_vip:
+                track_funnel(uid, "clicked_vip")
+            track_source_event(uid, "start_click_vip")
+            track_source_event(uid, "vip_intent_direct_intent")
+            save_message(uid, "action", "🔒 CLICOU VER ACESSO VIP NO /START")
+
+            # Mostra valor antes de gerar a cobrança. O PIX só nasce no botão
+            # transacional seguinte, preservando o tracking atual do SyncPay/CAPI.
+            router = get_router()
+            ia_config = router.get_ia_config(uid=uid)
+            preco = str(ia_config.get("preco", PRECO_VIP) or PRECO_VIP).strip()
+            preco_exibicao = preco if preco.upper().startswith("R$") else f"R$ {preco}"
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    f"💳 GERAR PIX — {preco_exibicao}",
+                    callback_data=payment_callback_data("direct_intent"),
+                )
+            ]])
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=(
+                    f"O acesso VIP completo fica por **{preco_exibicao}** 💕\n\n"
+                    "Se quiser entrar, eu gero o PIX aqui e libero automaticamente quando confirmar."
+                ),
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
             return
 
         if str(query.data or "").startswith("confirmar_vip|"):

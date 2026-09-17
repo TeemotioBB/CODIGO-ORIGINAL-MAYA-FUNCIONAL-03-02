@@ -16,3 +16,11 @@
 ## Preservado
 
 Redis, SyncPay, CAPI, Purchase/InitiateCheckout, Promise Guard, hard wall, follow-ups, foto personalizada, painel e regras de prévia única permanecem no fluxo existente.
+
+
+## Ajuste V9.1 — foto + chat livre visível
+- O `/start` agora envia uma foto junto da legenda e dos botões.
+- A legenda avisa explicitamente que o lead também pode digitar uma mensagem normalmente.
+- O vídeo de prévia continua reservado para o clique em `👀 VER PRÉVIA`.
+- Se a foto falhar, o fluxo cai automaticamente para a mesma mensagem em texto com os botões.
+- `FOTO_APOS_START` fica centralizada em `midias_config.py` para troca fácil.

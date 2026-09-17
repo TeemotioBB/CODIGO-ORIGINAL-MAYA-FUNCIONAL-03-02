@@ -23,16 +23,16 @@ def limpar_lista_midias(itens):
 
 
 # ========= /START =========
-# Foto enviada depois da primeira mensagem do /start.
+# Foto enviada junto da abertura do /start, com os dois botões.
+# Para trocar, cole aqui outro file_id de FOTO do Telegram.
 # Para NÃO enviar foto: FOTO_APOS_START = ""
-FOTO_APOS_START = ""
+# Por padrão reaproveita uma foto que já existia neste bot, então funciona sem novo upload.
+FOTO_APOS_START = "AgACAgEAAxkBAALgAmqpPAW94AxhlBWBK46phR8cVdstAAJ8DWsbNgVIRdW3Mzj71fzjAQADAgADeQADPQQ"
 
 # Vídeo opcional depois do /start.
 # Para NÃO enviar vídeo: VIDEO_APOS_START = ""
 # OBS.: o envio também depende de START_SEND_WELCOME_VIDEO=1 no Railway.
-VIDEO_APOS_START = "BAACAgEAAxkBAALf_WqpO5Vn18Wyl7IOZnxy_9eAiAw1AAIPCAACNgVIRTHi4B8fqGvhPQQ"
-
-
+VIDEO_APOS_START = ""
 # ========= PRÉVIA GRÁTIS 1X =========
 # O lead recebe NO MÁXIMO UM desses vídeos durante toda a vida.
 # Se houver vários IDs, o bot sorteia a ordem e envia somente UM.
