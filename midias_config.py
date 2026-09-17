@@ -30,7 +30,9 @@ FOTO_APOS_START = ""
 # Vídeo opcional depois do /start.
 # Para NÃO enviar vídeo: VIDEO_APOS_START = ""
 # OBS.: o envio também depende de START_SEND_WELCOME_VIDEO=1 no Railway.
-VIDEO_APOS_START = ""
+VIDEO_APOS_START = "BAACAgEAAxkBAALf_WqpO5Vn18Wyl7IOZnxy_9eAiAw1AAIPCAACNgVIRTHi4B8fqGvhPQQ"
+
+
 # ========= PRÉVIA GRÁTIS 1X =========
 # O lead recebe NO MÁXIMO UM desses vídeos durante toda a vida.
 # Se houver vários IDs, o bot sorteia a ordem e envia somente UM.
