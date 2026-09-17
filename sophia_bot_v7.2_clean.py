@@ -2973,7 +2973,6 @@ async def send_free_teaser_video(bot, chat_id, uid):
                 chat_id=chat_id,
                 video=video_id,
                 caption=(
-                    "Pronto… te mandei só um gostinho 😏\n\n"
                     "O resto eu libero no acesso completo."
                 ),
                 connect_timeout=15,
