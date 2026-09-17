@@ -2973,7 +2973,7 @@ async def send_free_teaser_video(bot, chat_id, uid):
                 chat_id=chat_id,
                 video=video_id,
                 caption=(
-                    "Pronto… te mandei só um gostinho 😏\n\n"
+                    ""
                     "O resto eu libero no acesso completo."
                 ),
                 connect_timeout=15,
@@ -3024,8 +3024,13 @@ async def send_free_teaser_video(bot, chat_id, uid):
     await send_typing_message(bot, 
         chat_id=chat_id,
         text=(
-            f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
-            "Quando aprovar, o acesso cai automático."
+            f"Pronto... te mandei só um gostinho 😌
+
+Mas agora eu quero é me exibir pra você... No meu VIP eu não guardo nada. Vou te mostrar cada centímetro da minha bocetinha bem molhadinha, vídeos eu me tocando, gemendo e abrindo tudo pra você ver como eu fico quando estou excitada... é putaria sem filtro, do jeito mais sujo que existe... 💦🔞😈
+
+E pra gente não ficar só na tela: vou te liberar meu WhatsApp privado. Quero que você me mande as suas fantasias mais proibidas e a gente combine as safadezas que vamos fazer por lá... 😏🔥
+
+Tudo isso por um valor ridículo: R$ 9,90. Faz o Pix agora e vem me ver toda aberta, que eu já tô no ponto de você me usar... 😈""
         ),
         reply_markup=keyboard
     )
