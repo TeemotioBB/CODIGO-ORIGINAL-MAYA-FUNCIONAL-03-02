@@ -3024,8 +3024,13 @@ async def send_free_teaser_video(bot, chat_id, uid):
     await send_typing_message(bot, 
         chat_id=chat_id,
         text=(
-            f"Se quiser ver completo, eu libero tudo por {PRECO_VIP}.\n"
-            "Quando aprovar, o acesso cai automático."
+            f"""Te mandei só um gostinho... mas no meu VIP eu me exibo completa! 😈
+
+            Vou te mostrar cada detalhe da minha bocetinha molhadinha, vídeos eu me tocando e gemendo... putaria sem filtro e do jeito mais sujo que existe. 💦🔞
+
+            E mais: libero meu WhatsApp privado pra gente combinar nossas safadezas. 😏🔥
+
+            Tudo isso por apenas {PRECO_VIP}. Faz o Pix agora e vem me ver toda aberta, que eu já tô no ponto! 😈"""
         ),
         reply_markup=keyboard
     )
