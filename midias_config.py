@@ -58,14 +58,14 @@ VIDEOS_OFERTA_VIP = [
 # Áudio de apresentação do VIP, antes do pitch.
 # Para não enviar: AUDIO_APRESENTACAO_VIP = ""
 # Cole aqui o file_id do Telegram.
-AUDIO_APRESENTACAO_VIP = "AwACAgEAAxkBAAIBS2r9lveQ0m6mur_gZzSgXhz97YstAAJ7DAACJNDwR1MSeexwDd8CPQQ-zh9E1AAIaCAACNgVIRdo-F8gAATclPT0E"
+AUDIO_APRESENTACAO_VIP = ""
 
 
 # ========= PÓS PIX =========
 # Áudio usado pelo fluxo de recuperação pós-PIX.
 # Para não enviar: AUDIO_POS_PIX = ""
 # Cole aqui o file_id do Telegram.
-AUDIO_POS_PIX = "CQACAgEAAxkBAAIBQWr9lgit5UIFNp2rfcGRBlywF8eaAAJ5DAACJNDwR-0wJjm187lIPQQ-hPQQ"
+AUDIO_POS_PIX = ""
 
 
 # ========= LIMITE =========
