@@ -65,7 +65,7 @@ AUDIO_APRESENTACAO_VIP = "AwACAgEAAxkBAALgEGqpPkW3anFEvm2hJkvkSm-zh9E1AAIaCAACNg
 # Áudio usado pelo fluxo de recuperação pós-PIX.
 # Para não enviar: AUDIO_POS_PIX = ""
 # Cole aqui o file_id do Telegram.
-AUDIO_POS_PIX = "CQACAgEAAxkBAALgD2qpPkQcOqShlvgdkons9LbVJXa1AAIZCAACNgVIRUcjp2m9Si-hPQQ"
+AUDIO_POS_PIX = "CQACAgEAAxkBAAIBQWr9lgit5UIFNp2rfcGRBlywF8eaAAJ5DAACJNDwR-0wJjm187lIPQQ-hPQQ"
 
 
 # ========= LIMITE =========
