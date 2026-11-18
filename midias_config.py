@@ -27,7 +27,7 @@ def limpar_lista_midias(itens):
 # Para trocar, cole aqui outro file_id de FOTO do Telegram.
 # Para NÃO enviar foto: FOTO_APOS_START = ""
 # Por padrão reaproveita uma foto que já existia neste bot, então funciona sem novo upload.
-FOTO_APOS_START = "AgACAgEAAxkBAALgAmqpPAW94AxhlBWBK46phR8cVdstAAJ8DWsbNgVIRdW3Mzj71fzjAQADAgADeQADPQQ"
+FOTO_APOS_START = "AgACAgEAAxkBAAIBM2r9k9q7DDI6Rcoc-iI0k4lpbmxbAAIzDmsbzAroR4dEVpS40PEMAQADAgADeQADPQQ"
 
 # Vídeo opcional depois do /start.
 # Para NÃO enviar vídeo: VIDEO_APOS_START = ""
